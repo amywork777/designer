@@ -1,0 +1,1869 @@
+'use client';
+
+import React, { useState, useRef, useEffect } from 'react';
+import { motion } from 'framer-motion';
+import { Sparkles, Wand, Upload, PenTool, Type, Download, Cog, Clock, ChevronRight, Edit, Loader2, History, X, FileText, Info, Package, Palette, RefreshCw } from 'lucide-react';
+import { useToast } from "@/components/ui/use-toast";
+import Image from 'next/image';
+import { useRouter } from 'next/navigation';
+import imageCompression from 'browser-image-compression';
+import { useDesignStore } from '@/lib/store/designs';
+import { ManufacturingAnalysis } from '@/components/ManufacturingAnalysis';
+import Link from 'next/link';
+import { put } from '@vercel/blob';
+import { AnalysisData } from '@/types/analysis';
+import { useSession } from "next-auth/react";
+import { signIn } from "next-auth/react";
+import { ManufacturingRecommendations } from '@/components/ManufacturingRecommendations';
+import { DesignFeeSection } from '@/components/DesignFeeSection';
+
+const PROGRESS_STEPS = [
+  {
+    id: 1,
+    name: 'Design Details',
+    description: 'Enter product specifications',
+    icon: Package
+  },
+  {
+    id: 2,
+    name: 'Manufacturing Method',
+    description: 'Choose production method',
+    icon: Cog
+  },
+  {
+    id: 3,
+    name: 'Review & Submit',
+    description: 'Confirm and place order',
+    icon: FileText
+  }
+];
+
+const scaleToLog = (value: number): number => {
+  // Convert linear 0-100 to logarithmic 1-10000
+  return Math.round(Math.exp(Math.log(10000) * (value / 100)));
+};
+
+const scaleToLinear = (value: number): number => {
+  // Convert logarithmic 1-10000 to linear 0-100
+  return Math.round((Math.log(value) / Math.log(10000)) * 100);
+};
+
+const BASE_SETTINGS = "Professional product visualization from a 3/4 isometric view (front-right, slightly elevated angle). Clean design without text or labels. White/neutral background with subtle shadows. ";
+const FALLBACK_IMAGE = '/placeholder-image.jpg'; // You'll need to add a placeholder image to your public folder
+
+type InputMethod = 'text' | 'upload';
+
+async function preprocessImage(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      // Create a regular HTML Image element
+      const img = document.createElement('img');
+      
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 256;
+        canvas.height = 256;
+        const ctx = canvas.getContext('2d');
+        
+        if (!ctx) {
+          reject(new Error('Could not get canvas context'));
+          return;
+        }
+
+        // Fill white background
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Calculate dimensions to maintain aspect ratio
+        const scale = Math.min(256 / img.width, 256 / img.height);
+        const x = (256 - img.width * scale) / 2;
+        const y = (256 - img.height * scale) / 2;
+
+        // Draw image
+        ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
+
+        resolve(canvas.toDataURL('image/png', 1.0));
+      };
+
+      img.onerror = () => reject(new Error('Failed to load image'));
+      img.src = e.target?.result as string;
+    };
+
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsDataURL(file);
+  });
+}
+
+interface Design {
+  id: string;
+  imageUrl: string;
+  date: string;
+  name: string;
+  manufacturingOption?: {
+    name: string;
+    description: string;
+    setup: string;
+    perUnit: string;
+    leadTime: string;
+  };
+}
+
+const generateDesignTitle = (prompt: string): string => {
+  // Extract key product terms from the prompt
+  const words = prompt.toLowerCase().split(' ');
+  const productWords = words.filter(word => 
+    !['a', 'the', 'and', 'or', 'in', 'on', 'at', 'to', 'for', 'with'].includes(word)
+  );
+  
+  // Capitalize first letter of each word
+  const title = productWords
+    .slice(0, 3) // Take first 3 significant words
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+    
+  return title || 'Untitled Design';
+};
+
+// Add this type for dimensions
+interface Dimensions {
+  length: number;
+  width: number;
+  height: number;
+  unit: 'mm' | 'inches';
+}
+
+// Add this interface for tracking image states
+interface ImageState {
+  loading: boolean;
+  error: boolean;
+}
+
+const MANUFACTURING_METHODS = [
+  {
+    title: "3D Printing (FDM)",
+    description: "Perfect for prototypes and small production runs",
+    volumeRange: "1-100 units",
+    materials: ["PLA", "ABS", "PETG", "Nylon"],
+    examples: "Personalized figurines, funky keychains, custom robot parts, unique phone stands, or quirky lampshades",
+    recommended: true
+  },
+  {
+    title: "CNC Machining",
+    description: "High precision for metal and plastic parts",
+    volumeRange: "1-500 units",
+    materials: ["Aluminum", "Steel", "Wood", "Plastics (Acrylic)"],
+    examples: "Precision drone parts, luxury pen holders, sleek metal wallets, or custom skateboard trucks"
+  },
+  {
+    title: "Laser Cutting",
+    description: "Fast and precise for flat materials",
+    volumeRange: "1-1,000 units",
+    materials: ["Metals (Steel, Aluminum)", "Plastics", "Wood"],
+    examples: "Fancy nameplates, intricate jewelry, artsy coasters, cool wall décor, or stylish laptop stands"
+  },
+  {
+    title: "Sheet Metal Fabrication",
+    description: "Ideal for metal products",
+    volumeRange: "10-500 units",
+    materials: ["Aluminum", "Stainless Steel", "Galvanized Steel"],
+    examples: "Sturdy bike racks, industrial lamp bases, modern planter boxes, or edgy furniture frames"
+  },
+  {
+    title: "Injection Molding",
+    description: "Best for high-volume plastic products",
+    volumeRange: "500-10,000+ units",
+    materials: ["ABS", "Polypropylene", "Nylon"],
+    examples: "Trendy sunglasses, colorful stacking toys, eco-friendly food containers, or funky plastic chairs"
+  },
+  {
+    title: "Die Casting",
+    description: "Mass production of metal parts",
+    volumeRange: "1,000-10,000+ units",
+    materials: ["Aluminum", "Zinc", "Magnesium"],
+    examples: "Shiny car door handles, sturdy bottle openers, heat-dissipating laptop coolers, or fancy chess pieces"
+  }
+];
+
+const getRecommendedMethod = (quantity: number, productType: string = ''): string => {
+  const type = productType.toLowerCase();
+  
+  // For very low quantities (1-10)
+  if (quantity <= 10) {
+    // Always recommend 3D printing for prototypes and small runs
+    return "3D Printing (FDM)";
+  }
+  
+  // For medium quantities (11-100)
+  if (quantity <= 100) {
+    if (type.includes('metal') || type.includes('precision')) {
+      return "CNC Machining";
+    }
+    if (type.includes('flat') || type.includes('sheet') || type.includes('panel')) {
+      return "Laser Cutting";
+    }
+    if (type.includes('bracket') || type.includes('mount') || type.includes('frame')) {
+      return "Sheet Metal Fabrication";
+    }
+    // Default to 3D printing for medium runs if no specific requirements
+    return "3D Printing (FDM)";
+  }
+  
+  // For large quantities (101-1000)
+  if (quantity <= 1000) {
+    if (type.includes('metal')) {
+      return "Sheet Metal Fabrication";
+    }
+    // For most plastic parts in higher quantities
+    return "Injection Molding";
+  }
+  
+  // For very large quantities (1000+)
+  if (type.includes('metal')) {
+    return "Die Casting";
+  }
+  return "Injection Molding";
+};
+
+// Add this helper function to get recommended materials
+const getRecommendedMaterials = (quantity: number, productType: string = ''): string[] => {
+  const type = productType.toLowerCase();
+  
+  // For prototypes and small runs (1-10)
+  if (quantity <= 10) {
+    if (type.includes('metal')) {
+      return ["Aluminum"]; // Easy to machine metal for prototypes
+    }
+    return ["PLA", "PETG"]; // Common 3D printing materials
+  }
+  
+  // For medium quantities (11-100)
+  if (quantity <= 100) {
+    if (type.includes('metal')) {
+      return ["Aluminum", "Steel"];
+    }
+    if (type.includes('flat') || type.includes('sheet')) {
+      return ["Acrylic", "Aluminum Sheet"];
+    }
+    return ["ABS", "Nylon"]; // Durable plastics
+  }
+  
+  // For large quantities (101-1000+)
+  if (type.includes('metal')) {
+    return ["Aluminum", "Zinc", "Steel"];
+  }
+  return ["ABS", "Polypropylene", "Nylon"]; // Common injection molding materials
+};
+
+// Add this helper function to convert blob URL to base64
+const blobUrlToBase64 = async (blobUrl: string): Promise<string> => {
+  const response = await fetch(blobUrl);
+  const blob = await response.blob();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+      } else {
+        reject(new Error('Failed to convert blob to base64'));
+      }
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+};
+
+export default function LandingPage() {
+  const { toast } = useToast();
+  const router = useRouter();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  const [inputMethod, setInputMethod] = useState<InputMethod>('text');
+  const [textPrompt, setTextPrompt] = useState('');
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const { designs, addDesign, clearDesigns, updateDesign, getUserDesigns } = useDesignStore();
+  const [selectedDesign, setSelectedDesign] = useState<string | null>(null);
+  const [showAnalysis, setShowAnalysis] = useState(false);
+  const [selectedMethod, setSelectedMethod] = useState<string | null>(null);
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [editPrompt, setEditPrompt] = useState('');
+  const [isEditing, setIsEditing] = useState(false);
+  const [showVersionHistory, setShowVersionHistory] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [generatedImages, setGeneratedImages] = useState<string[]>([]);
+  const { data: session, status } = useSession();
+  const userDesigns = session?.user?.id 
+    ? getUserDesigns(session.user.id) 
+    : getUserDesigns('anonymous'); // Get anonymous designs if not logged in
+  const [imageStates, setImageStates] = useState<Record<string, ImageState>>({});
+  const [hasUsedFreeDesign, setHasUsedFreeDesign] = useState(false);
+  const [dimensions, setDimensions] = useState<Dimensions>({
+    length: 0,
+    width: 0,
+    height: 0,
+    unit: 'mm'
+  });
+  const [dimensionsError, setDimensionsError] = useState<string | null>(null);
+  const [showDesignFee, setShowDesignFee] = useState(false);
+  const [selectedMaterials, setSelectedMaterials] = useState<Record<string, string>>({});
+  const [isEditingDimensions, setIsEditingDimensions] = useState(false);
+  const [isUpdatingPlan, setIsUpdatingPlan] = useState(false);
+  const [quantity, setQuantity] = useState(100);
+  const [currentStep, setCurrentStep] = useState(1);
+  const [designComments, setDesignComments] = useState('');
+
+  const handleImageError = (imageUrl: string) => (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
+    const img = e.target as HTMLImageElement;
+    setImageStates(prev => ({
+      ...prev,
+      [imageUrl]: { loading: false, error: true }
+    }));
+    img.src = '';
+  };
+
+  const handleImageLoad = (imageUrl: string) => () => {
+    setImageStates(prev => ({
+      ...prev,
+      [imageUrl]: { loading: false, error: false }
+    }));
+  };
+
+  const validateDimensions = () => {
+    if (dimensions.length <= 0 || dimensions.width <= 0 || dimensions.height <= 0) {
+      setDimensionsError('Please enter valid dimensions');
+      return false;
+    }
+    
+    const maxSize = dimensions.unit === 'mm' ? 300 : 12; // 300mm or 12 inches
+    if (dimensions.length > maxSize || dimensions.width > maxSize || dimensions.height > maxSize) {
+      setDimensionsError(`Dimensions must not exceed ${maxSize}${dimensions.unit}`);
+      return false;
+    }
+
+    setDimensionsError(null);
+    return true;
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      try {
+        // Process the image first
+        const processedDataUrl = await preprocessImage(file);
+        
+        // Set the preview and selected design
+        setImagePreview(processedDataUrl);
+        setSelectedDesign(processedDataUrl);
+        
+        // Add the design to the store
+        const newDesign = {
+          id: Date.now().toString(),
+          title: file.name,
+          images: [processedDataUrl],
+          createdAt: new Date().toISOString()
+        };
+        addDesign(newDesign);
+        
+        toast({
+          title: "Success",
+          description: "Design uploaded successfully! Scroll down to see manufacturing options."
+        });
+      } catch (error) {
+        console.error('Error processing image:', error);
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "Failed to process image. Please try again."
+        });
+      }
+    }
+  };
+
+  const handleGenerateWithImage = async (file: File) => {
+    try {
+      const processedDataUrl = await preprocessImage(file);
+      setImagePreview(processedDataUrl);
+      
+      // This will be used as reference for AI generation
+      const response = await fetch('/api/generateImage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          prompt: textPrompt,
+          referenceImage: processedDataUrl
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+
+      // Set the generated image as selected design
+      setSelectedDesign(data.images[0]);
+      
+      // Add to design store
+      const newDesign = {
+        id: Date.now().toString(),
+        title: generateDesignTitle(textPrompt),
+        images: data.images,
+        createdAt: new Date().toISOString()
+      };
+      addDesign(newDesign);
+
+      toast({
+        title: "Success",
+        description: "New design generated! Scroll down to see manufacturing options."
+      });
+    } catch (error) {
+      console.error('Error generating design:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to generate design. Please try again."
+      });
+    }
+  };
+
+  const getPromptForMethod = async () => {
+    if (inputMethod === 'text') {
+      return { prompt: BASE_SETTINGS + textPrompt };
+    }
+
+    if (!uploadedFile || !imagePreview) {
+      throw new Error('Please upload an image first');
+    }
+
+    try {
+      // First analyze the uploaded image
+      const visionResponse = await fetch('/api/analyze-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          imageUrl: imagePreview,
+          additionalDetails: textPrompt 
+        }),
+      });
+
+      const visionData = await visionResponse.json();
+
+      if (!visionResponse.ok || !visionData.success) {
+        throw new Error(visionData.error || 'Failed to analyze image');
+      }
+
+      // Save the reference image
+      referenceImage = imagePreview;
+      
+      // Create prompt combining vision analysis and user modifications
+      basePrompt = `${BASE_SETTINGS} Based on this reference image showing ${visionData.description}. ${
+        textPrompt ? `Modify it by: ${textPrompt}` : 'Enhance the design while maintaining its core features.'
+      }`;
+
+    } catch (error) {
+      console.error('Image analysis failed:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to analyze image. Please try again."
+      });
+      setGenerating(false);
+      return;
+    }
+  };
+
+  const saveImages = async (images: string[]) => {
+    if (process.env.NODE_ENV === 'development') {
+      // For development, just return the base64 images
+      console.warn('Running in development mode - skipping Blob storage');
+      return images;
+    }
+
+    // Production code
+    try {
+      if (!process.env.BLOB_READ_WRITE_TOKEN) {
+        throw new Error('BLOB_READ_WRITE_TOKEN is not configured');
+      }
+
+      const uploadPromises = images.map(async (imageData) => {
+        const blob = await put(`generated-${Date.now()}.png`, imageData, {
+          access: 'public',
+          token: process.env.BLOB_READ_WRITE_TOKEN
+        });
+        return blob.url;
+      });
+
+      return await Promise.all(uploadPromises);
+    } catch (error) {
+      console.error('Error saving images:', error);
+      throw new Error('Failed to save images. Please check your storage configuration.');
+    }
+  };
+
+  const handleGenerateDesign = async () => {
+    if (hasUsedFreeDesign && !session?.user?.id) {
+      const result = await signIn("google", { 
+        redirect: false,
+        callbackUrl: window.location.href 
+      });
+      return;
+    }
+
+    setGenerating(true);
+    setError(null);
+
+    try {
+      let basePrompt;
+      let imageData = null;
+      
+      if (inputMethod === 'upload' && imagePreview) {
+        try {
+          // Convert blob URL to base64 if needed
+          imageData = imagePreview.startsWith('blob:') 
+            ? await blobUrlToBase64(imagePreview)
+            : imagePreview;
+
+          // First analyze the uploaded image
+          const visionResponse = await fetch('/api/analyze-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              imageUrl: imageData,
+              additionalDetails: textPrompt,
+              model: 'gpt-4o',
+              prompt: "Analyze this product design in one sentence:\n" +
+                      "What is this product and what is it made of (metal, plastic, etc)?"
+            }),
+          });
+
+          const visionData = await visionResponse.json();
+
+          if (!visionResponse.ok || !visionData.success) {
+            throw new Error(visionData.error || 'Failed to analyze image');
+          }
+          
+          // Create prompt combining vision analysis and user modifications
+          basePrompt = `${BASE_SETTINGS} Based on this reference image showing ${visionData.description}. ${
+            textPrompt ? `Modify it by: ${textPrompt}` : 'Enhance the design while maintaining its core features.'
+          }`;
+
+        } catch (error) {
+          console.error('Image analysis failed:', error);
+          toast({
+            variant: "destructive",
+            title: "Error",
+            description: error instanceof Error ? error.message : "Failed to analyze image. Please try again."
+          });
+          setGenerating(false);
+          return;
+        }
+      } else {
+        basePrompt = BASE_SETTINGS + textPrompt;
+      }
+
+      // Generate the image
+      const response = await fetch('/api/generateImage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          prompt: basePrompt,
+          referenceImage: imageData // Pass the converted image data
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to generate image');
+      }
+
+      // Handle the generated images
+      const imageUrls = data.images;
+      setGeneratedImages(imageUrls);
+      
+      // Add to design history
+      addDesign({
+        images: imageUrls,
+        prompt: textPrompt,
+        title: generateDesignTitle(textPrompt),
+        variations: [],
+        createdAt: new Date().toISOString(),
+        userId: session?.user?.id || 'anonymous',
+        id: Date.now().toString(),
+      }, session?.user?.id || 'anonymous');
+
+      setSelectedDesign(imageUrls[0]);
+      
+      if (!session?.user?.id) {
+        setHasUsedFreeDesign(true);
+      }
+
+      toast({
+        title: "Success",
+        description: "Design generated successfully!",
+      });
+
+      if (!validateDimensions()) {
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "Please enter valid dimensions before proceeding"
+        });
+        return;
+      }
+
+      {selectedDesign && (
+        <>
+          <ManufacturingRecommendations
+            productDimensions={dimensions}
+            onMethodSelect={(method) => {
+              setSelectedMethod(method);
+              // Show the design fee section after method selection
+              setShowDesignFee(true);
+            }}
+            productDescription={designs.find(d => 
+              d.images.includes(selectedDesign)
+            )?.analysis?.description}
+          />
+
+          {showDesignFee && (
+            <DesignFeeSection
+              onProceed={handleProceed}
+              designData={{
+                analysis: designs.find(d => d.images.includes(selectedDesign))?.analysis,
+                quantity,
+                dimensions,
+                designComments,
+                imageUrl: selectedDesign
+              }}
+              userEmail={session?.user?.email || ''}
+              userId={session?.user?.id || ''}
+              designId={designs.find(d => d.images.includes(selectedDesign))?.id || Date.now().toString()}
+            />
+          )}
+        </>
+      )}
+    } catch (error) {
+      console.error('Error:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error instanceof Error ? error.message : 'Failed to generate design'
+      });
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleDownload = async (imageUrl: string) => {
+    try {
+      const response = await fetch('/api/download-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageUrl })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to download image');
+      }
+
+      // Get the blob from the response
+      const blob = await response.blob();
+      
+      // Create a download link
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'generated-design.png';
+      document.body.appendChild(a);
+      a.click();
+      
+      // Cleanup
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+    } catch (error) {
+      console.error('Error downloading image:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to download image"
+      });
+    }
+  };
+
+  const handleAnalysisComplete = (designId: string, analysis: AnalysisData) => {
+    setRecentDesigns(prev => prev.map(design => {
+      if (design.id === designId) {
+        return {
+          ...design,
+          manufacturingOption: analysis.selectedOption ? {
+            name: analysis.selectedOption.name,
+            description: analysis.selectedOption.description,
+            setup: analysis.selectedOption.costs.setup,
+            perUnit: analysis.selectedOption.costs.perUnit,
+            leadTime: analysis.selectedOption.leadTime
+          } : undefined
+        };
+      }
+      return design;
+    }));
+  };
+
+  const handleEditDesign = async () => {
+    if (!selectedDesign || !editPrompt) return;
+
+    try {
+      setIsEditing(true);
+      console.log('Starting edit with prompt:', editPrompt);
+
+      const response = await fetch('/api/generateImage', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          prompt: editPrompt,
+          currentImage: selectedDesign
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to generate new design');
+      }
+
+      const data = await response.json();
+      console.log('Generation response:', data);
+
+      if (!data.success || !data.imageUrl) {
+        throw new Error('No image URL in response');
+      }
+
+      // Add the new design to the existing design's history
+      const currentDesign = designs.find(d => d.images.includes(selectedDesign));
+      if (currentDesign) {
+        updateDesign(currentDesign.id, {
+          images: [...currentDesign.images, data.imageUrl]
+        });
+        setSelectedDesign(data.imageUrl);
+
+        toast({
+          title: "Success",
+          description: "Design updated successfully"
+        });
+      } else {
+        throw new Error('Current design not found');
+      }
+
+      setShowEditDialog(false);
+      setEditPrompt('');
+
+    } catch (error) {
+      console.error('Edit failed:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to update design"
+      });
+    } finally {
+      setIsEditing(false);
+    }
+  };
+
+  const handleManufacturingCheckout = (designId: string) => {
+    const design = designs.find(d => d.id === designId);
+    if (design?.analysis) {
+      updateDesign(designId, {
+        analysis: {
+          ...design.analysis,
+          status: 'checkout'
+        }
+      });
+      
+      // Navigate to checkout or show checkout modal
+      // ... implement checkout flow
+    }
+  };
+
+  const handleRevertToVersion = (originalImage: string, versionUrl: string) => {
+    const designToUpdate = designs.find(d => 
+      d.images.includes(originalImage)
+    );
+
+    if (designToUpdate) {
+      // Keep the existing analysis when switching versions
+      const currentAnalysis = designToUpdate.analysis || {
+        description: '',
+        recommendedMethod: '',
+        recommendedMaterials: []
+      };
+
+      // Update versions
+      const updatedVersions = {
+        ...designToUpdate.imageVersions,
+        [originalImage]: {
+          history: [...(designToUpdate.imageVersions?.[originalImage]?.history || []), originalImage].filter(v => v !== versionUrl),
+          current: versionUrl
+        }
+      };
+
+      // Create a new design object with the updated version and preserved analysis
+      const updatedDesign = {
+        ...designToUpdate,
+        images: [versionUrl, ...designToUpdate.images.filter(img => img !== originalImage)],
+        imageVersions: updatedVersions,
+        analysis: currentAnalysis // Preserve the existing analysis
+      };
+
+      // Update the design in the store
+      updateDesign(designToUpdate.id, updatedDesign);
+
+      // Update UI state
+      setSelectedDesign(versionUrl);
+      setShowVersionHistory(false);
+      
+      // Update manufacturing recommendations based on the preserved analysis
+      if (currentAnalysis) {
+        const recommendedMethod = getRecommendedMethod(quantity, currentAnalysis.description);
+        setSelectedMethod(recommendedMethod);
+        
+        const recommendedMaterials = getRecommendedMaterials(quantity, currentAnalysis.description);
+        if (recommendedMaterials.length > 0) {
+          setSelectedMaterials(prev => ({
+            ...prev,
+            [recommendedMethod]: recommendedMaterials[0]
+          }));
+        }
+      }
+
+      toast({
+        title: "Success",
+        description: "Reverted to previous version while maintaining analysis"
+      });
+    }
+  };
+
+  const determineRecommendedMethod = (analysis: any, volume: number) => {
+    if (!analysis) return '3D Printing (FDM)';
+    
+    const { complexity = '', features = [], dimensions = {}, category = '' } = analysis;
+    
+    // High volume always prefers injection molding or die casting for suitable materials
+    if (volume > 1000) {
+      if (category === 'mechanical' || features.includes('metal')) {
+        return 'Die Casting';
+      }
+      return 'Injection Molding';
+    }
+    
+    // Check for flat objects
+    if (features.includes('flat') || dimensions.height < 5) {
+      return 'Laser Cutting';
+    }
+    
+    // Low volume + complex geometry = 3D printing
+    if (volume <= 100 && (complexity === 'high' || features.includes('organic'))) {
+      return '3D Printing (FDM)';
+    }
+    
+    // Check for precision requirements
+    if (category === 'mechanical' || features.includes('precision')) {
+      return 'CNC Machining';
+    }
+    
+    // Default to 3D printing for prototypes and small runs
+    return '3D Printing (FDM)';
+  };
+
+  const handleMaterialSelect = (method: string, material: string) => {
+    setSelectedMaterials(prev => ({
+      ...prev,
+      [method]: material
+    }));
+  };
+
+  const handleProceed = async () => {
+    if (!selectedMethod || !selectedMaterials[selectedMethod]) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Please select a material before proceeding"
+      });
+      return;
+    }
+
+    try {
+      // Create order with selected method and material
+      const order = {
+        designId: selectedDesign,
+        manufacturingMethod: selectedMethod,
+        material: selectedMaterials[selectedMethod],
+        dimensions,
+      };
+      
+      // Implement payment logic here
+      
+      toast({
+        title: "Success",
+        description: "Payment processed successfully. Our team will contact you shortly."
+      });
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Payment failed. Please try again."
+      });
+    }
+  };
+
+  const handleDimensionsDetected = (detectedDimensions: Dimensions | undefined) => {
+    if (detectedDimensions) {
+      setDimensions(prev => ({
+        ...prev,
+        length: detectedDimensions.length || prev.length,
+        width: detectedDimensions.width || prev.width,
+        height: detectedDimensions.height || prev.height,
+        // Keep existing unit if dimensions are detected
+        unit: prev.unit
+      }));
+    }
+  };
+
+  const analyzeImage = async () => {
+    if (!selectedDesign) return;
+    
+    setIsUpdatingPlan(true);
+    try {
+      // Make sure we have base64 data
+      const imageData = selectedDesign.startsWith('blob:') 
+        ? await blobUrlToBase64(selectedDesign)
+        : selectedDesign;
+
+      const response = await fetch('/api/analyze-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          imageUrl: imageData,
+          prompt: "Analyze this product design in one sentence:\n" +
+                  "What is this product and what is it made of (metal, plastic, etc)?",
+          model: 'gpt-4o'
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Analysis failed');
+
+      // Structure the analysis data
+      const analysisData = {
+        description: data.description || "Simple product design",
+        recommendedMethod: getRecommendedMethod(quantity, data.description),
+        recommendedMaterials: getRecommendedMaterials(quantity, data.description)
+      };
+
+      // Update the design store with analysis
+      const design = designs.find(d => d.images.includes(selectedDesign));
+      if (design) {
+        updateDesign(design.id, {
+          analysis: analysisData
+        });
+
+        // Set recommended manufacturing method
+        setSelectedMethod(analysisData.recommendedMethod);
+      }
+
+      return analysisData;
+    } catch (error) {
+      throw error;
+    } finally {
+      setIsUpdatingPlan(false);
+    }
+  };
+
+  const handleUpdatePlan = async () => {
+    if (!selectedDesign) return;
+    
+    setIsUpdatingPlan(true);
+    try {
+      // Debug log
+      console.log('Selected design:', selectedDesign);
+
+      // Make sure we have base64 data
+      let imageData;
+      try {
+        imageData = selectedDesign.startsWith('blob:') 
+          ? await blobUrlToBase64(selectedDesign)
+          : selectedDesign;
+        
+        // Debug log
+        console.log('Image data type:', typeof imageData);
+        console.log('Image data starts with:', imageData.substring(0, 50));
+      } catch (error) {
+        console.error('Error converting image:', error);
+        throw new Error('Failed to process image data');
+      }
+
+      const response = await fetch('/api/analyze-image', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          // Add cache control
+          'Cache-Control': 'no-cache'
+        },
+        body: JSON.stringify({ 
+          imageUrl: imageData,
+          prompt: "Analyze this product design in one sentence:\n" +
+                  "What is this product and what is it made of (metal, plastic, etc)?",
+          model: 'gpt-4o'
+        }),
+      });
+
+      // Debug log
+      console.log('Response status:', response.status);
+      
+      // Get the raw text first to debug
+      const rawText = await response.text();
+      console.log('Raw response:', rawText);
+
+      // Try to parse as JSON
+      let data;
+      try {
+        data = JSON.parse(rawText);
+      } catch (error) {
+        console.error('Failed to parse response as JSON:', error);
+        throw new Error('Invalid response from server');
+      }
+
+      if (!response.ok) throw new Error(data.error || 'Analysis failed');
+
+      // Get recommendations based on quantity and product description
+      const recommendedMethod = getRecommendedMethod(quantity, data.description);
+      const recommendedMaterials = getRecommendedMaterials(quantity, data.description);
+
+      // Update the design with analysis results
+      const design = designs.find(d => d.images.includes(selectedDesign));
+      if (design) {
+        updateDesign(design.id, {
+          analysis: {
+            description: data.description || "Simple product design",
+            recommendedMethod: recommendedMethod,
+            recommendedMaterials: recommendedMaterials
+          }
+        });
+      }
+
+      // Update the UI
+      setSelectedMethod(recommendedMethod);
+      
+      // Find and update the recommended method in MANUFACTURING_METHODS
+      const methodDetails = MANUFACTURING_METHODS.find(m => m.title === recommendedMethod);
+      if (methodDetails) {
+        methodDetails.recommended = true;
+        // Auto-select the first recommended material if available
+        if (recommendedMaterials.length > 0) {
+          setSelectedMaterials({
+            ...selectedMaterials,
+            [recommendedMethod]: recommendedMaterials[0]
+          });
+        }
+        // Reset other methods' recommended status
+        MANUFACTURING_METHODS.forEach(m => {
+          if (m.title !== recommendedMethod) {
+            m.recommended = false;
+          }
+        });
+      }
+
+      toast({
+        title: "Success",
+        description: "Manufacturing analysis complete"
+      });
+    } catch (error) {
+      console.error('Analysis failed:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to analyze design. Please try again."
+      });
+    } finally {
+      setIsUpdatingPlan(false);
+    }
+  };
+
+  // Update the useEffect to handle material recommendations too
+  useEffect(() => {
+    if (selectedDesign && designs.find(d => d.images.includes(selectedDesign))?.analysis) {
+      const design = designs.find(d => d.images.includes(selectedDesign));
+      const newRecommendedMethod = getRecommendedMethod(quantity, design?.analysis?.description);
+      const newRecommendedMaterials = getRecommendedMaterials(quantity, design?.analysis?.description);
+      
+      setSelectedMethod(newRecommendedMethod);
+      
+      // Auto-select the first recommended material
+      if (newRecommendedMaterials.length > 0) {
+        setSelectedMaterials(prev => ({
+          ...prev,
+          [newRecommendedMethod]: newRecommendedMaterials[0]
+        }));
+      }
+      
+      // Update the UI for manufacturing methods
+      MANUFACTURING_METHODS.forEach(m => {
+        m.recommended = m.title === newRecommendedMethod;
+      });
+    }
+  }, [quantity, selectedDesign]);
+
+  if (status === "loading") {
+    return <div>Loading...</div>;
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-100 via-purple-100 to-blue-50">
+      <div className="container mx-auto px-4 py-12">
+        <div className="mb-12">
+          <div className="flex items-center justify-between">
+            <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+              3D Product AI
+            </h1>
+            
+            {/* Add auth button */}
+            {session ? (
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  {session.user?.image && (
+                    <Image
+                      src={session.user.image}
+                      alt="Profile"
+                      width={32}
+                      height={32}
+                      className="rounded-full"
+                    />
+                  )}
+                  <span className="text-black">{session.user?.name}</span>
+                </div>
+                <button
+                  onClick={() => signIn("google")}
+                  className="px-4 py-2 text-black hover:text-gray-900"
+                >
+                  Sign Out
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => signIn("google")}
+                className="flex items-center gap-2 px-4 py-2 bg-white rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors"
+              >
+                <Image
+                  src="/google.svg"
+                  alt="Google"
+                  width={20}
+                  height={20}
+                />
+                <span className="text-black">Sign in with Google</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="mb-8">
+          <div className="bg-white/80 backdrop-blur-sm rounded-xl p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <Info className="w-5 h-5 text-blue-600" />
+              <h2 className="text-lg font-semibold text-black">
+                How It Works
+              </h2>
+            </div>
+
+            {/* Progress Timeline */}
+            <div className="flex items-center justify-between">
+              {PROGRESS_STEPS.map((step, index) => (
+                <div key={step.id} className="flex-1 relative">
+                  <div className="flex flex-col items-center">
+                    {/* Step Circle - now all blue */}
+                    <div className="w-12 h-12 rounded-full border-2 flex items-center justify-center
+                      border-blue-500 bg-blue-50">
+                      <step.icon className="w-6 h-6 text-blue-500" />
+                    </div>
+                    
+                    {/* Step Text - now all blue */}
+                    <div className="text-center mt-2">
+                      <div className="text-sm font-medium text-blue-500">
+                        {step.name}
+                      </div>
+                      <div className="text-xs text-gray-400">
+                        {step.description}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Connector Line - now blue */}
+                  {index < PROGRESS_STEPS.length - 1 && (
+                    <div className="absolute top-6 left-1/2 w-full h-0.5 bg-blue-200" />
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="mb-8">
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-6 mb-8">
+            <div className="flex items-center gap-3 mb-4">
+              <FileText className="w-5 h-5 text-blue-600" />
+              <h2 className="text-lg font-semibold text-black">
+                Already have a design?
+              </h2>
+            </div>
+            
+            <div 
+              onClick={() => fileInputRef.current?.click()}
+              className="border-2 border-dashed border-blue-200 rounded-lg p-8 cursor-pointer 
+                hover:border-blue-400 transition-colors bg-white/50 text-center"
+            >
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileUpload}
+                accept="image/png,image/jpeg,image/svg+xml"
+                className="hidden"
+              />
+              <div className="space-y-2">
+                <p className="text-black">
+                  Upload your existing design to analyze its manufacturability
+                </p>
+                <p className="text-sm text-black">
+                  Sketches, reference images, or inspiration photos
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {/* Left Column: Generation Form */}
+          <div>
+            <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-lg p-6 mb-8">
+              <div className="flex gap-2 mb-6 justify-center">
+                <button
+                  onClick={() => setInputMethod('text')}
+                  className={`px-4 py-2 rounded-lg flex items-center gap-2 ${
+                    inputMethod === 'text' 
+                      ? 'bg-blue-500 text-white' 
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  <Type className="w-4 h-4" />
+                  Text
+                </button>
+                <button
+                  onClick={() => setInputMethod('upload')}
+                  className={`px-4 py-2 rounded-lg flex items-center gap-2 ${
+                    inputMethod === 'upload' 
+                      ? 'bg-blue-500 text-white' 
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  <Upload className="w-4 h-4" />
+                  Upload Image
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                {inputMethod === 'upload' && (
+                  <div 
+                    onClick={() => fileInputRef.current?.click()}
+                    className="border-2 border-dashed border-gray-300 rounded-lg p-8 cursor-pointer hover:border-blue-500 hover:bg-blue-50/50 transition-all group"
+                  >
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      onChange={handleFileUpload}
+                      accept="image/png,image/jpeg,image/svg+xml"
+                      className="hidden"
+                    />
+                    {imagePreview ? (
+                      <div className="space-y-4">
+                        <div className="relative aspect-square">
+                          <div className="relative">
+                            {!imageStates[imagePreview]?.error ? (
+                              <img
+                                src={imagePreview}
+                                alt="Preview"
+                                className={`w-full h-full object-cover rounded-lg ${
+                                  imageStates[imagePreview]?.loading ? 'opacity-50' : 'opacity-100'
+                                }`}
+                                onError={handleImageError(imagePreview)}
+                                onLoad={handleImageLoad(imagePreview)}
+                              />
+                            ) : (
+                              <div className="absolute inset-0 flex items-center justify-center bg-gray-100 rounded-lg">
+                                <div className="text-gray-500 text-sm flex items-center gap-2">
+                                  <Info className="w-4 h-4" />
+                                  Failed to load image
+                                </div>
+                              </div>
+                            )}
+                            {imageStates[imagePreview]?.loading && (
+                              <div className="absolute inset-0 flex items-center justify-center bg-gray-100/50">
+                                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+                              </div>
+                            )}
+                          </div>
+                          {uploadedFile && !imageStates[imagePreview]?.error && (
+                            <div className="text-sm text-black">
+                              {uploadedFile.name}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-center space-y-4">
+                        <div className="w-16 h-16 mx-auto bg-blue-100 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+                          <Upload className="w-8 h-8 text-blue-500" />
+                        </div>
+                        <div>
+                          <p className="text-lg font-medium text-gray-700">
+                            Click to upload an image
+                          </p>
+                          <p className="text-sm text-gray-500 mt-1">
+                            Drop your image here or click to browse
+                          </p>
+                          <p className="text-xs text-gray-400 mt-2">
+                            Supports PNG, JPG, SVG
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <input
+                  type="text"
+                  value={textPrompt}
+                  onChange={(e) => setTextPrompt(e.target.value)}
+                  placeholder={
+                    inputMethod === 'text' 
+                      ? "Describe the product you want to create..."
+                      : "Add details about your image or desired modifications..."
+                  }
+                  className="w-full px-4 py-3 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-black placeholder-gray-800"
+                />
+
+                <button
+                  onClick={handleGenerateDesign}
+                  disabled={generating || (inputMethod === 'upload' && !imagePreview)}
+                  className="w-full px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {generating ? (
+                    <>
+                      <motion.div
+                        animate={{ rotate: 360 }}
+                        transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                      >
+                        <Sparkles className="w-5 h-5" />
+                      </motion.div>
+                      Generating...
+                    </>
+                  ) : hasUsedFreeDesign && !session ? (
+                    <>
+                      <Wand className="w-5 h-5" />
+                      Sign in to Generate More Designs
+                    </>
+                  ) : (
+                    <>
+                      <Wand className="w-5 h-5" />
+                      Generate Design
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Design History */}
+            <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-lg p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-semibold text-black">Recent Designs</h2>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      if (window.confirm('Are you sure you want to clear all design history?')) {
+                        clearDesigns();
+                      }
+                    }}
+                    className="px-3 py-1 text-sm text-red-600 hover:text-red-700"
+                  >
+                    Clear History
+                  </button>
+                  <Link
+                    href="/design-history"
+                    className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700"
+                  >
+                    View All <ChevronRight className="w-4 h-4" />
+                  </Link>
+                </div>
+              </div>
+
+              <div className="space-y-6">
+                {userDesigns.length > 0 ? (
+                  userDesigns.slice(0, 2).map((design) => (
+                    <div 
+                      key={design.id} 
+                      className="bg-white rounded-lg shadow-sm p-4"
+                    >
+                      {/* Design Grid */}
+                      <div className="grid grid-cols-2 gap-4">
+                        {/* Images Grid */}
+                        <div className="grid grid-cols-2 gap-2">
+                          {design.images.slice(0, 4).map((imageUrl, index) => (
+                            <div
+                              key={`${design.id}-${index}`}
+                              className={`aspect-square rounded-lg overflow-hidden cursor-pointer relative group 
+                                ${selectedDesign === imageUrl ? 'ring-2 ring-blue-500' : ''}`}
+                              onClick={() => {
+                                setSelectedDesign(imageUrl);
+                                if (design.analysis) {
+                                  setShowAnalysis(true);
+                                }
+                              }}
+                            >
+                              <div className="relative">
+                                {!imageStates[imageUrl]?.error ? (
+                                  <img
+                                    src={imageUrl}
+                                    alt={`Design ${index + 1}`}
+                                    className={`w-full h-full object-cover ${
+                                      imageStates[imageUrl]?.loading ? 'opacity-50' : 'opacity-100'
+                                    }`}
+                                    onError={handleImageError(imageUrl)}
+                                    onLoad={handleImageLoad(imageUrl)}
+                                  />
+                                ) : (
+                                  <div className="absolute inset-0 flex items-center justify-center bg-gray-100 rounded-lg">
+                                    <div className="text-gray-500 text-sm flex items-center gap-2">
+                                      <Info className="w-4 h-4" />
+                                      Failed to load image
+                                    </div>
+                                  </div>
+                                )}
+                                {imageStates[imageUrl]?.loading && (
+                                  <div className="absolute inset-0 flex items-center justify-center bg-gray-100/50">
+                                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+                                  </div>
+                                )}
+                              </div>
+                              <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDownload(imageUrl);
+                                  }}
+                                  className="p-2 bg-white rounded-full hover:bg-gray-100"
+                                >
+                                  <Download className="w-5 h-5" />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Design Info */}
+                        <div className="space-y-4">
+                          <div className="flex items-center justify-between text-sm">
+                            <div className="flex items-center gap-2 text-black">
+                              <Clock className="w-4 h-4 text-black" />
+                              {new Date(design.createdAt).toLocaleDateString()}
+                            </div>
+                            <div className="truncate max-w-[60%] text-black font-medium">
+                              {design.title || 'Untitled Design'}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-center py-8 text-black">
+                    No designs generated yet. Start by creating your first design above!
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Size Limits & Guidelines Card */}
+            <div className="bg-white rounded-lg shadow-sm p-6 mt-8">
+              <h3 className="text-xl font-bold text-gray-700 mb-6 flex items-center gap-2">
+                <Info className="w-5 h-5 text-blue-500" />
+                Size Limits & Guidelines
+              </h3>
+
+              <div className="space-y-8">
+                {/* Maximum Dimensions Section */}
+                <div>
+                  <h4 className="text-lg font-semibold text-gray-700 mb-3">
+                    Maximum Dimensions
+                  </h4>
+                  <div className="bg-blue-50 rounded-lg p-4">
+                    <p className="text-gray-600 mb-2">
+                      We can create designs that fit within the following size limits:
+                    </p>
+                    <p className="text-lg font-medium text-gray-700">
+                      12 x 12 x 12 inches
+                    </p>
+                    <p className="text-gray-500">
+                      (30 x 30 x 30 cm)
+                    </p>
+                  </div>
+                  <p className="text-gray-600 mt-3">
+                    This is ideal for small to medium-sized items such as everyday products, prototypes, and decorative objects.
+                  </p>
+                </div>
+
+                {/* What You Can Make Section */}
+                <div>
+                  <h4 className="text-lg font-semibold text-gray-700 mb-3">
+                    What You Can Make
+                  </h4>
+                  <p className="text-gray-600">
+                    Our platform specializes in consumer goods and practical, everyday items.
+                  </p>
+                </div>
+
+                {/* Disclaimer Section */}
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <h4 className="text-lg font-semibold text-gray-700 mb-3">
+                    Disclaimer
+                  </h4>
+                  <p className="text-gray-600">
+                    All designs are subject to review by our team. If your design exceeds our capabilities 
+                    or doesn't align with our guidelines, we'll contact you to discuss alternatives. 
+                  </p>
+                  <p className="text-gray-600 mt-2">
+                    If you're unsure about your design, feel free to reach out to us before submitting.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Right Column: Manufacturing Analysis */}
+          <div className="lg:sticky lg:top-6 self-start">
+            <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-lg p-6">
+              <h2 className="text-2xl font-bold text-gray-500 mb-4">Bring Your Idea to Life</h2>
+
+              {/* Show this when no design is selected */}
+              {!selectedDesign && (
+                <div className="flex flex-col items-center justify-center py-12 text-center">
+                  <Package className="w-12 h-12 text-gray-400 mb-4" />
+                  <p className="text-gray-600 text-lg">
+                    Upload a design or generate one to get started
+                  </p>
+                  <p className="text-gray-400 text-sm mt-2">
+                    Your manufacturing options will appear here
+                  </p>
+                </div>
+              )}
+
+              {/* Selected Design Preview */}
+              {selectedDesign && (
+                <div className="mb-8">
+                  <div className="aspect-square rounded-lg overflow-hidden relative group">
+                    <div className="relative">
+                      {!imageStates[selectedDesign]?.error ? (
+                        <img
+                          src={selectedDesign}
+                          alt="Selected Design"
+                          className={`w-full h-full object-cover ${
+                            imageStates[selectedDesign]?.loading ? 'opacity-50' : 'opacity-100'
+                          }`}
+                          onError={handleImageError(selectedDesign)}
+                          onLoad={handleImageLoad(selectedDesign)}
+                        />
+                      ) : (
+                        <div className="absolute inset-0 flex items-center justify-center bg-gray-100 rounded-lg">
+                          <div className="text-gray-500 text-sm flex items-center gap-2">
+                            <Info className="w-4 h-4" />
+                            Failed to load image
+                          </div>
+                        </div>
+                      )}
+                      {imageStates[selectedDesign]?.loading && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-gray-100/50">
+                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+                        </div>
+                      )}
+                    </div>
+                    {/* Edit Overlay Button */}
+                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <button
+                        onClick={() => setShowEditDialog(true)}
+                        className="px-4 py-2 bg-white rounded-lg hover:bg-gray-100 text-black font-medium flex items-center gap-2"
+                      >
+                        <Edit className="w-4 h-4" />
+                        Edit Design
+                      </button>
+                    </div>
+                  </div>
+                  {/* Show design title if available */}
+                  {designs.find(d => d.images.includes(selectedDesign))?.title && (
+                    <div className="mt-2 text-center text-black font-medium">
+                      {designs.find(d => d.images.includes(selectedDesign))?.title}
+                    </div>
+                  )}
+                  
+                  {/* Quantity Selector - Show before manufacturing plan */}
+                  {!designs.find(d => d.images.includes(selectedDesign))?.analysis && (
+                    <>
+                      <div className="mt-6 space-y-4">
+                        <h3 className="text-lg font-semibold text-gray-700">
+                          How many do you want?
+                        </h3>
+                        <div className="space-y-2">
+                          <input
+                            type="range"
+                            min="0"
+                            max="100"
+                            value={scaleToLinear(quantity)}
+                            onChange={(e) => setQuantity(scaleToLog(parseInt(e.target.value)))}
+                            className="w-full"
+                          />
+                          <div className="flex justify-between text-sm text-gray-600">
+                            <span>Custom (1-10)</span>
+                            <span>Small Batch (11-100)</span>
+                            <span>Production (101-10000)</span>
+                          </div>
+                          <div className="flex justify-between items-center mt-2">
+                            <div className="text-sm text-gray-500">
+                              {quantity <= 10 ? 'Prototypes & Samples' :
+                               quantity <= 100 ? 'Limited Production' :
+                               'Mass Production'}
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <input
+                                type="number"
+                                value={quantity}
+                                onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+                                className="w-16 px-2 py-1 border rounded-lg text-right text-gray-800 font-medium"
+                              />
+                              <span className="text-sm text-gray-600">pcs</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Create Manufacturing Plan Button */}
+                      <button
+                        onClick={handleUpdatePlan}
+                        disabled={isUpdatingPlan}
+                        className="w-full mt-4 py-3 bg-green-500 hover:bg-green-600 disabled:bg-green-300 text-white rounded-lg transition-colors flex items-center justify-center gap-2"
+                      >
+                        {isUpdatingPlan ? (
+                          <>
+                            <RefreshCw className="w-5 h-5 animate-spin" />
+                            Creating Manufacturing Plan...
+                          </>
+                        ) : (
+                          <>
+                            <Cog className="w-5 h-5" />
+                            Create Manufacturing Plan
+                          </>
+                        )}
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* Manufacturing Analysis - Show only after analysis exists */}
+              {selectedDesign && designs.find(d => d.images.includes(selectedDesign))?.analysis && (
+                <div className="mb-8">
+                  <ManufacturingAnalysis
+                    imageUrl={selectedDesign}
+                    existingAnalysis={designs.find(d => 
+                      d.images.includes(selectedDesign)
+                    )?.analysis}
+                    onAnalysisComplete={(analysis) => {
+                      const recommendedMethod = determineRecommendedMethod(analysis);
+                      setSelectedMethod(recommendedMethod);
+                    }}
+                    onRedoAnalysis={handleUpdatePlan}
+                    quantity={quantity}
+                    onQuantityChange={setQuantity}
+                    dimensions={dimensions}
+                    onDimensionsChange={setDimensions}
+                    isRedoing={isUpdatingPlan}
+                    designComments={designComments}
+                    onCommentsChange={setDesignComments}
+                  />
+                </div>
+              )}
+
+              {/* Recommended Manufacturing Methods - Show only after analysis */}
+              {selectedDesign && designs.find(d => d.images.includes(selectedDesign))?.analysis && (
+                <div className="mb-8">
+                  <h3 className="text-lg font-semibold text-gray-700 mb-6">
+                    Recommended Manufacturing Methods
+                  </h3>
+
+                  <div className="space-y-4">
+                    {MANUFACTURING_METHODS.map((method, index) => (
+                      <div 
+                        key={index}
+                        className={`bg-white rounded-lg p-6 border ${
+                          selectedMethod === method.title 
+                            ? 'border-blue-500 ring-2 ring-blue-200' 
+                            : 'border-gray-200 hover:border-blue-500'
+                        } transition-all`}
+                      >
+                        <div className="space-y-4">
+                          <div className="flex justify-between items-start">
+                            <h4 className="text-lg font-semibold text-gray-700">{method.title}</h4>
+                            {method.recommended && (
+                              <span className="bg-yellow-100 text-yellow-800 text-xs font-medium px-2.5 py-0.5 rounded">
+                                Recommended
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="space-y-3">
+                            <p className="text-gray-600">{method.description}</p>
+                            <div>
+                              <p className="text-sm font-medium text-gray-700">Volume Range</p>
+                              <p className="text-gray-800">{method.volumeRange}</p>
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-gray-700">Best For</p>
+                              <p className="text-gray-800">{method.examples}</p>
+                            </div>
+                          </div>
+
+                          <div className="space-y-2">
+                            <p className="text-sm font-medium text-gray-700">Select Material</p>
+                            <select 
+                              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 text-gray-800 bg-white"
+                              onChange={(e) => handleMaterialSelect(method.title, e.target.value)}
+                              value={selectedMaterials[method.title] || ''}
+                            >
+                              <option value="" className="text-gray-500">Choose a material</option>
+                              {method.materials.map((material, i) => (
+                                <option key={i} value={material} className="text-gray-800">
+                                  {material}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <button
+                            onClick={() => {
+                              setSelectedMethod(method.title);
+                              setShowDesignFee(true);
+                            }}
+                            className={`w-full py-2 rounded-lg transition-colors ${
+                              selectedMethod === method.title
+                                ? 'bg-blue-500 text-white hover:bg-blue-600'
+                                : 'bg-white text-gray-700 border border-gray-200 hover:bg-blue-500 hover:text-white'
+                            }`}
+                          >
+                            Select {method.title}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Design Fee Section - Show last */}
+              {showDesignFee && selectedMethod && (
+                <DesignFeeSection onProceed={handleProceed} />
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Add version history dialog */}
+      {showVersionHistory && selectedDesign && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-2xl w-full mx-4 space-y-4">
+            <div className="flex justify-between items-center">
+              <h3 className="text-lg font-semibold text-black">Design History</h3>
+              <button
+                onClick={() => setShowVersionHistory(false)}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              {designs.find(d => d.images.includes(selectedDesign))
+                ?.imageVersions[selectedDesign]?.history.map((version, index) => (
+                <div key={index} className="space-y-2">
+                  <div className="aspect-square rounded-lg overflow-hidden relative group">
+                    <img
+                      src={version}
+                      alt={`Version ${index + 1}`}
+                      className="w-full h-full object-cover"
+                    />
+                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                      <button
+                        onClick={() => handleRevertToVersion(selectedDesign, version)}
+                        className="px-3 py-1 bg-white rounded-lg hover:bg-gray-100 text-sm"
+                      >
+                        Revert to This
+                      </button>
+                    </div>
+                  </div>
+                  <div className="text-sm text-black">
+                    Version {index + 1}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Dialog */}
+      {showEditDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full">
+            <h3 className="text-lg font-semibold mb-4 text-gray-900">Edit Design</h3>
+            <textarea
+              value={editPrompt}
+              onChange={(e) => setEditPrompt(e.target.value)}
+              placeholder="Describe the changes you want to make..."
+              className="w-full p-2 border rounded-lg mb-4 h-32 text-gray-900 placeholder:text-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setShowEditDialog(false)}
+                className="px-4 py-2 text-gray-700 hover:text-gray-900 font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleEditDesign}
+                disabled={isEditing || !editPrompt}
+                className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 flex items-center gap-2 font-medium"
+              >
+                {isEditing ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    Updating...
+                  </>
+                ) : (
+                  <>
+                    <PenTool className="w-4 h-4" />
+                    Update Design
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

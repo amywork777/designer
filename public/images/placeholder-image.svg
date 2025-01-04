@@ -1,0 +1,6 @@
+<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="256" height="256" fill="#F3F4F6"/>
+  <path d="M128 128C128 123.582 131.582 120 136 120C140.418 120 144 123.582 144 128C144 132.418 140.418 136 136 136C131.582 136 128 132.418 128 128Z" fill="#9CA3AF"/>
+  <path fill-rule="evenodd" clip-rule="evenodd" d="M80 76C77.2386 76 75 78.2386 75 81V175C75 177.761 77.2386 180 80 180H176C178.761 180 181 177.761 181 175V81C181 78.2386 178.761 76 176 76H80ZM69 81C69 74.9249 73.9249 70 80 70H176C182.075 70 187 74.9249 187 81V175C187 181.075 182.075 186 176 186H80C73.9249 186 69 181.075 69 175V81Z" fill="#9CA3AF"/>
+  <text x="128" y="156" text-anchor="middle" font-family="system-ui" font-size="14" fill="#6B7280">No image</text>
+</svg> 
