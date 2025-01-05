@@ -2,8 +2,13 @@ import { NextResponse } from 'next/server';
 import OpenAI from 'openai';
 
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
+  apiKey: process.env.OPENAI_API_KEY || ''
 });
+
+// Add error handling for missing API key
+if (!process.env.OPENAI_API_KEY) {
+  throw new Error('OPENAI_API_KEY is not set in environment variables');
+}
 
 const BASE_SETTINGS = "Professional product visualization from a 3/4 isometric view (front-right, slightly elevated angle). Clean design without text or labels. White/neutral background with subtle shadows.";
 
