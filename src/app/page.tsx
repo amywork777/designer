@@ -48,7 +48,7 @@ const scaleToLinear = (value: number): number => {
   return Math.round((Math.log(value) / Math.log(10000)) * 100);
 };
 
-const BASE_SETTINGS = "As a world-class industrial designer, create a professional product visualization from a 3/4 isometric view (front-right, slightly elevated angle). The design should demonstrate manufacturing feasibility with clean lines, proper material transitions, and thoughtful details. Present it with a clean design, no text or labels, on a white/neutral background with subtle shadows that highlight the form.";
+const BASE_SETTINGS = "As a world-class industrial designer, create a professional product visualization of ONE SINGLE OBJECT from a 3/4 isometric view (front-right, slightly elevated angle). The output must be exactly one product, not multiple items or variations. The design should demonstrate manufacturing feasibility with clean lines, proper material transitions, and thoughtful details. Present it with a clean design, no text or labels, on a white/neutral background with subtle shadows that highlight the form.";
 const FALLBACK_IMAGE = '/placeholder-image.jpg'; // You'll need to add a placeholder image to your public folder
 
 type InputMethod = 'text' | 'upload';
@@ -325,6 +325,8 @@ export default function LandingPage() {
   const [isHistoryCollapsed, setIsHistoryCollapsed] = useState(true);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResults, setAnalysisResults] = useState<any>(null);
+  const [inspirationImages, setInspirationImages] = useState<string[]>([]);
+  const MAX_INSPIRATION_IMAGES = 3;
 
   const handleImageError = (imageUrl: string) => (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
     const img = e.target as HTMLImageElement;
@@ -359,43 +361,46 @@ export default function LandingPage() {
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      try {
-        // Convert the file to base64
-        const base64Image = await new Promise<string>((resolve) => {
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            if (typeof reader.result === 'string') {
-              resolve(reader.result);
-            }
-          };
-          reader.readAsDataURL(file);
-        });
-        
-        // Set the preview and selected design
-        setImagePreview(base64Image);
-        setSelectedDesign(base64Image);
-        
-        // Add the design to the store
-        const newDesign = {
-          id: Date.now().toString(),
-          title: file.name,
-          images: [base64Image],
-          createdAt: new Date().toISOString()
-        };
-        addDesign(newDesign);
-        
-        toast({
-          title: "Success",
-          description: "Design uploaded successfully! Scroll down to see manufacturing options."
-        });
-      } catch (error) {
-        console.error('Error processing image:', error);
+    const files = Array.from(e.target.files || []);
+    if (files.length > 0) {
+      if (inspirationImages.length + files.length > MAX_INSPIRATION_IMAGES) {
         toast({
           variant: "destructive",
           title: "Error",
-          description: "Failed to process image. Please try again."
+          description: `You can only upload up to ${MAX_INSPIRATION_IMAGES} inspiration images`
+        });
+        return;
+      }
+
+      try {
+        const newImages = await Promise.all(
+          files.map(async (file) => {
+            const base64Image = await new Promise<string>((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                if (typeof reader.result === 'string') {
+                  resolve(reader.result);
+                }
+              };
+              reader.readAsDataURL(file);
+            });
+            return base64Image;
+          })
+        );
+
+        setInspirationImages(prev => [...prev, ...newImages]);
+        setSelectedDesign(newImages[0]); // Set first image as selected
+        
+        toast({
+          title: "Success",
+          description: "Images uploaded successfully!"
+        });
+      } catch (error) {
+        console.error('Error processing images:', error);
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "Failed to process images. Please try again."
         });
       }
     }
@@ -536,7 +541,6 @@ export default function LandingPage() {
       let payload;
 
       if (inputMethod === 'text') {
-        // Make sure we're using the textPrompt state
         if (!textPrompt.trim()) {
           toast({
             variant: "destructive",
@@ -546,32 +550,64 @@ export default function LandingPage() {
           return;
         }
         
-        prompt = `${BASE_SETTINGS} ${textPrompt}`;
+        prompt = `${BASE_SETTINGS} Create exactly one product: ${textPrompt.trim()}. Important: Generate only a single unified object, not multiple items or variations.`;
         payload = {
           prompt,
           mode: 'generate'
         };
-      } else if (inputMethod === 'upload' && imagePreview) {
-        // Make sure we're using the textPrompt for modifications
-        prompt = textPrompt 
-          ? `${BASE_SETTINGS} Based on the uploaded image, modify it by: ${textPrompt.trim()}`
-          : `${BASE_SETTINGS} Enhance this design while maintaining its core features.`;
-        
+      } else if (inputMethod === 'upload') {
+        if (!inspirationImages.length && !textPrompt.trim()) {
+          toast({
+            variant: "destructive",
+            title: "Error",
+            description: "Please upload at least one image or provide a description"
+          });
+          return;
+        }
+
+        const imageAnalyses = await Promise.all(
+          inspirationImages.map(async (img) => {
+            const analysisResponse = await fetch('/api/analyze-image', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ 
+                inputImage: img,
+                prompt: "Analyze this design's key features and style, focusing on the main singular object"
+              })
+            });
+            
+            if (!analysisResponse.ok) {
+              throw new Error('Failed to analyze inspiration image');
+            }
+            
+            return await analysisResponse.json();
+          })
+        );
+
+        const imageDescriptions = imageAnalyses
+          .map((analysis, index) => `Image ${index + 1}: ${analysis.description}`)
+          .join('. ');
+
+        prompt = textPrompt.trim()
+          ? `${BASE_SETTINGS} Using these inspiration elements (${imageDescriptions}), create ONE SINGLE unified product that: ${textPrompt.trim()}. Important: Output must be exactly one object, not multiple items.`
+          : `${BASE_SETTINGS} Using these inspiration elements (${imageDescriptions}), create ONE SINGLE cohesive product that combines the best features. Important: Generate exactly one unified object, not multiple items.`;
+
         payload = {
           prompt,
           mode: 'edit',
-          inputImage: imagePreview
+          inputImages: inspirationImages,
+          primaryImage: inspirationImages[0],
+          imageAnalyses: imageAnalyses,
+          description: textPrompt.trim()
         };
-
-        console.log('Upload mode prompt:', prompt); // Add logging
-      } else {
-        throw new Error('Please upload an image or enter a text prompt');
       }
 
       console.log('Generating design with:', { 
-        prompt, 
-        mode: payload.mode, 
-        hasImage: !!payload.inputImage 
+        mode: payload.mode,
+        prompt,
+        imageCount: payload.inputImages?.length,
+        hasText: !!textPrompt.trim(),
+        analyses: payload.imageAnalyses
       });
 
       const response = await fetch('/api/generateImage', {
@@ -586,7 +622,8 @@ export default function LandingPage() {
       }
 
       const data = await response.json();
-      
+      console.log('Response data:', data);
+
       if (!data.imageUrl) {
         throw new Error('No image URL in response');
       }
@@ -594,11 +631,12 @@ export default function LandingPage() {
       // Add the new design
       const newDesign = {
         id: Date.now().toString(),
-        title: generateDesignTitle(textPrompt || 'New Design'),
+        title: generateDesignTitle(textPrompt || 'Inspired Design'),
         images: [data.imageUrl],
         createdAt: new Date().toISOString(),
         analysis: {
           description: textPrompt,
+          inspirationImages: inspirationImages,
           recommendedMethod: getRecommendedMethod(quantity, textPrompt),
           recommendedMaterials: getRecommendedMaterials(quantity, textPrompt)
         }
@@ -612,9 +650,13 @@ export default function LandingPage() {
         setHasUsedFreeDesign(true);
       }
 
+      toast({
+        title: "Success",
+        description: "Design generated successfully!"
+      });
+
     } catch (error) {
       console.error('Generation failed:', error);
-      setError(error instanceof Error ? error.message : 'Failed to generate design');
       toast({
         variant: "destructive",
         title: "Error",
@@ -681,14 +723,12 @@ export default function LandingPage() {
         });
       }
 
-      // Create the payload with a more specific prompt
+      // Create the payload with the same structure as handleGenerateDesign
       const payload = {
-        prompt: `${BASE_SETTINGS} Using this design as a base, modify it by: ${editPrompt.trim()}`,
+        prompt: `${BASE_SETTINGS} Based on this design, modify it by: ${editPrompt}`,
         mode: 'edit',
         inputImage
       };
-
-      console.log('Edit mode payload:', payload); // Add logging
 
       const response = await fetch('/api/generateImage', {
         method: 'POST',
@@ -1301,21 +1341,6 @@ export default function LandingPage() {
               </button>
             )}
           </div>
-          
-          {/* Add new inspiration section */}
-          <div className="mt-6 max-w-3xl">
-            <p className="text-lg text-gray-700 leading-relaxed">
-              Many people have great ideas for products but struggle to turn them into reality. 
-              Our goal is to bridge that gap by making the process of designing and manufacturing 
-              simple and accessible to everyone.
-            </p>
-            <div className="mt-4 flex items-center gap-2 text-blue-600">
-              <Sparkles className="w-5 h-5" />
-              <p className="text-sm font-medium">
-                Turn your ideas into reality with just a few clicks
-              </p>
-            </div>
-          </div>
         </div>
 
         <div className="mb-8">
@@ -1421,85 +1446,67 @@ export default function LandingPage() {
               <div className="space-y-4">
                 {inputMethod === 'upload' && (
                   <div className="space-y-4">
-                    <div 
-                      onClick={() => fileInputRef.current?.click()}
-                      className="border-2 border-dashed border-gray-300 rounded-lg p-8 cursor-pointer hover:border-blue-500 hover:bg-blue-50/50 transition-all group"
-                    >
+                    {/* Inspiration Images Upload */}
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-gray-700">
+                        Inspiration Images ({inspirationImages.length}/{MAX_INSPIRATION_IMAGES})
+                      </label>
+                      <div className="grid grid-cols-3 gap-4">
+                        {/* Existing Images */}
+                        {inspirationImages.map((img, index) => (
+                          <div key={index} className="relative aspect-square">
+                            <img
+                              src={img}
+                              alt={`Inspiration ${index + 1}`}
+                              className="w-full h-full object-cover rounded-lg"
+                            />
+                            <button
+                              onClick={() => {
+                                setInspirationImages(prev => prev.filter((_, i) => i !== index));
+                              }}
+                              className="absolute top-2 right-2 p-1 bg-red-500 rounded-full text-white hover:bg-red-600"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ))}
+
+                        {/* Upload Button */}
+                        {inspirationImages.length < MAX_INSPIRATION_IMAGES && (
+                          <div
+                            onClick={() => fileInputRef.current?.click()}
+                            className="border-2 border-dashed border-gray-300 rounded-lg aspect-square flex flex-col items-center justify-center cursor-pointer hover:border-blue-500 hover:bg-blue-50/50 transition-all"
+                          >
+                            <Upload className="w-6 h-6 text-gray-400" />
+                            <span className="text-sm text-gray-500 mt-2">Add Image</span>
+                          </div>
+                        )}
+                      </div>
                       <input
                         type="file"
                         ref={fileInputRef}
                         onChange={handleFileUpload}
                         accept="image/png,image/jpeg,image/svg+xml"
                         className="hidden"
+                        multiple
                       />
-                      {imagePreview ? (
-                        <div className="space-y-4">
-                          <div className="relative aspect-square">
-                            <div className="relative">
-                              {!imageStates[imagePreview]?.error ? (
-                                <img
-                                  src={imagePreview}
-                                  alt="Preview"
-                                  className={`w-full h-full object-cover rounded-lg ${
-                                    imageStates[imagePreview]?.loading ? 'opacity-50' : 'opacity-100'
-                                  }`}
-                                  onError={handleImageError(imagePreview)}
-                                  onLoad={handleImageLoad(imagePreview)}
-                                />
-                              ) : (
-                                <div className="absolute inset-0 flex items-center justify-center bg-gray-100 rounded-lg">
-                                  <div className="text-gray-500 text-sm flex items-center gap-2">
-                                    <Info className="w-4 h-4" />
-                                    Failed to load image
-                                  </div>
-                                </div>
-                              )}
-                              {imageStates[imagePreview]?.loading && (
-                                <div className="absolute inset-0 flex items-center justify-center bg-gray-100/50">
-                                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
-                                </div>
-                              )}
-                            </div>
-                            {uploadedFile && !imageStates[imagePreview]?.error && (
-                              <div className="text-sm text-black">
-                                {uploadedFile.name}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="text-center space-y-4">
-                          <div className="w-16 h-16 mx-auto bg-blue-100 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
-                            <Upload className="w-8 h-8 text-blue-500" />
-                          </div>
-                          <div>
-                            <p className="text-lg font-medium text-gray-700">
-                              Click to upload an image
-                            </p>
-                            <p className="text-sm text-gray-500 mt-1">
-                              Drop your image here or click to browse
-                            </p>
-                            <p className="text-xs text-gray-400 mt-2">
-                              Supports PNG, JPG, SVG
-                            </p>
-                          </div>
-                        </div>
-                      )}
                     </div>
-                    
-                    {imagePreview && (
+
+                    {/* Design Description */}
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-gray-700">
+                        Design Description
+                      </label>
                       <textarea
                         value={textPrompt}
                         onChange={(e) => setTextPrompt(e.target.value)}
-                        placeholder="Describe any modifications you want to make to the uploaded image..."
-                        className="w-full h-32 px-3 py-2 border rounded-lg resize-none 
-                          focus:ring-2 focus:ring-blue-500 focus:border-blue-500
-                          text-gray-900 placeholder:text-gray-500
-                          bg-white"
+                        placeholder="Describe what you want to create based on these inspiration images..."
+                        className="w-full h-32 px-3 py-2 border rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       />
-                    )}
-                    
-                    {imagePreview && (
+                    </div>
+
+                    {/* Generate Button */}
+                    {(inspirationImages.length > 0 || textPrompt.trim()) && (
                       <button
                         onClick={handleGenerateDesign}
                         disabled={generating}
@@ -1516,28 +1523,21 @@ export default function LandingPage() {
                   <div className="space-y-2">
                     <textarea
                       value={textPrompt}
-                      onChange={(e) => setTextPrompt(e.target.value)}
+                      onChange={(e) => {
+                        console.log('Text changed:', e.target.value);
+                        setTextPrompt(e.target.value);
+                      }}
                       placeholder="Describe your product design idea..."
-                      className="w-full h-32 px-3 py-2 border rounded-lg resize-none 
-                        focus:ring-2 focus:ring-blue-500 focus:border-blue-500
-                        text-gray-900 placeholder:text-gray-500
-                        bg-white"
+                      className="w-full h-32 px-3 py-2 border rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     />
-                    {generating ? (
-                      <div className="flex items-center justify-center gap-2 text-gray-700">
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Generating...
-                      </div>
-                    ) : (
-                      <button
-                        onClick={handleGenerateDesign}
-                        disabled={!textPrompt.trim()}
-                        className="w-full py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 
-                          disabled:bg-blue-300 disabled:cursor-not-allowed transition-colors"
-                      >
-                        Generate Design
-                      </button>
-                    )}
+                    <button
+                      onClick={handleGenerateDesign}
+                      disabled={generating || !textPrompt.trim()}
+                      className="w-full py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 
+                        disabled:bg-blue-300 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {generating ? 'Generating...' : 'Generate Design'}
+                    </button>
                   </div>
                 )}
               </div>
