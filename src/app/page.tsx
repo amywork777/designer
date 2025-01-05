@@ -536,35 +536,34 @@ export default function LandingPage() {
       let payload;
 
       if (inputMethod === 'text') {
-        // Text-based generation
-        prompt = BASE_SETTINGS + textPrompt;
+        // Make sure we're using the textPrompt state
+        if (!textPrompt.trim()) {
+          toast({
+            variant: "destructive",
+            title: "Error",
+            description: "Please enter a text description"
+          });
+          return;
+        }
+        
+        prompt = `${BASE_SETTINGS} ${textPrompt}`;
         payload = {
           prompt,
           mode: 'generate'
         };
       } else if (inputMethod === 'upload' && imagePreview) {
-        // For uploaded images, we need to ensure we're sending the full image data
+        // Make sure we're using the textPrompt for modifications
         prompt = textPrompt 
-          ? `${BASE_SETTINGS} Based on the uploaded image, modify it by: ${textPrompt}`
+          ? `${BASE_SETTINGS} Based on the uploaded image, modify it by: ${textPrompt.trim()}`
           : `${BASE_SETTINGS} Enhance this design while maintaining its core features.`;
-        
-        // If imagePreview is a blob URL, we need to convert it to base64
-        let inputImage = imagePreview;
-        if (imagePreview.startsWith('blob:')) {
-          const response = await fetch(imagePreview);
-          const blob = await response.blob();
-          inputImage = await new Promise((resolve) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result);
-            reader.readAsDataURL(blob);
-          });
-        }
         
         payload = {
           prompt,
           mode: 'edit',
-          inputImage // Send the base64 image data
+          inputImage: imagePreview
         };
+
+        console.log('Upload mode prompt:', prompt); // Add logging
       } else {
         throw new Error('Please upload an image or enter a text prompt');
       }
@@ -582,54 +581,44 @@ export default function LandingPage() {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to generate image');
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to generate image');
       }
 
       const data = await response.json();
-
-      if (!data.success || !data.imageUrl) {
-        throw new Error('No image generated');
+      
+      if (!data.imageUrl) {
+        throw new Error('No image URL in response');
       }
 
-      // Create a unique ID for the design
-      const designId = Date.now().toString();
-      
-      // Create the design object
+      // Add the new design
       const newDesign = {
-        id: designId,
-        title: generateDesignTitle(textPrompt),
+        id: Date.now().toString(),
+        title: generateDesignTitle(textPrompt || 'New Design'),
         images: [data.imageUrl],
         createdAt: new Date().toISOString(),
-        userId: session?.user?.id || 'anonymous',
         analysis: {
-          description: data.description || textPrompt,
+          description: textPrompt,
           recommendedMethod: getRecommendedMethod(quantity, textPrompt),
           recommendedMaterials: getRecommendedMaterials(quantity, textPrompt)
         }
       };
 
-      // Add to design store
       addDesign(newDesign);
-      
-      // Update selected design
       setSelectedDesign(data.imageUrl);
+      setShowAnalysis(true);
 
       if (!session?.user?.id) {
         setHasUsedFreeDesign(true);
       }
 
-      toast({
-        title: "Success",
-        description: "Design generated successfully!",
-      });
-
     } catch (error) {
-      console.error('Error:', error);
+      console.error('Generation failed:', error);
+      setError(error instanceof Error ? error.message : 'Failed to generate design');
       toast({
         variant: "destructive",
         title: "Error",
-        description: error instanceof Error ? error.message : 'Failed to generate design'
+        description: error instanceof Error ? error.message : "Failed to generate design"
       });
     } finally {
       setGenerating(false);
@@ -692,12 +681,14 @@ export default function LandingPage() {
         });
       }
 
-      // Create the payload with the same structure as handleGenerateDesign
+      // Create the payload with a more specific prompt
       const payload = {
-        prompt: `${BASE_SETTINGS} Based on this design, modify it by: ${editPrompt}`,
+        prompt: `${BASE_SETTINGS} Using this design as a base, modify it by: ${editPrompt.trim()}`,
         mode: 'edit',
         inputImage
       };
+
+      console.log('Edit mode payload:', payload); // Add logging
 
       const response = await fetch('/api/generateImage', {
         method: 'POST',
@@ -1310,6 +1301,21 @@ export default function LandingPage() {
               </button>
             )}
           </div>
+          
+          {/* Add new inspiration section */}
+          <div className="mt-6 max-w-3xl">
+            <p className="text-lg text-gray-700 leading-relaxed">
+              Many people have great ideas for products but struggle to turn them into reality. 
+              Our goal is to bridge that gap by making the process of designing and manufacturing 
+              simple and accessible to everyone.
+            </p>
+            <div className="mt-4 flex items-center gap-2 text-blue-600">
+              <Sparkles className="w-5 h-5" />
+              <p className="text-sm font-medium">
+                Turn your ideas into reality with just a few clicks
+              </p>
+            </div>
+          </div>
         </div>
 
         <div className="mb-8">
@@ -1414,112 +1420,126 @@ export default function LandingPage() {
 
               <div className="space-y-4">
                 {inputMethod === 'upload' && (
-                  <div 
-                    onClick={() => fileInputRef.current?.click()}
-                    className="border-2 border-dashed border-gray-300 rounded-lg p-8 cursor-pointer hover:border-blue-500 hover:bg-blue-50/50 transition-all group"
-                  >
-                    <input
-                      type="file"
-                      ref={fileInputRef}
-                      onChange={handleFileUpload}
-                      accept="image/png,image/jpeg,image/svg+xml"
-                      className="hidden"
-                    />
-                    {imagePreview ? (
-                      <div className="space-y-4">
-                        <div className="relative aspect-square">
-                          <div className="relative">
-                            {!imageStates[imagePreview]?.error ? (
-                              <img
-                                src={imagePreview}
-                                alt="Preview"
-                                className={`w-full h-full object-cover rounded-lg ${
-                                  imageStates[imagePreview]?.loading ? 'opacity-50' : 'opacity-100'
-                                }`}
-                                onError={handleImageError(imagePreview)}
-                                onLoad={handleImageLoad(imagePreview)}
-                              />
-                            ) : (
-                              <div className="absolute inset-0 flex items-center justify-center bg-gray-100 rounded-lg">
-                                <div className="text-gray-500 text-sm flex items-center gap-2">
-                                  <Info className="w-4 h-4" />
-                                  Failed to load image
+                  <div className="space-y-4">
+                    <div 
+                      onClick={() => fileInputRef.current?.click()}
+                      className="border-2 border-dashed border-gray-300 rounded-lg p-8 cursor-pointer hover:border-blue-500 hover:bg-blue-50/50 transition-all group"
+                    >
+                      <input
+                        type="file"
+                        ref={fileInputRef}
+                        onChange={handleFileUpload}
+                        accept="image/png,image/jpeg,image/svg+xml"
+                        className="hidden"
+                      />
+                      {imagePreview ? (
+                        <div className="space-y-4">
+                          <div className="relative aspect-square">
+                            <div className="relative">
+                              {!imageStates[imagePreview]?.error ? (
+                                <img
+                                  src={imagePreview}
+                                  alt="Preview"
+                                  className={`w-full h-full object-cover rounded-lg ${
+                                    imageStates[imagePreview]?.loading ? 'opacity-50' : 'opacity-100'
+                                  }`}
+                                  onError={handleImageError(imagePreview)}
+                                  onLoad={handleImageLoad(imagePreview)}
+                                />
+                              ) : (
+                                <div className="absolute inset-0 flex items-center justify-center bg-gray-100 rounded-lg">
+                                  <div className="text-gray-500 text-sm flex items-center gap-2">
+                                    <Info className="w-4 h-4" />
+                                    Failed to load image
+                                  </div>
                                 </div>
-                              </div>
-                            )}
-                            {imageStates[imagePreview]?.loading && (
-                              <div className="absolute inset-0 flex items-center justify-center bg-gray-100/50">
-                                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+                              )}
+                              {imageStates[imagePreview]?.loading && (
+                                <div className="absolute inset-0 flex items-center justify-center bg-gray-100/50">
+                                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+                                </div>
+                              )}
+                            </div>
+                            {uploadedFile && !imageStates[imagePreview]?.error && (
+                              <div className="text-sm text-black">
+                                {uploadedFile.name}
                               </div>
                             )}
                           </div>
-                          {uploadedFile && !imageStates[imagePreview]?.error && (
-                            <div className="text-sm text-black">
-                              {uploadedFile.name}
-                            </div>
-                          )}
                         </div>
-                      </div>
-                    ) : (
-                      <div className="text-center space-y-4">
-                        <div className="w-16 h-16 mx-auto bg-blue-100 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
-                          <Upload className="w-8 h-8 text-blue-500" />
+                      ) : (
+                        <div className="text-center space-y-4">
+                          <div className="w-16 h-16 mx-auto bg-blue-100 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+                            <Upload className="w-8 h-8 text-blue-500" />
+                          </div>
+                          <div>
+                            <p className="text-lg font-medium text-gray-700">
+                              Click to upload an image
+                            </p>
+                            <p className="text-sm text-gray-500 mt-1">
+                              Drop your image here or click to browse
+                            </p>
+                            <p className="text-xs text-gray-400 mt-2">
+                              Supports PNG, JPG, SVG
+                            </p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="text-lg font-medium text-gray-700">
-                            Click to upload an image
-                          </p>
-                          <p className="text-sm text-gray-500 mt-1">
-                            Drop your image here or click to browse
-                          </p>
-                          <p className="text-xs text-gray-400 mt-2">
-                            Supports PNG, JPG, SVG
-                          </p>
-                        </div>
-                      </div>
+                      )}
+                    </div>
+                    
+                    {imagePreview && (
+                      <textarea
+                        value={textPrompt}
+                        onChange={(e) => setTextPrompt(e.target.value)}
+                        placeholder="Describe any modifications you want to make to the uploaded image..."
+                        className="w-full h-32 px-3 py-2 border rounded-lg resize-none 
+                          focus:ring-2 focus:ring-blue-500 focus:border-blue-500
+                          text-gray-900 placeholder:text-gray-500
+                          bg-white"
+                      />
+                    )}
+                    
+                    {imagePreview && (
+                      <button
+                        onClick={handleGenerateDesign}
+                        disabled={generating}
+                        className="w-full py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 
+                          disabled:bg-blue-300 disabled:cursor-not-allowed transition-colors"
+                      >
+                        {generating ? 'Generating...' : 'Generate Design'}
+                      </button>
                     )}
                   </div>
                 )}
 
-                <input
-                  type="text"
-                  value={textPrompt}
-                  onChange={(e) => setTextPrompt(e.target.value)}
-                  placeholder={
-                    inputMethod === 'text' 
-                      ? "Describe the product you want to create..."
-                      : "Add details about your image or desired modifications..."
-                  }
-                  className="w-full px-4 py-3 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-black placeholder-gray-800"
-                />
-
-                <button
-                  onClick={handleGenerateDesign}
-                  disabled={generating || (inputMethod === 'upload' && !imagePreview)}
-                  className="w-full px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-lg hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                  {generating ? (
-                    <>
-                      <motion.div
-                        animate={{ rotate: 360 }}
-                        transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                {inputMethod === 'text' && (
+                  <div className="space-y-2">
+                    <textarea
+                      value={textPrompt}
+                      onChange={(e) => setTextPrompt(e.target.value)}
+                      placeholder="Describe your product design idea..."
+                      className="w-full h-32 px-3 py-2 border rounded-lg resize-none 
+                        focus:ring-2 focus:ring-blue-500 focus:border-blue-500
+                        text-gray-900 placeholder:text-gray-500
+                        bg-white"
+                    />
+                    {generating ? (
+                      <div className="flex items-center justify-center gap-2 text-gray-700">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Generating...
+                      </div>
+                    ) : (
+                      <button
+                        onClick={handleGenerateDesign}
+                        disabled={!textPrompt.trim()}
+                        className="w-full py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 
+                          disabled:bg-blue-300 disabled:cursor-not-allowed transition-colors"
                       >
-                        <Sparkles className="w-5 h-5" />
-                      </motion.div>
-                      Generating...
-                    </>
-                  ) : hasUsedFreeDesign && !session ? (
-                    <>
-                      <Wand className="w-5 h-5" />
-                      Sign in to Generate More Designs
-                    </>
-                  ) : (
-                    <>
-                      <Wand className="w-5 h-5" />
-                      Generate Design
-                    </>
-                  )}
-                </button>
+                        Generate Design
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
