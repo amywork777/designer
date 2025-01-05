@@ -4,11 +4,12 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "start": "next start",
     "lint": "next lint",
     "clean": "rm -rf .next",
-    "deploy": "npm run clean && npm run build && npm run start"
+    "deploy": "npm run clean && npm run build && npm run start",
+    "postinstall": "prisma generate"
   },
   "dependencies": {
     "@auth/core": "^0.37.4",
