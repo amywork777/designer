@@ -3,8 +3,5 @@
   "buildCommand": "next build",
   "devCommand": "next dev",
   "installCommand": "npm install",
-  "framework": "nextjs",
-  "env": {
-    "OPENAI_API_KEY": "@openai-api-key"
-  }
+  "framework": "nextjs"
 }
