@@ -35,7 +35,6 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-dropzone": "^14.3.5",
-    "rembg-node": "^2.0.2",
     "replicate": "^1.0.1",
     "resend": "^4.0.1",
     "sharp": "^0.30.7",

@@ -1,13 +1,10 @@
 {
-    "git": {
-      "deploymentEnabled": {
-        "main": true
-      }
-    },
-    "crons": [
-      {
-        "path": "/api/cleanup",
-        "schedule": "0 0 * * *"
-      }
-    ]
+  "version": 2,
+  "buildCommand": "next build",
+  "devCommand": "next dev",
+  "installCommand": "npm install",
+  "framework": "nextjs",
+  "env": {
+    "OPENAI_API_KEY": "@openai-api-key"
   }
+}
