@@ -66,25 +66,15 @@ export function ManufacturingAnalysis({
               hover:bg-gray-50 text-gray-700 hover:text-gray-900 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <RefreshCw className={`w-4 h-4 ${isRedoing ? 'animate-spin' : ''}`} />
-            {isRedoing ? 'Analyzing...' : 'Redo Analysis'}
+            {isRedoing ? 'Analyzing...' : 'Analyze'}
           </button>
         </div>
         
         <div className="space-y-4">
-          <div className="flex justify-between items-start">
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900">Analysis Results</h3>
-              <p className="text-gray-700 mt-1">{description}</p>
-            </div>
-            <button
-              onClick={onRedoAnalysis}
-              disabled={isRedoing}
-              className="text-blue-500 hover:text-blue-600 disabled:opacity-50"
-            >
-              <RefreshCw className={`w-5 h-5 ${isRedoing ? 'animate-spin' : ''}`} />
-            </button>
-          </div>
+          {/* Description */}
+          <p className="text-gray-700">{description}</p>
 
+          {/* Recommended Method */}
           {recommendedMethod && (
             <div>
               <h4 className="font-medium text-gray-900">Recommended Method</h4>
@@ -92,6 +82,7 @@ export function ManufacturingAnalysis({
             </div>
           )}
 
+          {/* Recommended Materials */}
           {recommendedMaterials?.length > 0 && (
             <div>
               <h4 className="font-medium text-gray-900">Recommended Materials</h4>
@@ -102,17 +93,6 @@ export function ManufacturingAnalysis({
               </ul>
             </div>
           )}
-
-          {/* Simple Product Description */}
-          <div>
-            <p className="text-gray-800">
-              {(existingAnalysis?.description || 
-                "Simple decorative stand, suitable for 3D printing.")
-                .split('.')
-                .slice(0, 1)
-                .join('.') + '.'}
-            </p>
-          </div>
 
           {/* Dimensions Input */}
           <div className="space-y-2">

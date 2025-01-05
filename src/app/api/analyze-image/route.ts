@@ -5,24 +5,19 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
-export async function POST(req: Request) {
+export async function POST(request: Request) {
   try {
-    const { imageUrl, prompt } = await req.json();
+    const { inputImage, prompt } = await request.json();
 
-    if (!imageUrl) {
+    if (!inputImage) {
       return NextResponse.json(
-        { error: 'Image URL is required' },
+        { error: 'Image is required' },
         { status: 400 }
       );
     }
 
-    // Handle base64 image data
-    let imageUrlForAPI = imageUrl;
-    if (!imageUrl.startsWith('data:') && !imageUrl.startsWith('http')) {
-      imageUrlForAPI = `data:image/jpeg;base64,${imageUrl}`;
-    }
-
-    const response = await openai.chat.completions.create({
+    // Analyze the image with GPT-4
+    const visionResponse = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
         {
@@ -30,26 +25,26 @@ export async function POST(req: Request) {
           content: [
             { 
               type: "text", 
-              text: prompt || "Analyze this product design and describe what it is." 
+              text: prompt || "Analyze this product design and provide a one-sentence description of what it is."
             },
             {
               type: "image_url",
               image_url: {
-                url: imageUrlForAPI
+                url: inputImage
               }
-            },
+            }
           ],
-        },
+        }
       ],
-      max_tokens: 150,
+      max_tokens: 100,
     });
 
-    const description = response.choices[0]?.message?.content;
+    const description = visionResponse.choices[0]?.message?.content;
 
     if (!description) {
       return NextResponse.json(
-        { error: 'No analysis generated' },
-        { status: 400 }
+        { error: 'Failed to analyze image' },
+        { status: 500 }
       );
     }
 
@@ -57,17 +52,9 @@ export async function POST(req: Request) {
       success: true,
       description
     });
+
   } catch (error: any) {
     console.error('Analysis failed:', error);
-    
-    // Better error handling
-    if (error.response?.status === 400) {
-      return NextResponse.json(
-        { error: 'Invalid image format or URL' },
-        { status: 400 }
-      );
-    }
-
     return NextResponse.json(
       { 
         error: error.message || 'Failed to analyze image',

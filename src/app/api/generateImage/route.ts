@@ -5,9 +5,11 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
-export async function POST(req: Request) {
+const BASE_SETTINGS = "Professional product visualization from a 3/4 isometric view (front-right, slightly elevated angle). Clean design without text or labels. White/neutral background with subtle shadows.";
+
+export async function POST(request: Request) {
   try {
-    const { prompt, currentImage } = await req.json();
+    const { prompt, mode, inputImage } = await request.json();
 
     if (!prompt) {
       return NextResponse.json(
@@ -16,68 +18,79 @@ export async function POST(req: Request) {
       );
     }
 
-    // First, analyze the current image with GPT-4o
-    const visionResponse = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [
-        {
-          role: "user",
-          content: [
-            { 
-              type: "text", 
-              text: "Describe this product design in detail, focusing on its key features, materials, and design elements." 
-            },
-            {
-              type: "image_url",
-              image_url: {
-                url: currentImage
-              }
-            }
-          ],
-        }
-      ],
-      max_tokens: 150,
-    });
+    let finalPrompt = prompt;
 
-    const imageAnalysis = visionResponse.choices[0]?.message?.content;
-    if (!imageAnalysis) {
-      throw new Error('Failed to analyze current image');
+    // If we have an input image, analyze it first with GPT-4
+    if (mode === 'edit' && inputImage) {
+      // First analyze the image with GPT-4
+      const visionResponse = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "user",
+            content: [
+              { 
+                type: "text", 
+                text: "Analyze this product design and describe its key features, materials, and style. Focus on physical characteristics that would be important for creating a variation." 
+              },
+              {
+                type: "image_url",
+                image_url: {
+                  url: inputImage
+                }
+              }
+            ],
+          }
+        ],
+        max_tokens: 300,
+      });
+
+      const imageAnalysis = visionResponse.choices[0]?.message?.content;
+
+      if (!imageAnalysis) {
+        throw new Error('Failed to analyze image');
+      }
+
+      // Combine the analysis with the user's prompt for the final generation
+      finalPrompt = `${BASE_SETTINGS}
+        Based on this reference design: ${imageAnalysis}
+        Create a new design with these modifications: ${prompt}
+        Maintain the core design language while incorporating the requested changes.
+        Ensure the output is a high-quality, professional product visualization.`;
     }
 
-    // Base settings for product visualization
-    const basePrompt = "Professional product visualization from a 3/4 isometric view. Clean design without text or labels. White/neutral background with subtle shadows. ";
-
-    // Create a detailed prompt combining the original image analysis and requested changes
-    const detailedPrompt = `${basePrompt}
-Starting with this design: ${imageAnalysis}
-Make the following modifications: ${prompt}
-Maintain the original design's core elements while applying these changes.
-Ensure the new design matches the style and perspective of the original.`;
-
-    // Generate new image with DALL-E
-    const response = await openai.images.generate({
+    // Generate the new image using DALL-E 3
+    const imageResponse = await openai.images.generate({
       model: "dall-e-3",
-      prompt: detailedPrompt,
+      prompt: finalPrompt,
       n: 1,
       size: "1024x1024",
       quality: "standard",
-      response_format: "url",
+      style: "natural"
     });
 
-    if (!response.data?.[0]?.url) {
-      throw new Error('No image generated');
+    const generatedImage = imageResponse.data[0]?.url;
+
+    if (!generatedImage) {
+      return NextResponse.json(
+        { error: 'Failed to generate image' },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({
       success: true,
-      imageUrl: response.data[0].url,
-      analysis: imageAnalysis
+      imageUrl: generatedImage,
+      description: imageResponse.data[0]?.revised_prompt || null
     });
 
-  } catch (error) {
-    console.error('Image generation failed:', error);
+  } catch (error: any) {
+    console.error('Generation failed:', error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to generate image' },
+      { 
+        error: error.message || 'Failed to generate image',
+        details: process.env.NODE_ENV === 'development' ? error.toString() : undefined
+      },
       { status: 500 }
     );
   }
