@@ -144,44 +144,41 @@ const MANUFACTURING_METHODS = [
     title: "3D Printing",
     description: "Perfect for prototypes and small production runs",
     volumeRange: "1-100 units",
-    materials: ["PLA", "ABS", "PETG", "Nylon"],
-    examples: "Personalized figurines, funky keychains, custom robot parts, unique phone stands, or quirky lampshades",
-    recommended: true
+    materials: ["Any Material", "PLA", "ABS", "PETG", "Nylon"],
+    recommendedMaterial: "Any Material",
+    examples: "Personalized figurines, funky keychains, custom robot parts, unique phone stands, or quirky lampshades"
   },
   {
     title: "CNC Machining",
     description: "High precision for metal and plastic parts",
     volumeRange: "1-500 units",
-    materials: ["Aluminum", "Steel", "Wood", "Plastics (Acrylic)"],
+    materials: ["Any Material", "Aluminum", "Steel", "Wood", "Plastics (Acrylic)"],
+    recommendedMaterial: "Any Material",
     examples: "Precision drone parts, luxury pen holders, sleek metal wallets, or custom skateboard trucks"
   },
   {
     title: "Laser Cutting",
     description: "Fast and precise for flat materials",
     volumeRange: "1-1,000 units",
-    materials: ["Metals (Steel, Aluminum)", "Plastics", "Wood"],
+    materials: ["Any Material", "Metals (Steel, Aluminum)", "Plastics", "Wood"],
+    recommendedMaterial: "Any Material",
     examples: "Fancy nameplates, intricate jewelry, artsy coasters, cool wall décor, or stylish laptop stands"
   },
   {
     title: "Sheet Metal Fabrication",
     description: "Ideal for metal products",
     volumeRange: "10-500 units",
-    materials: ["Aluminum", "Stainless Steel", "Galvanized Steel"],
+    materials: ["Any Material", "Aluminum", "Stainless Steel", "Galvanized Steel"],
+    recommendedMaterial: "Any Material",
     examples: "Sturdy bike racks, industrial lamp bases, modern planter boxes, or edgy furniture frames"
   },
   {
     title: "Injection Molding",
     description: "Best for high-volume plastic products",
     volumeRange: "500-10,000+ units",
-    materials: ["ABS", "Polypropylene", "Nylon"],
+    materials: ["Any Material", "ABS", "Polypropylene", "Nylon"],
+    recommendedMaterial: "Any Material",
     examples: "Trendy sunglasses, colorful stacking toys, eco-friendly food containers, or funky plastic chairs"
-  },
-  {
-    title: "Die Casting",
-    description: "Mass production of metal parts",
-    volumeRange: "1,000-10,000+ units",
-    materials: ["Aluminum", "Zinc", "Magnesium"],
-    examples: "Shiny car door handles, sturdy bottle openers, heat-dissipating laptop coolers, or fancy chess pieces"
   }
 ];
 
@@ -890,11 +887,16 @@ export default function LandingPage() {
     return '3D Printing';
   };
 
-  const handleMaterialSelect = (method: string, material: string) => {
+  const handleMaterialSelect = (methodTitle: string, material: string) => {
     setSelectedMaterials(prev => ({
       ...prev,
-      [method]: material
+      [methodTitle]: material
     }));
+    
+    // If this method isn't currently selected, select it
+    if (selectedMethod !== methodTitle) {
+      setSelectedMethod(methodTitle);
+    }
   };
 
   const handleProceed = async () => {
@@ -1757,34 +1759,44 @@ export default function LandingPage() {
                       Manufacturing Methods
                     </h3>
                     <div className="grid grid-cols-1 gap-4">
-                      {MANUFACTURING_METHODS.map((method) => {
-                        const isRecommended = method.title === designs.find(
-                          d => d.images.includes(selectedDesign)
-                        )?.analysis?.recommendedMethod;
-
-                        return (
-                          <div
-                            key={method.title}
-                            className={`p-4 rounded-lg border cursor-pointer transition-all ${
-                              selectedMethod === method.title
-                                ? 'border-blue-500 bg-blue-50'
-                                : 'border-gray-200 hover:border-blue-300'
-                            }`}
-                            onClick={() => setSelectedMethod(method.title)}
-                          >
-                            <div className="flex justify-between items-start">
-                              <div className="flex-1">
-                                <h4 className={headingStyles.h4}>{method.title}</h4>
-                                <p className={textStyles.secondary}>{method.description}</p>
-                                <div className={`mt-2 ${textStyles.small}`}>
-                                  <p>Volume: {method.volumeRange}</p>
-                                  <p>Materials: {method.materials.join(', ')}</p>
+                      {MANUFACTURING_METHODS.map((method) => (
+                        <div
+                          key={method.title}
+                          className={`p-4 rounded-lg border transition-all ${
+                            selectedMethod === method.title
+                              ? 'border-blue-500 bg-blue-50'
+                              : 'border-gray-200 hover:border-blue-300'
+                          }`}
+                          onClick={() => setSelectedMethod(method.title)}
+                        >
+                          <div className="flex justify-between items-start">
+                            <div className="flex-1">
+                              <h4 className={headingStyles.h4}>{method.title}</h4>
+                              <p className={textStyles.secondary}>{method.description}</p>
+                              <div className={`mt-2 ${textStyles.small}`}>
+                                <p>Volume: {method.volumeRange}</p>
+                                
+                                {/* Material selection */}
+                                <div className="mt-2">
+                                  <label className="text-sm font-medium text-gray-700">Material:</label>
+                                  <select
+                                    value={selectedMaterials[method.title] || "Any Material"}
+                                    onChange={(e) => handleMaterialSelect(method.title, e.target.value)}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="ml-2 text-sm border rounded px-2 py-1 bg-white"
+                                  >
+                                    {method.materials.map((material) => (
+                                      <option key={material} value={material}>
+                                        {material}
+                                      </option>
+                                    ))}
+                                  </select>
                                 </div>
                               </div>
                             </div>
                           </div>
-                        );
-                      })}
+                        </div>
+                      ))}
                     </div>
                   </div>
 
