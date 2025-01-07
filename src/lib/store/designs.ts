@@ -1,40 +1,15 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { nanoid } from 'nanoid';
 
-interface ManufacturingOption {
-  name: string;
-  description: string;
-  bestFor: string;
-  materials: string[];
-  leadTime: string;
-  costs: {
-    setup: string;
-    perUnit: string;
-  };
-}
-
-interface AnalysisData {
-  productDescription: string;
-  dimensions: string;
-  manufacturingOptions: ManufacturingOption[];
-  selectedOption?: ManufacturingOption;
-  status: 'pending' | 'analyzed' | 'checkout';
-}
+const MAX_DESIGNS = 10; // Maximum number of designs to store
+const MAX_IMAGES_PER_DESIGN = 3; // Maximum number of images per design
 
 interface Design {
   id: string;
-  userId: string | 'anonymous';
-  images: string[];
-  prompt: string;
   title: string;
+  images: string[];
   createdAt: string;
-  analysis?: AnalysisData;
-  imageVersions?: {
-    [key: string]: {
-      history: string[];
-    };
-  };
+  userId: string;
 }
 
 interface DesignStore {
@@ -45,36 +20,93 @@ interface DesignStore {
   getUserDesigns: (userId: string) => Design[];
 }
 
+// Helper function to compress base64 image
+const compressBase64Image = async (base64: string): Promise<string> => {
+  try {
+    // Convert base64 to blob
+    const response = await fetch(base64);
+    const blob = await response.blob();
+
+    // Create canvas and context
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    const img = new Image();
+
+    // Create a promise to handle image loading
+    return new Promise((resolve) => {
+      img.onload = () => {
+        // Set canvas dimensions to 50% of original image
+        canvas.width = img.width * 0.5;
+        canvas.height = img.height * 0.5;
+
+        // Draw and compress image
+        ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', 0.7)); // Compress with 0.7 quality
+      };
+      img.src = base64;
+    });
+  } catch (error) {
+    console.error('Image compression failed:', error);
+    return base64; // Return original if compression fails
+  }
+};
+
 export const useDesignStore = create<DesignStore>()(
   persist(
     (set, get) => ({
       designs: [],
-      addDesign: (design, userId = 'anonymous') => set((state) => ({
-        designs: [
-          {
-            ...design,
-            id: crypto.randomUUID(),
-            createdAt: new Date().toISOString(),
-            userId
-          },
-          ...state.designs,
-        ],
-      })),
-      updateDesign: (id, updates) =>
-        set((state) => ({
-          designs: state.designs.map((d) =>
-            d.id === id ? { ...d, ...updates } : d
-          ),
-        })),
-      clearDesigns: () => set({ designs: [] }),
-      getUserDesigns: (userId: string) => {
-        const allDesigns = get().designs;
-        return allDesigns.filter(design => design.userId === userId)
-          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      addDesign: async (design, userId) => {
+        const designs = get().designs;
+        
+        // Compress images
+        const compressedImages = await Promise.all(
+          design.images.slice(0, MAX_IMAGES_PER_DESIGN).map(compressBase64Image)
+        );
+
+        // Create new design with compressed images
+        const newDesign = {
+          ...design,
+          id: Date.now().toString(),
+          createdAt: new Date().toISOString(),
+          userId,
+          images: compressedImages
+        };
+
+        // Get user's designs
+        const userDesigns = designs.filter(d => d.userId === userId);
+
+        // If user has max designs, remove oldest
+        if (userDesigns.length >= MAX_DESIGNS) {
+          const oldestDesign = userDesigns.reduce((oldest, current) => 
+            new Date(current.createdAt) < new Date(oldest.createdAt) ? current : oldest
+          );
+          set({
+            designs: [
+              ...designs.filter(d => d.id !== oldestDesign.id),
+              newDesign
+            ]
+          });
+        } else {
+          set({ designs: [...designs, newDesign] });
+        }
       },
+      updateDesign: (id, updates) => {
+        set({
+          designs: get().designs.map(design =>
+            design.id === id ? { ...design, ...updates } : design
+          )
+        });
+      },
+      clearDesigns: () => set({ designs: [] }),
+      getUserDesigns: (userId) => {
+        return get().designs
+          .filter(design => design.userId === userId)
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      }
     }),
     {
       name: 'design-storage',
+      version: 1,
     }
   )
 ); 

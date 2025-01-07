@@ -5,7 +5,7 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
-const BASE_SETTINGS = "Professional product visualization from a 3/4 isometric view (front-right, slightly elevated angle). Clean design without text or labels. White/neutral background with subtle shadows. ";
+const BASE_SETTINGS = "centered composition, clean white background, high quality";
 
 interface ImageUrlObject {
   type: string;
@@ -38,14 +38,14 @@ export async function POST(request: Request) {
       messages: [
         {
           role: "system",
-          content: "You are a product design expert. Analyze the provided image and describe its key characteristics."
+          content: "You are a 3D artist."
         },
         {
           role: "user",
           content: [
             {
               type: "text",
-              text: "Describe this product's current design, focusing on its physical characteristics."
+              text: "Describe this 3D model's appearance."
             },
             {
               type: "image_url",
@@ -63,18 +63,15 @@ export async function POST(request: Request) {
     const currentDesign = visionResponse.choices[0]?.message?.content;
     
     if (!currentDesign) {
-      throw new Error('Failed to analyze current design');
+      throw new Error('Failed to analyze model');
     }
 
     // Generate new image with modifications
     const response = await openai.images.generate({
       model: "dall-e-3",
       prompt: `${BASE_SETTINGS}
-        Starting with this design: ${currentDesign}
-        
-        Apply these modifications: ${prompt}
-        
-        Maintain the same professional quality and style while incorporating the requested changes.`,
+        Starting with this 3D model: ${currentDesign}
+        Make these changes: ${prompt}`,
       n: 1,
       size: "1024x1024",
       quality: "standard",

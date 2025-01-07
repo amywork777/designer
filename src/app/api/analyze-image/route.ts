@@ -1,65 +1,76 @@
 import { NextResponse } from 'next/server';
 import OpenAI from 'openai';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
+const openai = new OpenAI();
 
 export async function POST(request: Request) {
   try {
-    const { inputImage, prompt } = await request.json();
+    const body = await request.json();
+    const { imageUrl } = body;
 
-    if (!inputImage) {
+    if (!imageUrl) {
       return NextResponse.json(
-        { error: 'Image is required' },
+        { success: false, error: 'Image URL is required' },
         { status: 400 }
       );
     }
 
-    // Analyze the image with GPT-4
-    const visionResponse = await openai.chat.completions.create({
-      model: "gpt-4o",
+    // Create the analysis prompt
+    const analysisPrompt = `Analyze this 3D object and provide manufacturing recommendations. Focus on:
+1. What is this object? (brief description)
+2. Key features (complex geometry, fine details, structural requirements)
+3. Best manufacturing method (FDM, Resin, or SLS printing) based on:
+   - Required detail level
+   - Structural needs
+   - Geometric complexity
+4. Recommended materials based on the chosen method
+
+Format your response as:
+Description: [1-2 sentences about the object]
+Features: [list key features]
+Recommended Method: [FDM/Resin/SLS] because [brief reason]
+Suggested Materials: [list 2-3 materials]`;
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-4-vision-preview",
       messages: [
         {
           role: "user",
           content: [
-            { 
-              type: "text", 
-              text: prompt || "Analyze this product design and provide a one-sentence description of what it is."
-            },
+            { type: "text", text: analysisPrompt },
             {
               type: "image_url",
               image_url: {
-                url: inputImage
+                url: imageUrl,
+                detail: "high"
               }
             }
-          ],
+          ]
         }
       ],
-      max_tokens: 100,
+      max_tokens: 500,
     });
 
-    const description = visionResponse.choices[0]?.message?.content;
-
-    if (!description) {
-      return NextResponse.json(
-        { error: 'Failed to analyze image' },
-        { status: 500 }
-      );
-    }
+    const analysis = response.choices[0].message.content;
+    
+    // Parse the analysis into structured data
+    const sections = analysis.split('\n');
+    const result = {
+      description: sections.find(s => s.startsWith('Description:'))?.replace('Description:', '').trim() || '',
+      features: sections.find(s => s.startsWith('Features:'))?.replace('Features:', '').trim().split(',').map(f => f.trim()) || [],
+      recommendedMethod: sections.find(s => s.startsWith('Recommended Method:'))?.replace('Recommended Method:', '').split('because')[0].trim() || '',
+      recommendedMaterials: sections.find(s => s.startsWith('Suggested Materials:'))?.replace('Suggested Materials:', '').trim().split(',').map(m => m.trim()) || []
+    };
 
     return NextResponse.json({
       success: true,
-      description
+      ...result
     });
 
-  } catch (error: any) {
+  } catch (error) {
     console.error('Analysis failed:', error);
     return NextResponse.json(
-      { 
-        error: error.message || 'Failed to analyze image',
-        details: process.env.NODE_ENV === 'development' ? error.toString() : undefined
-      },
+      { success: false, error: 'Failed to analyze image' },
       { status: 500 }
     );
   }

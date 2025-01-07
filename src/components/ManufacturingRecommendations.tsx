@@ -18,55 +18,88 @@ export function ManufacturingRecommendations({
 }: RecommendationProps) {
   const MANUFACTURING_METHODS = [
     {
-      title: "3D Printing (FDM)",
-      description: "Perfect for prototypes and small production runs",
-      volumeRange: "1-100 units",
+      title: "FDM 3D Printing",
+      description: "Fused Deposition Modeling - Layer by layer plastic printing",
       idealFor: [
-        "Complex geometries",
-        "Rapid prototyping",
-        "Custom designs"
+        "Functional prototypes",
+        "Durable parts",
+        "Cost-effective production"
       ],
       maxDimensions: {
         mm: { length: 250, width: 250, height: 300 },
         inches: { length: 9.8, width: 9.8, height: 11.8 }
       },
       materials: ["PLA", "ABS", "PETG", "TPU"],
-      leadTime: "2-5 days"
+      leadTime: "2-5 days",
+      advantages: [
+        "Most cost-effective option",
+        "Wide range of materials",
+        "Easy to post-process",
+        "Good structural properties",
+        "Fast turnaround time"
+      ],
+      surfaceFinish: "Layer lines visible, can be smoothed",
+      accuracy: "± 0.2mm",
+      strengthRating: 4,
+      detailRating: 3,
+      costRating: 1
     },
     {
-      title: "CNC Machining",
-      description: "High precision for metal and plastic parts",
-      volumeRange: "1-1000 units",
+      title: "Resin 3D Printing",
+      description: "High-detail resin curing for smooth finish",
       idealFor: [
-        "High precision parts",
-        "Metal components",
-        "Complex geometries"
+        "Detailed models",
+        "Smooth surfaces",
+        "Fine features"
+      ],
+      maxDimensions: {
+        mm: { length: 200, width: 200, height: 250 },
+        inches: { length: 7.9, width: 7.9, height: 9.8 }
+      },
+      materials: ["Standard Resin", "Tough Resin", "Clear Resin", "Flexible Resin"],
+      leadTime: "2-4 days",
+      advantages: [
+        "Excellent detail resolution",
+        "Smooth surface finish",
+        "Good for small features",
+        "Clear material options",
+        "Professional appearance"
+      ],
+      surfaceFinish: "Very smooth, minimal layer lines",
+      accuracy: "± 0.05mm",
+      strengthRating: 3,
+      detailRating: 5,
+      costRating: 3
+    },
+    {
+      title: "SLS 3D Printing",
+      description: "Selective Laser Sintering for strong parts",
+      idealFor: [
+        "Complex geometries",
+        "Strong parts",
+        "No support needed"
       ],
       maxDimensions: {
         mm: { length: 300, width: 300, height: 300 },
         inches: { length: 11.8, width: 11.8, height: 11.8 }
       },
-      materials: ["Aluminum", "Steel", "Brass", "Plastics"],
-      leadTime: "5-10 days"
-    },
-    {
-      title: "Laser Cutting",
-      description: "Fast and precise for flat materials",
-      volumeRange: "10-1000 units",
-      idealFor: [
-        "Sheet metal parts",
-        "Precise cuts",
-        "2D designs"
+      materials: ["Nylon", "TPU", "PEEK", "Carbon Fiber Nylon"],
+      leadTime: "3-7 days",
+      advantages: [
+        "No support structures needed",
+        "Strong mechanical properties",
+        "Complex geometries possible",
+        "Professional finish",
+        "Good for functional parts"
       ],
-      maxDimensions: {
-        mm: { length: 300, width: 300, height: 10 },
-        inches: { length: 11.8, width: 11.8, height: 0.4 }
-      },
-      materials: ["Sheet metal", "Acrylic", "Wood"],
-      leadTime: "2-5 days"
+      surfaceFinish: "Slightly grainy, uniform texture",
+      accuracy: "± 0.1mm",
+      strengthRating: 5,
+      detailRating: 4,
+      costRating: 3
     }
   ];
-
+  
   // Filter methods based on dimensions
   const compatibleMethods = MANUFACTURING_METHODS.filter(method => {
     const maxDims = method.maxDimensions[productDimensions.unit];
@@ -77,13 +110,29 @@ export function ManufacturingRecommendations({
     );
   });
 
+  const renderRating = (rating: number, label: string) => (
+    <div className="flex items-center gap-1">
+      <div className="flex">
+        {[1, 2, 3, 4, 5].map((i) => (
+          <div
+            key={i}
+            className={`w-2 h-2 rounded-full mx-0.5 ${
+              i <= rating ? 'bg-blue-500' : 'bg-gray-200'
+            }`}
+          />
+        ))}
+      </div>
+      <span className="text-xs text-gray-500 ml-1">{label}</span>
+    </div>
+  );
+
   return (
     <div className="space-y-6">
       <div className="space-y-6 bg-gray-50 p-6 rounded-xl border border-gray-200">
         <div className="flex items-center gap-2 mb-4">
           <Package className="w-5 h-5 text-blue-500" />
           <h3 className="text-xl font-bold text-gray-700">
-            Recommended Manufacturing Methods
+            3D Printing Methods
           </h3>
         </div>
 
@@ -97,19 +146,31 @@ export function ManufacturingRecommendations({
               
               <div className="grid grid-cols-2 gap-4 mb-4">
                 <div>
-                  <p className="text-sm font-medium text-gray-500">Volume Range</p>
-                  <p className="text-gray-700">{method.volumeRange}</p>
-                </div>
-                <div>
                   <p className="text-sm font-medium text-gray-500">Lead Time</p>
                   <p className="text-gray-700">{method.leadTime}</p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-500">Accuracy</p>
+                  <p className="text-gray-700">{method.accuracy}</p>
                 </div>
               </div>
 
               <div className="mb-4">
-                <p className="text-sm font-medium text-gray-500 mb-2">Ideal For</p>
+                <p className="text-sm font-medium text-gray-500 mb-2">Surface Finish</p>
+                <p className="text-gray-700">{method.surfaceFinish}</p>
+              </div>
+
+              <div className="mb-4 space-y-2">
+                <p className="text-sm font-medium text-gray-500">Ratings</p>
+                {renderRating(method.strengthRating, 'Strength')}
+                {renderRating(method.detailRating, 'Detail')}
+                {renderRating(6 - method.costRating, 'Cost-effectiveness')}
+              </div>
+
+              <div className="mb-4">
+                <p className="text-sm font-medium text-gray-500 mb-2">Key Advantages</p>
                 <ul className="list-disc list-inside text-gray-700">
-                  {method.idealFor.map((item, i) => (
+                  {method.advantages.map((item, i) => (
                     <li key={i}>{item}</li>
                   ))}
                 </ul>

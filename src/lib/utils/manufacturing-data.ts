@@ -1,142 +1,142 @@
 export interface ManufacturingMethod {
   name: string;
   materials: string[];
-  volumeRange: string | {
-    min: number;
-    max: number;
-  };
   productTypes: string[];
   bestFor: string;
+  advantages: string[];
+  surfaceFinish: string;
+  accuracy: string;
+  strengthRating: number; // 1-5 scale
+  detailRating: number; // 1-5 scale
+  costRating: number; // 1-5 scale (1 being most affordable)
 }
 
 export const MANUFACTURING_METHODS: ManufacturingMethod[] = [
   {
-    name: '3D Printing (FDM)',
-    materials: ['PLA', 'ABS', 'PETG', 'Nylon'],
-    volumeRange: '1-100 units',
+    name: 'FDM 3D Printing',
+    materials: ['PLA', 'ABS', 'PETG', 'TPU'],
     productTypes: [
       'Prototypes',
-      'Custom figurines',
-      'Small mechanical parts',
-      'Enclosures',
-      'Basic functional shapes'
+      'Custom models',
+      'Functional parts',
+      'Display items'
     ],
-    bestFor: 'Personalized figurines, funky keychains, custom robot parts, unique phone stands, quirky lampshades'
+    bestFor: 'Affordable prototypes and functional parts with good structural strength',
+    advantages: [
+      'Most cost-effective option',
+      'Wide range of materials',
+      'Easy to post-process',
+      'Good structural properties',
+      'Fast turnaround time'
+    ],
+    surfaceFinish: 'Layer lines visible, can be smoothed',
+    accuracy: '± 0.2mm',
+    strengthRating: 4,
+    detailRating: 3,
+    costRating: 1
   },
   {
-    name: 'CNC Machining',
-    materials: ['Aluminum', 'Steel', 'Wood', 'Plastics (Acrylic)'],
-    volumeRange: '1-500 units',
+    name: 'Resin 3D Printing',
+    materials: ['Standard Resin', 'Tough Resin', 'Clear Resin', 'Flexible Resin'],
     productTypes: [
-      'Precision components',
-      'Mechanical parts',
-      'Brackets',
-      'Tooling',
-      'Decorative items'
+      'High-detail models',
+      'Jewelry prototypes',
+      'Dental models',
+      'Miniatures'
     ],
-    bestFor: 'Precision drone parts, luxury pen holders, sleek metal wallets, custom skateboard trucks'
+    bestFor: 'High-detail models requiring smooth surface finish and fine features',
+    advantages: [
+      'Excellent detail resolution',
+      'Smooth surface finish',
+      'Good for small features',
+      'Clear material options',
+      'Professional appearance'
+    ],
+    surfaceFinish: 'Very smooth, minimal layer lines',
+    accuracy: '± 0.05mm',
+    strengthRating: 3,
+    detailRating: 5,
+    costRating: 3
   },
   {
-    name: 'Laser Cutting',
-    materials: ['Metals (Steel, Aluminum)', 'Plastics', 'Wood'],
-    volumeRange: '1-1,000 units',
+    name: 'SLS 3D Printing',
+    materials: ['Nylon', 'TPU', 'PEEK', 'Carbon Fiber Nylon'],
     productTypes: [
-      'Flat components',
-      'Stencils',
-      'Signage',
-      'Decorative panels',
-      'Gears',
-      'Structural frames'
+      'End-use parts',
+      'Complex assemblies',
+      'Functional prototypes',
+      'Durable goods'
     ],
-    bestFor: 'Fancy nameplates, intricate jewelry, artsy coasters, cool wall décor, stylish laptop stands'
-  },
-  {
-    name: 'Sheet Metal Fabrication',
-    materials: ['Aluminum', 'Stainless Steel', 'Galvanized Steel'],
-    volumeRange: '10-500 units',
-    productTypes: [
-      'Enclosures',
-      'Brackets',
-      'Panels',
-      'Metal casings',
-      'Frames',
-      'Hardware'
+    bestFor: 'Strong, durable parts with complex geometries and no support structures',
+    advantages: [
+      'No support structures needed',
+      'Strong mechanical properties',
+      'Complex geometries possible',
+      'Professional finish',
+      'Good for functional parts'
     ],
-    bestFor: 'Sturdy bike racks, industrial lamp bases, modern planter boxes, edgy furniture frames'
-  },
-  {
-    name: 'Injection Molding',
-    materials: ['ABS', 'Polypropylene', 'Nylon'],
-    volumeRange: '500-10,000+ units',
-    productTypes: [
-      'Plastic housings',
-      'Electronics enclosures',
-      'Appliance parts',
-      'Containers',
-      'Caps',
-      'Toys',
-      'Consumer products'
-    ],
-    bestFor: 'Trendy sunglasses, colorful stacking toys, eco-friendly food containers, funky plastic chairs'
-  },
-  {
-    name: 'Die Casting',
-    materials: ['Aluminum', 'Zinc', 'Magnesium'],
-    volumeRange: '1,000-10,000+ units',
-    productTypes: [
-      'Metal housings',
-      'Automotive components',
-      'Hardware',
-      'Knobs',
-      'Handles',
-      'Heat sinks',
-      'Gears'
-    ],
-    bestFor: 'Shiny car door handles, sturdy bottle openers, heat-dissipating laptop coolers, fancy chess pieces'
+    surfaceFinish: 'Slightly grainy, uniform texture',
+    accuracy: '± 0.1mm',
+    strengthRating: 5,
+    detailRating: 4,
+    costRating: 4
   }
 ];
 
 export function getRecommendedMethods(
   features: string[],
-  volume: number,
   preferredMaterial?: string
 ): {
   recommended: ManufacturingMethod[];
   reasoning: string;
 } {
-  const compatibleMethods = MANUFACTURING_METHODS.filter(method => {
-    // Check volume constraints
-    let volumeCompatible = false;
-    if (typeof method.volumeRange === 'string') {
-      const [min, max] = method.volumeRange.split('-').map(v => parseInt(v));
-      volumeCompatible = volume >= min && (!max || volume <= max);
-    } else {
-      volumeCompatible = volume >= method.volumeRange.min && volume <= method.volumeRange.max;
+  // Bias towards FDM printing by giving it a higher base score
+  const methodScores = MANUFACTURING_METHODS.map(method => {
+    let score = method.name === 'FDM 3D Printing' ? 10 : 0; // Base score favoring FDM
+
+    // Add points for material compatibility
+    if (preferredMaterial && 
+        method.materials.some(m => m.toLowerCase().includes(preferredMaterial.toLowerCase()))) {
+      score += 5;
     }
-    
-    // Check material compatibility if preferred material is specified
-    const materialCompatible = !preferredMaterial || 
-      method.materials.some(m => m.toLowerCase().includes(preferredMaterial.toLowerCase()));
 
-    // Check feature compatibility
-    const featureCompatible = features.some(feature =>
-      method.productTypes.some(type => 
-        type.toLowerCase().includes(feature.toLowerCase())
-      )
-    );
+    // Add points for feature compatibility
+    features.forEach(feature => {
+      if (method.productTypes.some(type => type.toLowerCase().includes(feature.toLowerCase()))) {
+        score += 3;
+      }
+      // Additional points for specific features that match method strengths
+      if (feature.toLowerCase().includes('detail') && method.detailRating > 3) {
+        score += 2;
+      }
+      if (feature.toLowerCase().includes('strong') && method.strengthRating > 3) {
+        score += 2;
+      }
+      if (feature.toLowerCase().includes('cheap') || feature.toLowerCase().includes('affordable')) {
+        score += (5 - method.costRating) * 2; // More points for lower cost
+      }
+    });
 
-    return volumeCompatible && materialCompatible && featureCompatible;
+    return { method, score };
   });
 
-  // Generate reasoning
-  const reasoning = `Based on the identified features (${features.join(', ')}), ` +
-    `production volume of ${volume} units, ` +
-    (preferredMaterial ? `preferred material of ${preferredMaterial}, ` : '') +
-    `the following manufacturing methods are recommended. ` +
-    `These methods align with the product characteristics and production requirements.`;
+  // Sort by score and get recommended methods
+  const sortedMethods = methodScores
+    .sort((a, b) => b.score - a.score)
+    .map(item => item.method);
+
+  // Generate detailed reasoning for the top recommended method
+  const topMethod = sortedMethods[0];
+  const reasoning = `${topMethod.name} is recommended because: \n` +
+    `• ${topMethod.bestFor}\n` +
+    `• Key advantages: ${topMethod.advantages.slice(0, 3).join(', ')}\n` +
+    `• Surface finish: ${topMethod.surfaceFinish}\n` +
+    `• Accuracy: ${topMethod.accuracy}\n` +
+    (preferredMaterial ? `• Compatible with your preferred material\n` : '') +
+    `• ${topMethod.costRating === 1 ? 'Most cost-effective option' : 'Good value for the features provided'}`;
 
   return {
-    recommended: compatibleMethods,
+    recommended: sortedMethods,
     reasoning
   };
 } 

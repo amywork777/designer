@@ -1,95 +1,98 @@
 import { NextResponse } from 'next/server';
 import OpenAI from 'openai';
+import sharp from 'sharp';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
-const BASE_SETTINGS = "Professional product visualization from a 3/4 isometric view (front-right, slightly elevated angle). Clean design without text or labels. White/neutral background with subtle shadows.";
+const STYLE_PROMPTS = {
+  cartoon: "ultra-cute chibi style, soft rounded shapes, vibrant colors, clean lines",
+  realistic: "photorealistic 3D render, detailed textures, physically accurate materials",
+  geometric: "low-poly 3D model, clean geometric shapes, modern minimal style"
+};
 
-export async function POST(request: Request) {
+export async function POST(req: Request) {
   try {
-    const { prompt, mode, inputImage } = await request.json();
+    const { prompt, mode, inputImages, primaryImage, style, visionAnalysis } = await req.json();
 
-    if (!prompt) {
-      return NextResponse.json(
-        { error: 'Prompt is required' },
-        { status: 400 }
-      );
-    }
+    // If we have vision analysis and it's an edit mode, use it to inform the generation
+    if (mode === 'edit' && visionAnalysis) {
+      const { attributes } = visionAnalysis;
+      
+      // Ensure distinctive features is an array
+      const distinctiveFeatures = Array.isArray(attributes.distinctive) 
+        ? attributes.distinctive 
+        : attributes.distinctive?.split(',') || [];
+      
+      // Construct a detailed prompt based on the analysis
+      let generationPrompt = `Create a 3D model based on this reference: ${attributes.mainSubject}. `;
+      generationPrompt += `Maintain its key characteristics: ${distinctiveFeatures.join(', ')}. `;
+      
+      // Add style modification if requested
+      if (style && STYLE_PROMPTS[style]) {
+        generationPrompt += `Transform it into a ${style} style with ${STYLE_PROMPTS[style]}. `;
+      } else {
+        generationPrompt += `Maintain its original ${attributes.style} style. `;
+      }
+      
+      // Add any additional user requirements
+      if (prompt) {
+        generationPrompt += `Additional modifications: ${prompt}. `;
+      }
+      
+      // Add consistent positioning and quality requirements
+      generationPrompt += "Show the complete object from a 3/4 isometric view angle. Ensure high quality 3D rendering with clean background.";
 
-    let finalPrompt = prompt;
+      try {
+        // Generate the new image
+        const response = await openai.images.generate({
+          model: "dall-e-3",
+          prompt: generationPrompt,
+          n: 1,
+          size: "1024x1024",
+          quality: "hd",
+          style: "vivid"
+        });
 
-    // If we have an input image, analyze it first with GPT-4
-    if (mode === 'edit' && inputImage) {
-      // First analyze the image with GPT-4
-      const visionResponse = await openai.chat.completions.create({
-        model: "gpt-4o",
-        messages: [
-          {
-            role: "user",
-            content: [
-              { 
-                type: "text", 
-                text: "Analyze this product design and describe its key features, materials, and style. Focus on physical characteristics that would be important for creating a variation." 
-              },
-              {
-                type: "image_url",
-                image_url: {
-                  url: inputImage
-                }
-              }
-            ],
-          }
-        ],
-        max_tokens: 300,
+        return NextResponse.json({
+          success: true,
+          imageUrl: response.data[0].url,
+          prompt: generationPrompt
+        });
+
+      } catch (error) {
+        console.error('Image generation error:', error);
+        throw new Error('Failed to generate new image based on reference.');
+      }
+    } else {
+      // Text-to-image generation without reference
+      const basePrompt = style && STYLE_PROMPTS[style] 
+        ? `${prompt}. Style: ${STYLE_PROMPTS[style]}. Show complete object from 3/4 isometric view.`
+        : `${prompt}. Show complete object from 3/4 isometric view.`;
+
+      const response = await openai.images.generate({
+        model: "dall-e-3",
+        prompt: basePrompt,
+        n: 1,
+        size: "1024x1024",
+        quality: "hd",
+        style: "vivid"
       });
 
-      const imageAnalysis = visionResponse.choices[0]?.message?.content;
-
-      if (!imageAnalysis) {
-        throw new Error('Failed to analyze image');
-      }
-
-      // Combine the analysis with the user's prompt for the final generation
-      finalPrompt = `${BASE_SETTINGS}
-        Based on this reference design: ${imageAnalysis}
-        Create a new design with these modifications: ${prompt}
-        Maintain the core design language while incorporating the requested changes.
-        Ensure the output is a high-quality, professional product visualization.`;
+      return NextResponse.json({
+        success: true,
+        imageUrl: response.data[0].url,
+        prompt: basePrompt
+      });
     }
 
-    // Generate the new image using DALL-E 3
-    const imageResponse = await openai.images.generate({
-      model: "dall-e-3",
-      prompt: finalPrompt,
-      n: 1,
-      size: "1024x1024",
-      quality: "standard",
-      style: "natural"
-    });
-
-    const generatedImage = imageResponse.data[0]?.url;
-
-    if (!generatedImage) {
-      return NextResponse.json(
-        { error: 'Failed to generate image' },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json({
-      success: true,
-      imageUrl: generatedImage,
-      description: imageResponse.data[0]?.revised_prompt || null
-    });
-
-  } catch (error: any) {
-    console.error('Generation failed:', error);
+  } catch (error) {
+    console.error('OpenAI API error:', error);
     return NextResponse.json(
       { 
-        error: error.message || 'Failed to generate image',
-        details: process.env.NODE_ENV === 'development' ? error.toString() : undefined
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to generate image'
       },
       { status: 500 }
     );

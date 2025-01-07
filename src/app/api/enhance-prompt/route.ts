@@ -9,31 +9,14 @@ export async function POST(request: Request) {
   try {
     const { userPrompt, tool, productType } = await request.json();
 
-    const systemPrompt = `You are a professional product design engineer specializing in industrial design and manufacturing. 
-Your task is to convert simple design modification requests into detailed, technical specifications.
-Focus on physical properties, materials, and manufacturing-feasible modifications.
-Be specific about measurements, materials, and finishes.
-Keep the language clear and precise.`;
+    const systemPrompt = `You are a professional 3D artist specializing in creating appealing 3D models.
+Your task is to convert simple design requests into detailed visual descriptions.`;
 
-    const formatTemplate = `For a ${productType}, convert this request: "${userPrompt}" into a detailed specification following this structure:
+    const formatTemplate = `For this design request: "${userPrompt}", create a detailed visual description following this structure:
 
-${tool === 'select' ? `Transform the selected area to have the following properties:
-- Material & Finish: [specify material, texture, and finish]
-- Surface Treatment: [specify how it integrates with surrounding areas]
-- Lighting Properties: [specify reflection, shadows, highlights]
-- Manufacturing Details: [specify how it should appear manufactured]` 
-: tool === 'add' ? `Add a new feature with these specifications:
-- Feature Details: [precise description of what to add]
-- Integration: [how it should blend with existing design]
-- Material Match: [how materials should match existing product]
-- Manufacturing Quality: [how it should appear manufactured]`
-: `Remove the specified element with these considerations:
-- Surface Continuation: [how surrounding material should fill the space]
-- Texture Matching: [how to match surrounding texture]
-- Edge Treatment: [how to handle transitions]
-- Final Appearance: [how it should look when completed]`}
+${tool === 'select' ? `Modify the selected area with these design elements:` : `Modify this part of the design:`}
 
-Keep the response focused and concise, emphasizing photorealistic quality and manufacturing feasibility.`;
+Keep the response focused on creating an appealing and cohesive 3D model.`;
 
     const response = await openai.chat.completions.create({
       model: "gpt-4",
