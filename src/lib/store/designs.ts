@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import imageCompression from 'browser-image-compression';
 
 const MAX_DESIGNS = 10; // Maximum number of designs to store
 const MAX_IMAGES_PER_DESIGN = 3; // Maximum number of images per design
@@ -23,31 +24,34 @@ interface DesignStore {
 // Helper function to compress base64 image
 const compressBase64Image = async (base64: string): Promise<string> => {
   try {
+    // If it's not a base64 string, return as is
+    if (!base64.startsWith('data:image')) {
+      return base64;
+    }
+
     // Convert base64 to blob
     const response = await fetch(base64);
     const blob = await response.blob();
 
-    // Create canvas and context
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    const img = new Image();
+    // Compress using browser-image-compression
+    const options = {
+      maxSizeMB: 1,
+      maxWidthOrHeight: 1024,
+      useWebWorker: true
+    };
 
-    // Create a promise to handle image loading
+    const compressedBlob = await imageCompression(blob, options);
+
+    // Convert back to base64
     return new Promise((resolve) => {
-      img.onload = () => {
-        // Set canvas dimensions to 50% of original image
-        canvas.width = img.width * 0.5;
-        canvas.height = img.height * 0.5;
-
-        // Draw and compress image
-        ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL('image/jpeg', 0.7)); // Compress with 0.7 quality
-      };
-      img.src = base64;
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.readAsDataURL(compressedBlob);
     });
   } catch (error) {
-    console.error('Image compression failed:', error);
-    return base64; // Return original if compression fails
+    console.error('Error compressing image:', error);
+    // Return original image if compression fails
+    return base64;
   }
 };
 
@@ -56,38 +60,38 @@ export const useDesignStore = create<DesignStore>()(
     (set, get) => ({
       designs: [],
       addDesign: async (design, userId) => {
-        const designs = get().designs;
-        
-        // Compress images
-        const compressedImages = await Promise.all(
-          design.images.slice(0, MAX_IMAGES_PER_DESIGN).map(compressBase64Image)
-        );
-
-        // Create new design with compressed images
-        const newDesign = {
-          ...design,
-          id: Date.now().toString(),
-          createdAt: new Date().toISOString(),
-          userId,
-          images: compressedImages
-        };
-
-        // Get user's designs
-        const userDesigns = designs.filter(d => d.userId === userId);
-
-        // If user has max designs, remove oldest
-        if (userDesigns.length >= MAX_DESIGNS) {
-          const oldestDesign = userDesigns.reduce((oldest, current) => 
-            new Date(current.createdAt) < new Date(oldest.createdAt) ? current : oldest
+        try {
+          // Process images in parallel
+          const processedImages = await Promise.all(
+            design.images.map(async (img) => {
+              try {
+                return await compressBase64Image(img);
+              } catch (error) {
+                console.error('Error processing image:', error);
+                return img; // Use original if compression fails
+              }
+            })
           );
-          set({
-            designs: [
-              ...designs.filter(d => d.id !== oldestDesign.id),
-              newDesign
-            ]
-          });
-        } else {
-          set({ designs: [...designs, newDesign] });
+
+          const processedReferenceImage = design.referenceImage 
+            ? await compressBase64Image(design.referenceImage)
+            : null;
+
+          const newDesign = {
+            ...design,
+            images: processedImages,
+            referenceImage: processedReferenceImage
+          };
+
+          set((state) => ({
+            designs: [{
+              ...newDesign,
+              userId
+            }, ...state.designs]
+          }));
+        } catch (error) {
+          console.error('Error adding design:', error);
+          throw error;
         }
       },
       updateDesign: (id, updates) => {

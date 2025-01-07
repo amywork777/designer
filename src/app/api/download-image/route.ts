@@ -3,33 +3,39 @@ import { NextResponse } from 'next/server';
 export async function POST(req: Request) {
   try {
     const { imageUrl } = await req.json();
-
+    
     if (!imageUrl) {
       return NextResponse.json(
-        { success: false, error: 'Image URL is required' },
+        { success: false, error: 'No image URL provided' },
         { status: 400 }
       );
     }
 
+    // Fetch the image
     const response = await fetch(imageUrl);
-    const contentType = response.headers.get('content-type') || 'image/png';
-    const arrayBuffer = await response.arrayBuffer();
+    if (!response.ok) {
+      throw new Error('Failed to fetch image');
+    }
 
-    // Return the image data with appropriate headers
-    return new NextResponse(arrayBuffer, {
-      headers: {
-        'Content-Type': contentType,
-        'Content-Disposition': 'attachment; filename="generated-design.png"'
-      }
+    // Get the image data as a buffer
+    const imageBuffer = await response.arrayBuffer();
+
+    // Set appropriate headers for file download
+    const headers = new Headers();
+    headers.set('Content-Type', response.headers.get('Content-Type') || 'image/png');
+    headers.set('Content-Disposition', 'attachment; filename="generated-design.png"');
+    headers.set('Cache-Control', 'no-cache');
+
+    // Return the image as a downloadable file
+    return new NextResponse(imageBuffer, {
+      status: 200,
+      headers
     });
 
   } catch (error) {
     console.error('Download error:', error);
     return NextResponse.json(
-      { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Failed to download image'
-      }, 
+      { success: false, error: 'Failed to download image' },
       { status: 500 }
     );
   }

@@ -1,72 +1,35 @@
 import { NextResponse } from 'next/server';
 
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const imageUrl = searchParams.get('url');
-
-  if (!imageUrl) {
-    return new NextResponse('Missing image URL', { status: 400 });
-  }
-
+export async function POST(req: Request) {
   try {
-    // Check if it's a DALL-E URL
-    const isDalleUrl = imageUrl.includes('oaidalleapiprodscus.blob.core.windows.net');
-
-    const headers: HeadersInit = {
-      'Accept': 'image/*',
-    };
-
-    if (isDalleUrl) {
-      // Add required headers for DALL-E URLs
-      headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
-      
-      // Extract and use the SAS token from the URL
-      const url = new URL(imageUrl);
-      const sasToken = url.search.substring(1); // Remove the leading '?'
-      headers['Authorization'] = `SharedAccessSignature ${sasToken}`;
+    const { imageUrl } = await req.json();
+    
+    if (!imageUrl) {
+      return NextResponse.json(
+        { success: false, error: 'No image URL provided' },
+        { status: 400 }
+      );
     }
 
-    const response = await fetch(imageUrl, { headers });
-
+    const response = await fetch(imageUrl);
     if (!response.ok) {
-      throw new Error(`Failed to fetch image: ${response.status} ${response.statusText}`);
+      throw new Error('Failed to fetch image');
     }
 
-    const blob = await response.blob();
+    const imageBuffer = await response.arrayBuffer();
+    const headers = new Headers();
+    headers.set('Content-Type', response.headers.get('Content-Type') || 'image/png');
+    headers.set('Cache-Control', 'public, max-age=31536000');
 
-    return new NextResponse(blob, {
-      headers: {
-        'Content-Type': response.headers.get('Content-Type') || 'image/png',
-        'Content-Length': response.headers.get('Content-Length') || '',
-        'Cache-Control': 'public, max-age=31536000',
-        'Access-Control-Allow-Origin': '*',
-      },
+    return new NextResponse(imageBuffer, {
+      status: 200,
+      headers
     });
   } catch (error) {
-    console.error('Error proxying image:', error);
-    return new NextResponse(
-      JSON.stringify({ 
-        error: 'Failed to fetch image',
-        details: error instanceof Error ? error.message : 'Unknown error'
-      }), 
-      { 
-        status: 500,
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*'
-        }
-      }
+    console.error('Proxy error:', error);
+    return NextResponse.json(
+      { success: false, error: 'Failed to proxy image' },
+      { status: 500 }
     );
   }
-}
-
-// Add OPTIONS handler for CORS preflight requests
-export async function OPTIONS(request: Request) {
-  return new NextResponse(null, {
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    },
-  });
 } 

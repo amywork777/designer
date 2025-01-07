@@ -159,6 +159,25 @@ const MATERIAL_OPTIONS = [
   }
 ];
 
+// Add manufacturing methods constant
+const MANUFACTURING_METHODS = [
+  {
+    title: "FDM 3D Printing",
+    description: "Standard 3D printing, great for most designs",
+    recommended: false
+  },
+  {
+    title: "SLS 3D Printing",
+    description: "Professional-grade powder printing",
+    recommended: false
+  },
+  {
+    title: "Resin 3D Printing",
+    description: "High-detail resin printing",
+    recommended: false
+  }
+];
+
 const getRecommendedMethod = (quantity: number, description: string = ''): string => {
   const desc = description.toLowerCase();
   
@@ -253,6 +272,50 @@ const STYLE_OPTIONS = [
   }
 ];
 
+// Add this interface at the top of the file
+interface GenerateResponse {
+  success: boolean;
+  imageUrl?: string;
+  prompt?: string;
+  error?: string;
+}
+
+async function handleGenerateDesign(text: string, style?: string) {
+  try {
+    const response = await fetch('/api/generate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        text,
+        style,
+        mode: 'generate' // explicitly set mode for new generations
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to generate design');
+    }
+
+    const data = await response.json() as GenerateResponse;
+    
+    if (!data.success || !data.imageUrl) {
+      throw new Error(data.error || 'Failed to generate image');
+    }
+
+    return {
+      imageUrl: data.imageUrl,
+      prompt: data.prompt
+    };
+
+  } catch (error) {
+    console.error('Generation error:', error);
+    throw error instanceof Error ? error : new Error('Failed to generate design');
+  }
+}
+
 export default function LandingPage() {
   const { toast } = useToast();
   const router = useRouter();
@@ -337,109 +400,196 @@ export default function LandingPage() {
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     if (files.length > 0) {
-      if (inspirationImages.length + files.length > MAX_INSPIRATION_IMAGES) {
-        toast({
-          variant: "destructive",
-          title: "Error",
-          description: `You can only upload up to ${MAX_INSPIRATION_IMAGES} inspiration images`
-        });
-        return;
-      }
+      if (inputMethod === 'upload') {
+        // For direct uploads, add directly to designs
+        try {
+          const newImages = await Promise.all(
+            files.map(async (file) => {
+              const base64Image = await new Promise<string>((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                  if (typeof reader.result === 'string') {
+                    resolve(reader.result);
+                  }
+                };
+                reader.readAsDataURL(file);
+              });
+              return base64Image;
+            })
+          );
 
-      try {
-        const newImages = await Promise.all(
-          files.map(async (file) => {
-            const base64Image = await new Promise<string>((resolve) => {
-              const reader = new FileReader();
-              reader.onloadend = () => {
-                if (typeof reader.result === 'string') {
-                  resolve(reader.result);
-                }
-              };
-              reader.readAsDataURL(file);
-            });
-            return base64Image;
-          })
-        );
-
-        // Add each image to the designs store
-        for (const imageUrl of newImages) {
+          // Create new design and add to store
           const newDesign = {
+            id: Date.now().toString(),
             title: 'Uploaded Design',
-            images: [imageUrl],
+            images: [newImages[0]],
+            createdAt: new Date().toISOString(),
             prompt: '',
-            analysis: {
-              productDescription: '',
-              dimensions: '',
-              manufacturingOptions: [],
-              status: 'pending'
-            }
+            style: null
           };
-          
-          // Add to store with user ID
+
+          // Add the design to the store with the user ID
           const userId = session?.user?.id || 'anonymous';
           addDesign(newDesign, userId);
+          
+          // Set the uploaded image as the selected design
+          setSelectedDesign(newImages[0]);
+          setShowAnalysis(true);
+
+          toast({
+            title: "Success",
+            description: "Design uploaded successfully!"
+          });
+        } catch (error) {
+          console.error('Error processing images:', error);
+          toast({
+            variant: "destructive",
+            title: "Error",
+            description: "Failed to process images. Please try again."
+          });
+        }
+      } else {
+        // For reference images in text mode
+        if (inspirationImages.length + files.length > MAX_INSPIRATION_IMAGES) {
+          toast({
+            variant: "destructive",
+            title: "Error",
+            description: `You can only upload up to ${MAX_INSPIRATION_IMAGES} inspiration images`
+          });
+          return;
         }
 
-        setInspirationImages(prev => [...prev, ...newImages]);
-        setSelectedDesign(newImages[0]); // Set first image as selected
-        
-        toast({
-          title: "Success",
-          description: "Images uploaded successfully!"
-        });
-      } catch (error) {
-        console.error('Error processing images:', error);
-        toast({
-          variant: "destructive",
-          title: "Error",
-          description: "Failed to process images. Please try again."
-        });
+        try {
+          const newImages = await Promise.all(
+            files.map(async (file) => {
+              const base64Image = await new Promise<string>((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                  if (typeof reader.result === 'string') {
+                    resolve(reader.result);
+                  }
+                };
+                reader.readAsDataURL(file);
+              });
+              return base64Image;
+            })
+          );
+
+          // Set the inspiration images without adding to designs store
+          setInspirationImages(prev => [...prev, ...newImages]);
+          
+          toast({
+            title: "Success",
+            description: "Reference image uploaded successfully!"
+          });
+        } catch (error) {
+          console.error('Error processing images:', error);
+          toast({
+            variant: "destructive",
+            title: "Error",
+            description: "Failed to process images. Please try again."
+          });
+        }
       }
     }
   };
 
-  const handleGenerateWithImage = async (file: File) => {
+  const handleGenerateDesign = async () => {
+    if (hasUsedFreeDesign && !session?.user?.id) {
+      const result = await signIn("google", { 
+        redirect: false,
+        callbackUrl: window.location.href 
+      });
+      return;
+    }
+
+    setGenerating(true);
+    setError(null);
+
     try {
-      const processedDataUrl = await preprocessImage(file);
-      setImagePreview(processedDataUrl);
-      
-      // This will be used as reference for AI generation
-      const response = await fetch('/api/generateImage', {
+      // If we have inspiration images, convert them to base64 if needed
+      let referenceImage = null;
+      if (inspirationImages.length > 0) {
+        // If the image is already base64, use it directly
+        if (inspirationImages[0].startsWith('data:image')) {
+          referenceImage = inspirationImages[0];
+        } else {
+          // If it's a URL, fetch and convert to base64
+          try {
+            const response = await fetch(inspirationImages[0]);
+            const blob = await response.blob();
+            referenceImage = await new Promise((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result as string);
+              reader.readAsDataURL(blob);
+            });
+          } catch (error) {
+            console.error('Error processing reference image:', error);
+            throw new Error('Failed to process reference image');
+          }
+        }
+      }
+
+      const response = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          prompt: textPrompt,
-          referenceImage: processedDataUrl
+        body: JSON.stringify({
+          text: textPrompt,
+          style: selectedStyle,
+          mode: 'generate',
+          image: referenceImage // Include the processed reference image
         }),
       });
 
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to generate design');
+      }
 
-      // Set the generated image as selected design
-      setSelectedDesign(data.images[0]);
+      const data = await response.json();
       
-      // Add to design store
+      if (!data.success || !data.imageUrl) {
+        throw new Error(data.error || 'Failed to generate image');
+      }
+
+      // Create new design
       const newDesign = {
         id: Date.now().toString(),
-        title: generateDesignTitle(textPrompt),
-        images: data.images,
-        createdAt: new Date().toISOString()
+        title: textPrompt ? generateDesignTitle(textPrompt) : 'New Design',
+        images: [data.imageUrl],
+        createdAt: new Date().toISOString(),
+        prompt: textPrompt || '',
+        style: selectedStyle || null,
+        referenceImage: referenceImage // Store the reference image
       };
-      addDesign(newDesign);
+
+      // Add to store
+      const userId = session?.user?.id || 'anonymous';
+      try {
+        await addDesign(newDesign, userId);
+      } catch (storeError) {
+        console.error('Error adding design to store:', storeError);
+        // Continue execution even if store fails
+      }
+      
+      // Update UI
+      setSelectedDesign(data.imageUrl);
+      setShowAnalysis(true);
 
       toast({
         title: "Success",
-        description: "New design generated! Scroll down to see manufacturing options."
+        description: "Design generated successfully!"
       });
+
     } catch (error) {
-      console.error('Error generating design:', error);
+      console.error('Generation failed:', error);
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Failed to generate design. Please try again."
+        description: error instanceof Error ? error.message : "Failed to generate design"
       });
+    } finally {
+      setGenerating(false);
     }
   };
 
@@ -517,149 +667,31 @@ export default function LandingPage() {
     }
   };
 
-  const handleGenerateDesign = async () => {
-    if (hasUsedFreeDesign && !session?.user?.id) {
-      const result = await signIn("google", { 
-        redirect: false,
-        callbackUrl: window.location.href 
-      });
-      return;
-    }
-
-    setGenerating(true);
-    setError(null);
-
-    try {
-      let payload;
-
-      if (inputMethod === 'text') {
-        if (!textPrompt.trim()) {
-          toast({
-            variant: "destructive",
-            title: "Error",
-            description: "Please enter a text description"
-          });
-          return;
-        }
-        
-        payload = {
-          prompt: textPrompt.trim(),
-          mode: 'generate',
-          style: selectedStyle
-        };
-      } else if (inputMethod === 'upload') {
-        if (!inspirationImages.length) {
-          toast({
-            variant: "destructive",
-            title: "Error",
-            description: "Please upload at least one image"
-          });
-          return;
-        }
-
-        // First analyze the image with GPT-4 Vision
-        const visionResponse = await fetch('/api/analyze-image', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            imageUrl: inspirationImages[0]
-          })
-        });
-
-        if (!visionResponse.ok) {
-          throw new Error('Failed to analyze image');
-        }
-
-        const visionData = await visionResponse.json();
-        
-        if (!visionData.success) {
-          throw new Error(visionData.error || 'Failed to analyze image');
-        }
-
-        // Show analysis to user
-        toast({
-          title: "Analysis Complete",
-          description: "Creating your design based on the analysis..."
-        });
-
-        // Create generation payload using the analysis
-        payload = {
-          prompt: textPrompt.trim(),
-          mode: 'edit',
-          visionAnalysis: visionData,
-          style: selectedStyle
-        };
-      }
-
-      // Generate the image
-      const response = await fetch('/api/generateImage', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'Failed to generate image');
-      }
-
-      const data = await response.json();
-
-      if (!data.imageUrl) {
-        throw new Error('No image URL in response');
-      }
-
-      // Create new design with the analysis data
-      const newDesign = {
-        id: Date.now().toString(),
-        title: generateDesignTitle(textPrompt || 'New Design'),
-        images: [data.imageUrl],
-        createdAt: new Date().toISOString(),
-        analysis: {
-          productDescription: textPrompt || '',
-          dimensions: '',
-          manufacturingOptions: [],
-          ...(payload.visionAnalysis?.attributes || {})
-        }
-      };
-
-      // Add the design to the store with the user ID
-      const userId = session?.user?.id || 'anonymous';
-      addDesign(newDesign, userId);
-      
-      setSelectedDesign(data.imageUrl);
-      setShowAnalysis(true);
-
-      toast({
-        title: "Success",
-        description: "Design generated successfully!"
-      });
-
-    } catch (error) {
-      console.error('Generation failed:', error);
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to generate design"
-      });
-    } finally {
-      setGenerating(false);
-    }
-  };
-
   const handleDownload = async (imageUrl: string) => {
     try {
+      // If it's a blob URL, convert it to base64 first
+      let downloadUrl = imageUrl;
+      if (imageUrl.startsWith('blob:')) {
+        const response = await fetch(imageUrl);
+        const blob = await response.blob();
+        downloadUrl = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.readAsDataURL(blob);
+        });
+      }
+
       const response = await fetch('/api/download-image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageUrl })
+        body: JSON.stringify({ imageUrl: downloadUrl })
       });
 
       if (!response.ok) {
         throw new Error('Failed to download image');
       }
 
-      // Get the blob from the response
+      // Create a blob from the response
       const blob = await response.blob();
       
       // Create a download link
@@ -699,122 +731,91 @@ export default function LandingPage() {
 
       // Convert image URL to base64 if needed
       let imageData = selectedDesign;
-      if (selectedDesign.startsWith('data:')) {
-        // Already base64, use as is
-        imageData = selectedDesign;
-      } else if (selectedDesign.startsWith('blob:')) {
-        // Convert blob URL to base64
-        const response = await fetch(selectedDesign);
-        const blob = await response.blob();
-        imageData = await new Promise((resolve) => {
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            if (typeof reader.result === 'string') {
-              resolve(reader.result);
-            }
-          };
-          reader.readAsDataURL(blob);
-        });
-      } else {
-        // Regular URL, fetch and convert to base64
-        const response = await fetch(selectedDesign);
-        const blob = await response.blob();
-        imageData = await new Promise((resolve) => {
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            if (typeof reader.result === 'string') {
-              resolve(reader.result);
-            }
-          };
-          reader.readAsDataURL(blob);
-        });
+      if (!selectedDesign.startsWith('data:')) {
+        try {
+          // Use the proxy endpoint to fetch the image
+          const proxyResponse = await fetch('/api/proxy-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ imageUrl: selectedDesign })
+          });
+
+          if (!proxyResponse.ok) {
+            throw new Error('Failed to fetch image through proxy');
+          }
+
+          const blob = await proxyResponse.blob();
+          imageData = await new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.readAsDataURL(blob);
+          });
+        } catch (error) {
+          console.error('Error processing image:', error);
+          throw new Error('Failed to process image');
+        }
       }
 
-      // First analyze the current image with GPT-4 Vision
-      const visionResponse = await fetch('/api/analyze-image', {
+      // Send to the generate endpoint with edit mode
+      const response = await fetch('/api/generate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({
-          imageUrl: imageData
-        })
+          mode: 'edit',
+          image: imageData,
+          text: editPrompt,
+          style: selectedStyle
+        }),
       });
 
-      if (!visionResponse.ok) {
-        const errorData = await visionResponse.json();
-        throw new Error(errorData.error || 'Failed to analyze image');
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to edit design');
       }
 
-      const visionData = await visionResponse.json();
+      const data = await response.json();
       
-      if (!visionData.success) {
-        throw new Error(visionData.error || 'Failed to analyze image');
+      if (!data.success || !data.imageUrl) {
+        throw new Error(data.error || 'Failed to generate edited image');
       }
+
+      // Fetch the generated image through the proxy
+      const finalImageResponse = await fetch('/api/proxy-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageUrl: data.imageUrl })
+      });
+
+      if (!finalImageResponse.ok) {
+        throw new Error('Failed to fetch generated image');
+      }
+
+      const finalImageBlob = await finalImageResponse.blob();
+      const finalImageUrl = URL.createObjectURL(finalImageBlob);
 
       // Find or create the design in the store
       let currentDesign = designs.find(d => d.images.includes(selectedDesign));
       
       if (!currentDesign) {
-        // If the design isn't in the store yet, create it
-        const newDesign = {
+        currentDesign = {
           id: Date.now().toString(),
-          title: 'Uploaded Design',
+          title: 'Edited Design',
           images: [selectedDesign],
+          createdAt: new Date().toISOString(),
           prompt: editPrompt,
-          analysis: {
-            productDescription: '',
-            dimensions: '',
-            manufacturingOptions: [],
-            status: 'pending'
-          }
+          style: selectedStyle || null
         };
-        
-        const userId = session?.user?.id || 'anonymous';
-        addDesign(newDesign, userId);
-        currentDesign = designs.find(d => d.images.includes(selectedDesign));
-        
-        if (!currentDesign) {
-          throw new Error('Failed to create design record');
-        }
       }
 
-      // Generate the new image using the analysis and edit prompt
-      const payload = {
-        prompt: editPrompt,
-        mode: 'edit',
-        visionAnalysis: visionData,
-        style: selectedStyle
-      };
-
-      const response = await fetch('/api/generateImage', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload)
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to generate new design');
-      }
-
-      const data = await response.json();
-
-      if (!data.success || !data.imageUrl) {
-        throw new Error('No image URL in response');
-      }
-
-      // Update the design with the new image and analysis
+      // Update the design with the new image
       updateDesign(currentDesign.id, {
-        images: [...currentDesign.images, data.imageUrl],
-        analysis: {
-          ...currentDesign.analysis,
-          productDescription: visionData.description || '',
-          status: 'analyzed'
-        }
+        images: [...currentDesign.images, finalImageUrl],
+        prompt: editPrompt
       });
       
-      setSelectedDesign(data.imageUrl);
+      setSelectedDesign(finalImageUrl);
       setShowEditDialog(false);
       setEditPrompt('');
 
@@ -894,10 +895,7 @@ export default function LandingPage() {
         
         const recommendedMaterials = getRecommendedMaterials(quantity, currentAnalysis.description);
         if (recommendedMaterials.length > 0) {
-          setSelectedMaterials(prev => ({
-            ...prev,
-            [recommendedMethod]: recommendedMaterials[0]
-          }));
+          setSelectedMaterial(recommendedMaterials[0]);
         }
       }
 
@@ -941,7 +939,7 @@ export default function LandingPage() {
   };
 
   const handleProceed = async () => {
-    if (!selectedMethod || !selectedMaterials[selectedMethod]) {
+    if (!selectedMethod || !selectedMaterial) {
       toast({
         variant: "destructive",
         title: "Error",
@@ -955,7 +953,7 @@ export default function LandingPage() {
       const order = {
         designId: selectedDesign,
         manufacturingMethod: selectedMethod,
-        material: selectedMaterials[selectedMethod],
+        material: selectedMaterial,
         dimensions,
       };
       
@@ -1118,10 +1116,7 @@ export default function LandingPage() {
         methodDetails.recommended = true;
         // Auto-select the first recommended material if available
         if (recommendedMaterials.length > 0) {
-          setSelectedMaterials({
-            ...selectedMaterials,
-            [recommendedMethod]: recommendedMaterials[0]
-          });
+          setSelectedMaterial(recommendedMaterials[0]);
         }
         // Reset other methods' recommended status
         MANUFACTURING_METHODS.forEach(m => {
@@ -1147,29 +1142,22 @@ export default function LandingPage() {
     }
   };
 
-  // Update the useEffect to handle material recommendations too
+  // Update the useEffect to handle material recommendations
   useEffect(() => {
-    if (selectedDesign && designs.find(d => d.images.includes(selectedDesign))?.analysis) {
+    if (selectedDesign && designs.find(d => d.images.includes(selectedDesign))) {
       const design = designs.find(d => d.images.includes(selectedDesign));
-      const newRecommendedMethod = getRecommendedMethod(quantity, design?.analysis?.description);
-      const newRecommendedMaterials = getRecommendedMaterials(quantity, design?.analysis?.description);
+      const description = design?.analysis?.description || '';
+      const newRecommendedMethod = getRecommendedMethod(quantity, description);
+      const newRecommendedMaterials = getRecommendedMaterials(quantity, description);
       
       setSelectedMethod(newRecommendedMethod);
       
       // Auto-select the first recommended material
       if (newRecommendedMaterials.length > 0) {
-        setSelectedMaterials(prev => ({
-          ...prev,
-          [newRecommendedMethod]: newRecommendedMaterials[0]
-        }));
+        setSelectedMaterial(newRecommendedMaterials[0]);
       }
-      
-      // Update the UI for manufacturing methods
-      MANUFACTURING_METHODS.forEach(m => {
-        m.recommended = m.title === newRecommendedMethod;
-      });
     }
-  }, [quantity, selectedDesign]);
+  }, [quantity, selectedDesign, designs]);
 
   const handleGenerateManufacturingPlan = async () => {
     if (!validateDimensions()) {
@@ -1240,6 +1228,11 @@ export default function LandingPage() {
             leadTime: analysisData.selectedOption.leadTime
           } : undefined
         });
+
+        // Set the recommended material
+        if (analysisData.recommendedMaterials?.length > 0) {
+          setSelectedMaterial(analysisData.recommendedMaterials[0]);
+        }
       }
     }
   };
@@ -1302,10 +1295,7 @@ export default function LandingPage() {
         
         // Auto-select the first recommended material if available
         if (data.recommendedMaterials && data.recommendedMaterials.length > 0) {
-          setSelectedMaterials(prev => ({
-            ...prev,
-            [data.recommendedMethod]: data.recommendedMaterials[0]
-          }));
+          setSelectedMaterial(data.recommendedMaterials[0]);
         }
       }
 
@@ -1469,22 +1459,51 @@ export default function LandingPage() {
                     <div className="space-y-2">
                       <div className="flex items-center gap-2 text-gray-700">
                         <Upload className="w-4 h-4" />
-                        <span>Add reference image (optional)</span>
+                        <span>Add reference image</span>
                       </div>
-                      <div
-                        onClick={() => fileInputRef.current?.click()}
-                        className="border-2 border-dashed border-gray-200 rounded-lg p-8 cursor-pointer hover:border-blue-500 transition-colors text-center"
-                      >
-                        <Upload className="w-6 h-6 text-gray-400 mx-auto mb-2" />
-                        <p className="text-gray-600">Drop a reference image, or click to browse</p>
-                        <p className="text-sm text-gray-500">Helps us better understand your vision</p>
-                        <input
-                          type="file"
-                          ref={fileInputRef}
-                          onChange={handleFileUpload}
-                          accept="image/png,image/jpeg,image/svg+xml"
-                          className="hidden"
-                        />
+                      <div className="space-y-4">
+                        {/* Display uploaded reference images */}
+                        {inspirationImages.length > 0 && (
+                          <div className="grid grid-cols-3 gap-2">
+                            {inspirationImages.map((imageUrl, index) => (
+                              <div key={index} className="relative aspect-square">
+                                <img
+                                  src={imageUrl}
+                                  alt={`Reference ${index + 1}`}
+                                  className="w-full h-full object-cover rounded-lg"
+                                />
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setInspirationImages(prev => prev.filter((_, i) => i !== index));
+                                  }}
+                                  className="absolute top-1 right-1 p-1 bg-white rounded-full hover:bg-gray-100"
+                                >
+                                  <X className="w-4 h-4 text-gray-600" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        
+                        {/* Upload button */}
+                        {inspirationImages.length < MAX_INSPIRATION_IMAGES && (
+                          <div
+                            onClick={() => fileInputRef.current?.click()}
+                            className="border-2 border-dashed border-gray-200 rounded-lg p-8 cursor-pointer hover:border-blue-500 transition-colors text-center"
+                          >
+                            <Upload className="w-6 h-6 text-gray-400 mx-auto mb-2" />
+                            <p className="text-gray-600">Drop a reference image, or click to browse</p>
+                            <p className="text-sm text-gray-500">Helps us better understand your vision</p>
+                            <input
+                              type="file"
+                              ref={fileInputRef}
+                              onChange={handleFileUpload}
+                              accept="image/png,image/jpeg,image/svg+xml"
+                              className="hidden"
+                            />
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -1511,11 +1530,18 @@ export default function LandingPage() {
                     {/* Generate Button */}
                     <button
                       onClick={handleGenerateDesign}
-                      disabled={generating || (!textPrompt.trim() && !uploadedFile)}
+                      disabled={generating || (!textPrompt.trim() && !inspirationImages.length)}
                       className="w-full py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 
                         disabled:bg-blue-300 disabled:cursor-not-allowed transition-colors"
                     >
-                      Generate Design
+                      {generating ? (
+                        <div className="flex items-center justify-center gap-2">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Generating...
+                        </div>
+                      ) : (
+                        'Generate Design'
+                      )}
                     </button>
                   </div>
                 ) : (
