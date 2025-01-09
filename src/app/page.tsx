@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Sparkles, Wand, Upload, PenTool, Type, Download, Cog, Clock, ChevronRight, Edit, Loader2, History, X, FileText, Info, Package, Palette, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
+import { Sparkles, Wand, Upload, PenTool, Type, Download, Cog, Clock, ChevronRight, Edit, Loader2, History, X, FileText, Info, Package, Palette, RefreshCw, ChevronDown, ChevronUp, Check, Lock } from 'lucide-react';
 import { useToast } from "@/components/ui/use-toast";
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
@@ -16,6 +16,7 @@ import { useSession } from "next-auth/react";
 import { signIn } from "next-auth/react";
 import { ManufacturingRecommendations } from '@/components/ManufacturingRecommendations';
 import { DesignFeeSection } from '@/components/DesignFeeSection';
+import { SIZES } from '@/lib/types/sizes';
 
 const PROGRESS_STEPS = [
   {
@@ -126,10 +127,8 @@ const generateDesignTitle = (prompt: string): string => {
 
 // Add this type for dimensions
 interface Dimensions {
-  length: number;
-  width: number;
-  height: number;
-  unit: 'mm' | 'inches';
+  size?: SizeType;
+  unit: 'inches';
 }
 
 // Add this interface for tracking image states
@@ -140,22 +139,29 @@ interface ImageState {
 
 const MATERIAL_OPTIONS = [
   {
-    title: "Standard PLA",
-    description: "Durable everyday plastic, great for most designs",
-    cost: "$ (Most Affordable)",
-    color: "Available in many colors"
+    title: "PLA",
+    description: "Basic plastic filament, easy to print, most common and cost-effective.",
+    cost: "$ (Most Affordable)"
   },
   {
-    title: "Premium PETG",
-    description: "Stronger and more durable than PLA",
-    cost: "$$ (Mid-Range)",
-    color: "Transparent or solid colors"
+    title: "Wood PLA",
+    description: "Regular PLA mixed with wood particles for natural look.",
+    cost: "$$ (Mid-Range)"
   },
   {
-    title: "Professional Resin",
-    description: "Smooth finish with fine details",
-    cost: "$$$ (Premium)",
-    color: "Various premium finishes"
+    title: "TPU",
+    description: "Flexible, squishy rubber-like material that can bend.",
+    cost: "$$ (Mid-Range)"
+  },
+  {
+    title: "Resin",
+    description: "Liquid that cures into solid, gives smoothest finish, provides high detail.",
+    cost: "$$$ (Premium)"
+  },
+  {
+    title: "Aluminum",
+    description: "High-quality metal that provides an elegant look.",
+    cost: "$$$$ (Premium)"
   }
 ];
 
@@ -280,18 +286,29 @@ interface GenerateResponse {
   error?: string;
 }
 
-async function handleGenerateDesign(text: string, style?: string) {
+const handleGenerateDesign = async (text: string, style?: string, images: string[] = []) => {
   try {
+    // Create the request body with reference images
+    const requestBody = {
+      text,
+      style,
+      mode: 'generate',
+      styleDescription: style ? STYLE_PROMPTS[style] : '',
+      referenceImages: images // Use passed images parameter
+    };
+
+    console.log('Generating design with:', {
+      text,
+      style,
+      hasReferenceImages: images.length > 0
+    });
+
     const response = await fetch('/api/generate', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        text,
-        style,
-        mode: 'generate' // explicitly set mode for new generations
-      }),
+      body: JSON.stringify(requestBody),
     });
 
     if (!response.ok) {
@@ -314,7 +331,122 @@ async function handleGenerateDesign(text: string, style?: string) {
     console.error('Generation error:', error);
     throw error instanceof Error ? error : new Error('Failed to generate design');
   }
-}
+};
+
+// Add this constant for style prompts
+const STYLE_PROMPTS: Record<string, string> = {
+  cartoon: "Create in a cute, stylized cartoon style with clean lines and vibrant colors",
+  realistic: "Generate a photorealistic 3D render with detailed textures and physically accurate materials",
+  geometric: "Design using clean geometric shapes and minimal modern style"
+};
+
+// Add these constants near the top of the file with other constants
+const PRICING = {
+  Mini: { PLA: 20, Wood: 40, TPU: 45, Resin: 60, Aluminum: 200 },
+  Small: { PLA: 35, Wood: 55, TPU: 60, Resin: 80, Aluminum: 'contact us' },
+  Medium: { PLA: 60, Wood: 125, TPU: 150, Resin: 200, Aluminum: 'contact us' },
+  Large: { PLA: 'contact us', Wood: 'contact us', TPU: 'contact us', Resin: 'contact us', Aluminum: 'contact us' }
+} as const;
+
+const DELIVERY_ESTIMATES = {
+  Mini: { PLA: '< 2 weeks', Wood: '< 2 weeks', TPU: '< 2 weeks', Resin: '< 2 weeks' },
+  Small: { PLA: '< 2 weeks', Wood: '< 3 weeks', TPU: '< 3 weeks', Resin: '< 2 weeks' },
+  Medium: { PLA: '< 2 weeks', Wood: '< 3 weeks', TPU: '< 3 weeks', Resin: '< 2 weeks' },
+  Large: { PLA: '< 1 month', Wood: '< 1 month', TPU: '< 3 weeks', Resin: '< 2 weeks' }
+} as const;
+
+// Add this helper function
+const getPriceAndDelivery = (size: string, material: string) => {
+  const materialKey = material.replace(' PLA', '') as keyof typeof PRICING.Mini;
+  const sizeKey = size as keyof typeof PRICING;
+  
+  const price = PRICING[sizeKey]?.[materialKey];
+  const delivery = DELIVERY_ESTIMATES[sizeKey]?.[materialKey];
+  
+  return { price, delivery };
+};
+
+// Add this helper function near other utility functions
+const getMaterialRecommendation = async (imageUrl: string) => {
+  try {
+    // If the image is a blob URL, convert it to base64
+    let processedImageUrl = imageUrl;
+    if (imageUrl.startsWith('blob:')) {
+      const response = await fetch(imageUrl);
+      const blob = await response.blob();
+      processedImageUrl = await new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.readAsDataURL(blob);
+      });
+    }
+
+    const response = await fetch('/api/analyze-material', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageUrl: processedImageUrl })
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to analyze design');
+    }
+
+    const data = await response.json();
+    if (!data.recommendedMaterial || !data.reason) {
+      throw new Error('Invalid response from material analysis');
+    }
+
+    return data;
+  } catch (error) {
+    console.error('Error getting material recommendation:', error);
+    throw error instanceof Error ? error : new Error('Failed to analyze design');
+  }
+};
+
+// Add this function near other utility functions
+const analyzeImageForEdit = async (imageUrl: string) => {
+  try {
+    console.log('Starting design analysis...');
+    const response = await fetch('/api/analyze-design', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageUrl })
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error('Analysis failed:', errorData);
+      throw new Error(errorData.error || 'Failed to analyze design');
+    }
+
+    const data = await response.json();
+    if (!data.description) {
+      console.error('No description in response:', data);
+      throw new Error('Invalid analysis response');
+    }
+
+    console.log('Analysis successful:', data.description.substring(0, 100) + '...');
+    return data.description;
+  } catch (error) {
+    console.error('Error analyzing image:', error);
+    toast({
+      variant: "destructive",
+      title: "Analysis Failed",
+      description: error instanceof Error ? error.message : "Failed to analyze design"
+    });
+    throw error;
+  }
+};
+
+// Add this component near the top of your file
+const LoadingSkeleton = () => (
+  <div className="animate-pulse">
+    <div className="aspect-square bg-gray-200 rounded-lg mb-4" />
+    <div className="h-4 bg-gray-200 rounded w-3/4 mb-2" />
+    <div className="h-4 bg-gray-200 rounded w-1/2" />
+  </div>
+);
 
 export default function LandingPage() {
   const { toast } = useToast();
@@ -344,10 +476,8 @@ export default function LandingPage() {
   const [imageStates, setImageStates] = useState<Record<string, ImageState>>({});
   const [hasUsedFreeDesign, setHasUsedFreeDesign] = useState(false);
   const [dimensions, setDimensions] = useState<Dimensions>({
-    length: 0,
-    width: 0,
-    height: 0,
-    unit: 'mm'
+    size: undefined,
+    unit: 'inches'
   });
   const [dimensionsError, setDimensionsError] = useState<string | null>(null);
   const [showDesignFee, setShowDesignFee] = useState(false);
@@ -363,7 +493,15 @@ export default function LandingPage() {
   const [inspirationImages, setInspirationImages] = useState<string[]>([]);
   const MAX_INSPIRATION_IMAGES = 3;
   const [selectedStyle, setSelectedStyle] = useState<string | null>(null);
-  const [is3DView, setIs3DView] = useState(false);
+  const [recommendationInfo, setRecommendationInfo] = useState<{
+    material: string;
+    reason: string;
+  } | null>(null);
+  const [isDesignFinalized, setIsDesignFinalized] = useState(false);
+  // Add this ref at the top of your component
+  const analysisRef = useRef<HTMLDivElement>(null);
+  // Add this at the top of your component with other state declarations
+  const [scrollToAnalysis, setScrollToAnalysis] = useState(false);
 
   const handleImageError = (imageUrl: string) => (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
     const img = e.target as HTMLImageElement;
@@ -382,17 +520,10 @@ export default function LandingPage() {
   };
 
   const validateDimensions = () => {
-    if (dimensions.length <= 0 || dimensions.width <= 0 || dimensions.height <= 0) {
-      setDimensionsError('Please enter valid dimensions');
+    if (!dimensions.size) {
+      setDimensionsError('Please select a size');
       return false;
     }
-    
-    const maxSize = dimensions.unit === 'mm' ? 300 : 12; // 300mm or 12 inches
-    if (dimensions.length > maxSize || dimensions.width > maxSize || dimensions.height > maxSize) {
-      setDimensionsError(`Dimensions must not exceed ${maxSize}${dimensions.unit}`);
-      return false;
-    }
-
     setDimensionsError(null);
     return true;
   };
@@ -432,9 +563,10 @@ export default function LandingPage() {
           const userId = session?.user?.id || 'anonymous';
           addDesign(newDesign, userId);
           
-          // Set the uploaded image as the selected design
+          // Set the uploaded image as selected and trigger scroll
           setSelectedDesign(newImages[0]);
           setShowAnalysis(true);
+          setScrollToAnalysis(true); // Add this line to trigger scroll
 
           toast({
             title: "Success",
@@ -494,99 +626,52 @@ export default function LandingPage() {
     }
   };
 
-  const handleGenerateDesign = async () => {
-    if (hasUsedFreeDesign && !session?.user?.id) {
-      const result = await signIn("google", { 
-        redirect: false,
-        callbackUrl: window.location.href 
+  const handleGenerateClick = async () => {
+    if (!textPrompt.trim()) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Please enter a description"
       });
       return;
     }
 
     setGenerating(true);
-    setError(null);
-
     try {
-      // If we have inspiration images, convert them to base64 if needed
-      let referenceImage = null;
-      if (inspirationImages.length > 0) {
-        // If the image is already base64, use it directly
-        if (inspirationImages[0].startsWith('data:image')) {
-          referenceImage = inspirationImages[0];
-        } else {
-          // If it's a URL, fetch and convert to base64
-          try {
-            const response = await fetch(inspirationImages[0]);
-            const blob = await response.blob();
-            referenceImage = await new Promise((resolve) => {
-              const reader = new FileReader();
-              reader.onloadend = () => resolve(reader.result as string);
-              reader.readAsDataURL(blob);
-            });
-          } catch (error) {
-            console.error('Error processing reference image:', error);
-            throw new Error('Failed to process reference image');
-          }
-        }
-      }
-
-      const response = await fetch('/api/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: textPrompt,
+      const result = await handleGenerateDesign(textPrompt, selectedStyle || undefined, inspirationImages);
+      
+      if (result?.imageUrl) {
+        // Create new design and add to store
+        const newDesign = {
+          id: Date.now().toString(),
+          title: generateDesignTitle(textPrompt),
+          images: [result.imageUrl],
+          createdAt: new Date().toISOString(),
+          prompt: textPrompt,
           style: selectedStyle,
-          mode: 'generate',
-          image: referenceImage // Include the processed reference image
-        }),
-      });
+          referenceImages: [...inspirationImages]
+        };
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to generate design');
+        // Add the design to the store with the user ID
+        const userId = session?.user?.id || 'anonymous';
+        addDesign(newDesign, userId);
+        
+        // Set the new design as selected and trigger scroll
+        setSelectedDesign(result.imageUrl);
+        setShowAnalysis(true);
+        setScrollToAnalysis(true); // Add this line to trigger scroll
+
+        toast({
+          title: "Success",
+          description: "Design generated successfully!"
+        });
       }
-
-      const data = await response.json();
-      
-      if (!data.success || !data.imageUrl) {
-        throw new Error(data.error || 'Failed to generate image');
-      }
-
-      // Create new design
-      const newDesign = {
-        id: Date.now().toString(),
-        title: textPrompt ? generateDesignTitle(textPrompt) : 'New Design',
-        images: [data.imageUrl],
-        createdAt: new Date().toISOString(),
-        prompt: textPrompt || '',
-        style: selectedStyle || null,
-        referenceImage: referenceImage // Store the reference image
-      };
-
-      // Add to store
-      const userId = session?.user?.id || 'anonymous';
-      try {
-        await addDesign(newDesign, userId);
-      } catch (storeError) {
-        console.error('Error adding design to store:', storeError);
-        // Continue execution even if store fails
-      }
-      
-      // Update UI
-      setSelectedDesign(data.imageUrl);
-      setShowAnalysis(true);
-
-      toast({
-        title: "Success",
-        description: "Design generated successfully!"
-      });
-
     } catch (error) {
       console.error('Generation failed:', error);
       toast({
         variant: "destructive",
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to generate design"
+        description: "Failed to generate design. Please try again."
       });
     } finally {
       setGenerating(false);
@@ -1318,6 +1403,75 @@ export default function LandingPage() {
     }
   };
 
+  // Update the effect that loads stored analysis
+  useEffect(() => {
+    if (selectedDesign) {
+      const currentDesign = designs.find(d => d.images.includes(selectedDesign));
+      
+      // Reset states for new design selection
+      setIsDesignFinalized(false);
+      setRecommendationInfo(null);
+      setSelectedMaterial('');
+      setDimensions({ size: undefined, unit: 'inches' });
+      setQuantity(1);
+      setDesignComments('');
+
+      // Only restore states if this design has been previously analyzed
+      if (currentDesign?.analysis?.isFinalized && 
+          currentDesign.analysis.recommendedMaterial && 
+          currentDesign.analysis.reason) {
+        setIsDesignFinalized(true);
+        setRecommendationInfo({
+          material: currentDesign.analysis.recommendedMaterial,
+          reason: currentDesign.analysis.reason
+        });
+        setSelectedMaterial(currentDesign.analysis.recommendedMaterial);
+        
+        // Restore other states if they exist
+        if (currentDesign.analysis.dimensions) {
+          setDimensions(currentDesign.analysis.dimensions);
+        }
+        if (currentDesign.analysis.quantity) {
+          setQuantity(currentDesign.analysis.quantity);
+        }
+        if (currentDesign.analysis.comments) {
+          setDesignComments(currentDesign.analysis.comments);
+        }
+      }
+    }
+  }, [selectedDesign, designs]);
+
+  // Add this effect to reset states when generating a new design
+  useEffect(() => {
+    if (generating) {
+      setIsDesignFinalized(false);
+      setRecommendationInfo(null);
+      setSelectedMaterial('');
+      setDimensions({ size: undefined, unit: 'inches' });
+      setQuantity(1);
+      setDesignComments('');
+    }
+  }, [generating]);
+
+  // Add this useEffect to handle the scrolling
+  useEffect(() => {
+    if (scrollToAnalysis && analysisRef.current) {
+      // Add a small delay to ensure the state has updated
+      setTimeout(() => {
+        const headerOffset = 80; // Adjust this value based on your header height
+        const elementPosition = analysisRef.current?.getBoundingClientRect().top;
+        const offsetPosition = elementPosition + window.pageYOffset - headerOffset;
+
+        window.scrollTo({
+          top: offsetPosition,
+          behavior: 'smooth'
+        });
+        
+        setScrollToAnalysis(false);
+      }, 100);
+    }
+  }, [scrollToAnalysis]);
+
   if (status === "loading") {
     return <div>Loading...</div>;
   }
@@ -1370,42 +1524,66 @@ export default function LandingPage() {
           </div>
         </div>
 
-        <div className="mb-8">
-          <div className="bg-white/80 backdrop-blur-sm rounded-xl p-6">
-            <div className="flex items-center gap-3 mb-6">
-              <Info className="w-5 h-5 text-blue-600" />
-              <h2 className={headingStyles.h2}>
-                How It Works
-              </h2>
+        {/* How it Works Section */}
+        <div className="mb-12 bg-white rounded-xl shadow-sm overflow-hidden">
+          <h2 className="text-2xl font-bold text-gray-900 p-6 border-b">
+            How it Works
+          </h2>
+          
+          <div className="steps-container p-6">
+            {/* Step 1 */}
+            <div className="step flex items-start gap-4 pb-8 relative">
+              <div className="flex-none">
+                <span className="number flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 text-blue-600 font-semibold">
+                  1
+                </span>
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold text-gray-900 mb-1">
+                  Generate Design
+                </h3>
+                <p className="text-gray-600">
+                  Type a description or upload a reference image to create your design with AI
+                </p>
+              </div>
+              {/* Connector Line */}
+              <div className="absolute left-4 top-12 bottom-0 w-[2px] bg-gray-200" />
             </div>
 
-            {/* Progress Steps */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {PROGRESS_STEPS.map((step, index) => (
-                <div key={step.id} className="relative">
-                  {/* Step Card */}
-                  <div className="bg-blue-50 rounded-xl p-6 h-full">
-                    {/* Step Number */}
-                    <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center mb-4">
-                      <span className="text-blue-600 font-semibold">{step.id}</span>
-                    </div>
-                    
-                    {/* Icon and Title */}
-                    <div className="flex items-center gap-3 mb-3">
-                      <step.icon className="w-5 h-5 text-blue-600" />
-                      <h3 className="font-semibold text-gray-900">{step.name}</h3>
-                    </div>
-                    
-                    {/* Description */}
-                    <p className="text-gray-600 text-sm">{step.description}</p>
-                  </div>
+            {/* Step 2 */}
+            <div className="step flex items-start gap-4 pb-8 relative">
+              <div className="flex-none">
+                <span className="number flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 text-blue-600 font-semibold">
+                  2
+                </span>
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold text-gray-900 mb-1">
+                  Choose Production
+                </h3>
+                <p className="text-gray-600">
+                  Select your materials and manufacturing method
+                </p>
+              </div>
+              {/* Connector Line */}
+              <div className="absolute left-4 top-12 bottom-0 w-[2px] bg-gray-200" />
+            </div>
 
-                  {/* Connector Line (except for last item) */}
-                  {index < PROGRESS_STEPS.length - 1 && (
-                    <div className="hidden md:block absolute top-1/2 -right-3 w-6 h-0.5 bg-blue-200" />
-                  )}
-                </div>
-              ))}
+            {/* Step 3 */}
+            <div className="step flex items-start gap-4">
+              <div className="flex-none">
+                <span className="number flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 text-blue-600 font-semibold">
+                  3
+                </span>
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold text-gray-900 mb-1">
+                  Complete Order
+                </h3>
+                <p className="text-gray-600">
+                  Review specifications and confirm your order
+                </p>
+              </div>
             </div>
           </div>
         </div>
@@ -1413,268 +1591,299 @@ export default function LandingPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* Left Column: Generation Form */}
           <div>
-            <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-lg p-6 mb-8">
-              {/* Tab Selection */}
-              <div className="flex gap-2 mb-6">
+            {/* Input Method Selection */}
+            <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-lg overflow-hidden">
+              {/* Tab Selection - Made more prominent */}
+              <div className="grid grid-cols-2 gap-0.5 p-1 bg-gray-100 rounded-lg m-4">
                 <button
                   onClick={() => setInputMethod('text')}
-                  className={`flex-1 py-3 px-4 rounded-lg text-center ${
-                    inputMethod === 'text'
-                      ? 'bg-blue-500 text-white'
-                      : 'bg-gray-50 text-gray-600'
-                  }`}
+                  className={`
+                    py-4 px-6 rounded-lg flex flex-col items-center gap-2 transition-all
+                    ${inputMethod === 'text'
+                      ? 'bg-white shadow-sm text-blue-600'
+                      : 'bg-transparent text-gray-600 hover:bg-white/50'
+                    }
+                  `}
                 >
-                  Generate New Idea
+                  <Wand className={`w-6 h-6 ${inputMethod === 'text' ? 'text-blue-600' : 'text-gray-400'}`} />
+                  <span className="font-medium">Generate New Idea</span>
+                  <span className="text-xs text-gray-500">Create from text description</span>
                 </button>
+
                 <button
                   onClick={() => setInputMethod('upload')}
-                  className={`flex-1 py-3 px-4 rounded-lg text-center ${
-                    inputMethod === 'upload'
-                      ? 'bg-blue-100 text-blue-500'
-                      : 'bg-gray-50 text-gray-600'
-                  }`}
+                  className={`
+                    py-4 px-6 rounded-lg flex flex-col items-center gap-2 transition-all
+                    ${inputMethod === 'upload'
+                      ? 'bg-white shadow-sm text-blue-600'
+                      : 'bg-transparent text-gray-600 hover:bg-white/50'
+                    }
+                  `}
                 >
-                  Upload Existing Idea
+                  <Upload className={`w-6 h-6 ${inputMethod === 'upload' ? 'text-blue-600' : 'text-gray-400'}`} />
+                  <span className="font-medium">Upload Existing Idea</span>
+                  <span className="text-xs text-gray-500">Use your own image</span>
                 </button>
               </div>
 
-              <div className="space-y-6">
-                {inputMethod === 'text' ? (
-                  // Text Input Section
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2 text-gray-700">
-                        <FileText className="w-4 h-4" />
-                        <span>Describe your idea</span>
-                      </div>
-                      <textarea
-                        value={textPrompt}
-                        onChange={(e) => setTextPrompt(e.target.value)}
-                        placeholder="Describe what you'd like to create..."
-                        className="w-full h-32 px-4 py-3 border rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 placeholder:text-gray-400"
-                      />
-                    </div>
-
-                    {/* Reference Image Upload */}
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2 text-gray-700">
-                        <Upload className="w-4 h-4" />
-                        <span>Add reference image</span>
-                      </div>
-                      <div className="space-y-4">
-                        {/* Display uploaded reference images */}
-                        {inspirationImages.length > 0 && (
-                          <div className="grid grid-cols-3 gap-2">
-                            {inspirationImages.map((imageUrl, index) => (
-                              <div key={index} className="relative aspect-square">
-                                <img
-                                  src={imageUrl}
-                                  alt={`Reference ${index + 1}`}
-                                  className="w-full h-full object-cover rounded-lg"
-                                />
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setInspirationImages(prev => prev.filter((_, i) => i !== index));
-                                  }}
-                                  className="absolute top-1 right-1 p-1 bg-white rounded-full hover:bg-gray-100"
-                                >
-                                  <X className="w-4 h-4 text-gray-600" />
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        
-                        {/* Upload button */}
-                        {inspirationImages.length < MAX_INSPIRATION_IMAGES && (
-                          <div
-                            onClick={() => fileInputRef.current?.click()}
-                            className="border-2 border-dashed border-gray-200 rounded-lg p-8 cursor-pointer hover:border-blue-500 transition-colors text-center"
-                          >
-                            <Upload className="w-6 h-6 text-gray-400 mx-auto mb-2" />
-                            <p className="text-gray-600">Drop a reference image, or click to browse</p>
-                            <p className="text-sm text-gray-500">Helps us better understand your vision</p>
-                            <input
-                              type="file"
-                              ref={fileInputRef}
-                              onChange={handleFileUpload}
-                              accept="image/png,image/jpeg,image/svg+xml"
-                              className="hidden"
-                            />
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Style Selection */}
-                    <div className="space-y-2">
-                      <span className="text-gray-700">Style (Optional)</span>
-                      <div className="flex gap-2">
-                        {STYLE_OPTIONS.map((style) => (
-                          <button
-                            key={style.id}
-                            onClick={() => setSelectedStyle(selectedStyle === style.id ? null : style.id)}
-                            className={`px-4 py-2 rounded-full ${
-                              selectedStyle === style.id
-                                ? 'bg-blue-500 text-white'
-                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                            }`}
-                          >
-                            {style.name}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Generate Button */}
-                    <button
-                      onClick={handleGenerateDesign}
-                      disabled={generating || (!textPrompt.trim() && !inspirationImages.length)}
-                      className="w-full py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 
-                        disabled:bg-blue-300 disabled:cursor-not-allowed transition-colors"
-                    >
-                      {generating ? (
-                        <div className="flex items-center justify-center gap-2">
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          Generating...
+              {/* Content Section */}
+              <div className="p-6">
+                <div className="space-y-6">
+                  {inputMethod === 'text' ? (
+                    // Text Input Section
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-gray-700">
+                          <FileText className="w-4 h-4" />
+                          <span>Describe your idea</span>
                         </div>
-                      ) : (
-                        'Generate Design'
-                      )}
-                    </button>
-                  </div>
-                ) : (
-                  // Upload Section - Simplified
-                  <div
-                    onClick={() => fileInputRef.current?.click()}
-                    className="border-2 border-dashed border-gray-200 rounded-lg p-12 cursor-pointer hover:border-blue-500 transition-colors"
-                  >
-                    <div className="flex flex-col items-center gap-4">
-                      <Upload className="w-8 h-8 text-gray-400" />
-                      <div className="text-center">
-                        <p className="text-gray-600">Drop your image here, or click to browse</p>
-                        <p className="text-sm text-gray-500">Upload photos, sketches, or inspiration images</p>
+                        <textarea
+                          value={textPrompt}
+                          onChange={(e) => setTextPrompt(e.target.value)}
+                          placeholder="Describe what you'd like to create..."
+                          className="w-full h-32 px-4 py-3 border rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 placeholder:text-gray-400"
+                        />
                       </div>
-                      <input
-                        type="file"
-                        ref={fileInputRef}
-                        onChange={handleFileUpload}
-                        accept="image/png,image/jpeg,image/svg+xml"
-                        className="hidden"
-                      />
+
+                      {/* Reference Image Upload */}
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-gray-700">
+                          <Upload className="w-4 h-4" />
+                          <span>Add reference image (optional)</span>
+                        </div>
+                        <div className="space-y-4">
+                          {/* Display uploaded reference images */}
+                          {inspirationImages.length > 0 && (
+                            <div className="grid grid-cols-3 gap-2">
+                              {inspirationImages.map((imageUrl, index) => (
+                                <div key={index} className="relative aspect-square">
+                                  <img
+                                    src={imageUrl}
+                                    alt={`Reference ${index + 1}`}
+                                    className="w-full h-full object-cover rounded-lg"
+                                  />
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setInspirationImages(prev => prev.filter((_, i) => i !== index));
+                                    }}
+                                    className="absolute top-1 right-1 p-1 bg-white rounded-full hover:bg-gray-100"
+                                  >
+                                    <X className="w-4 h-4 text-gray-600" />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          
+                          {/* Upload button */}
+                          {inspirationImages.length < MAX_INSPIRATION_IMAGES && (
+                            <div
+                              onClick={() => fileInputRef.current?.click()}
+                              className="border-2 border-dashed border-gray-200 rounded-lg p-8 cursor-pointer hover:border-blue-500 transition-colors text-center"
+                            >
+                              <Upload className="w-6 h-6 text-gray-400 mx-auto mb-2" />
+                              <p className="text-gray-600">Drop a reference image, or click to browse</p>
+                              <p className="text-sm text-gray-500">Helps us better understand your vision</p>
+                              <input
+                                type="file"
+                                ref={fileInputRef}
+                                onChange={handleFileUpload}
+                                accept="image/png,image/jpeg,image/svg+xml"
+                                className="hidden"
+                              />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Style Selection */}
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-gray-700">
+                          <Palette className="w-4 h-4" />
+                          <span>Style (Optional)</span>
+                        </div>
+                        
+                        {/* Mobile-friendly style buttons */}
+                        <div className="flex flex-wrap gap-2">
+                          {[
+                            { id: 'cartoon', label: 'Cartoon' },
+                            { id: 'realistic', label: 'Realistic' },
+                            { id: 'geometric', label: 'Geometric' }
+                          ].map((style) => (
+                            <button
+                              key={style.id}
+                              onClick={() => setSelectedStyle(style.id)}
+                              className={`
+                                px-4 py-2 rounded-full text-sm font-medium
+                                transition-colors duration-200
+                                ${selectedStyle === style.id
+                                  ? 'bg-blue-100 text-blue-600 border-2 border-blue-200'
+                                  : 'bg-gray-100 text-gray-600 border-2 border-transparent hover:border-gray-200'
+                                }
+                              `}
+                            >
+                              {style.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Generate Button - Full width on mobile */}
+                      <button
+                        onClick={handleGenerateClick}
+                        disabled={generating || (!textPrompt && !uploadedFile)}
+                        className="w-full mt-6 py-3 px-4 bg-blue-500 text-white rounded-lg 
+                          hover:bg-blue-600 disabled:bg-blue-300 disabled:cursor-not-allowed
+                          transition-colors duration-200 flex items-center justify-center gap-2"
+                      >
+                        {generating ? (
+                          <>
+                            <Loader2 className="w-5 h-5 animate-spin" />
+                            <span>Generating...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Wand className="w-5 h-5" />
+                            <span>Generate Design</span>
+                          </>
+                        )}
+                      </button>
                     </div>
-                  </div>
-                )}
+                  ) : (
+                    // Upload Section - Simplified
+                    <div
+                      onClick={() => fileInputRef.current?.click()}
+                      className="border-2 border-dashed border-gray-200 rounded-lg p-12 cursor-pointer hover:border-blue-500 transition-colors"
+                    >
+                      <div className="flex flex-col items-center gap-4">
+                        <Upload className="w-8 h-8 text-gray-400" />
+                        <div className="text-center">
+                          <p className="text-gray-600">Drop your image here, or click to browse</p>
+                          <p className="text-sm text-gray-500">Upload photos, sketches, or inspiration images</p>
+                        </div>
+                        <input
+                          type="file"
+                          ref={fileInputRef}
+                          onChange={handleFileUpload}
+                          accept="image/png,image/jpeg,image/svg+xml"
+                          className="hidden"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
             {/* Design History */}
-            <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-lg p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-semibold text-black">Recent Designs</h2>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => {
-                      if (window.confirm('Are you sure you want to clear all design history?')) {
-                        clearDesigns();
-                        setSelectedDesign(null);
-                        setShowAnalysis(false);
-                      }
-                    }}
-                    className="px-3 py-1 text-sm text-red-600 hover:text-red-700"
-                  >
-                    Clear History
-                  </button>
-                  <button
-                    onClick={() => setIsHistoryCollapsed(!isHistoryCollapsed)}
-                    className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700"
-                  >
-                    {isHistoryCollapsed ? (
-                      <>
-                        Show All <ChevronDown className="w-4 h-4" />
-                      </>
-                    ) : (
-                      <>
-                        Collapse <ChevronUp className="w-4 h-4" />
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-
-              <div className="space-y-6">
-                {userDesigns.length > 0 ? (
-                  // Show either 2 or all designs based on collapsed state
-                  userDesigns
-                    .slice(0, isHistoryCollapsed ? 2 : undefined)
-                    .map((design) => (
-                      <div 
-                        key={design.id} 
-                        className="bg-white rounded-lg shadow-sm p-4"
+            <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-lg p-6 mt-12">
+              {/* Recent Designs Section */}
+              <div className="bg-white rounded-lg shadow-sm">
+                {/* Compact Header */}
+                <div className="flex items-center justify-between px-4 py-3 border-b">
+                  <h3 className="text-lg font-semibold text-gray-900">Recent Designs</h3>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => clearDesigns()}
+                      className="text-sm text-gray-500 hover:text-gray-700"
+                    >
+                      Clear All
+                    </button>
+                    {userDesigns.length > 4 && (
+                      <button
+                        onClick={() => setIsHistoryCollapsed(!isHistoryCollapsed)}
+                        className="text-sm text-blue-500 hover:text-blue-700 flex items-center gap-1"
                       >
-                        <div className="grid grid-cols-2 gap-4">
-                          {/* Images Grid */}
-                          <div className="grid grid-cols-2 gap-2">
-                            {design.images.map((imageUrl, index) => (
-                              <div
-                                key={`${design.id}-${index}`}
-                                className={`aspect-square rounded-lg overflow-hidden cursor-pointer relative group 
-                                  ${selectedDesign === imageUrl ? 'ring-2 ring-blue-500' : ''}`}
-                                onClick={() => {
-                                  setSelectedDesign(imageUrl);
-                                  setShowAnalysis(true);
-                                }}
-                              >
-                                <div className="relative w-full h-full">
-                                  <img
-                                    src={imageUrl}
-                                    alt={`Design ${index + 1}`}
-                                    className="w-full h-full object-cover"
-                                  />
-                                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleDownload(imageUrl);
-                                      }}
-                                      className="p-2 bg-white rounded-full hover:bg-gray-100"
-                                    >
-                                      <Download className="w-5 h-5" />
-                                    </button>
-                                  </div>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
+                        {isHistoryCollapsed ? (
+                          <>Show All <ChevronDown className="w-4 h-4" /></>
+                        ) : (
+                          <>Collapse <ChevronUp className="w-4 h-4" /></>
+                        )}
+                      </button>
+                    )}
+                  </div>
+                </div>
 
-                          {/* Design Info */}
-                          <div className="space-y-4">
-                            <div className="flex items-center justify-between text-sm">
-                              <div className="flex items-center gap-2 text-black">
-                                <Clock className="w-4 h-4 text-black" />
-                                <time dateTime={design.createdAt}>
-                                  {new Date(design.createdAt).toLocaleDateString('en-US')}
-                                </time>
+                {/* Dense Grid Layout */}
+                <div className="p-2">
+                  {userDesigns.length > 0 ? (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                      {(isHistoryCollapsed ? userDesigns.slice(0, 4) : userDesigns).map((design, index) => (
+                        <div
+                          key={index}
+                          className="relative aspect-square group cursor-pointer"
+                          onClick={() => {
+                            setSelectedDesign(design.images[0]);
+                            setShowAnalysis(true);
+                            setScrollToAnalysis(true); // Set this to trigger the scroll effect
+                          }}
+                        >
+                          {/* Design Thumbnail */}
+                          <img
+                            src={design.images[0]}
+                            alt={`Design ${index + 1}`}
+                            className={`w-full h-full object-cover rounded-md transition-opacity duration-200 ${
+                              selectedDesign === design.images[0] ? 'ring-2 ring-blue-500' : ''
+                            }`}
+                            onError={handleImageError(design.images[0])}
+                            onLoad={handleImageLoad(design.images[0])}
+                          />
+
+                          {/* Hover Overlay */}
+                          <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity rounded-md">
+                            <div className="absolute inset-0 flex flex-col justify-between p-2 text-white">
+                              {/* Top Info */}
+                              <div className="text-xs">
+                                <p className="font-medium truncate">
+                                  {design.title || `Design ${index + 1}`}
+                                </p>
+                                <p className="text-gray-300">
+                                  {new Date(design.createdAt).toLocaleDateString()}
+                                </p>
                               </div>
-                              <div className="truncate max-w-[60%] text-black font-medium">
-                                {design.title || 'Untitled Design'}
+
+                              {/* Bottom Actions */}
+                              <div className="flex justify-end gap-1">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDownload(design.images[0]);
+                                  }}
+                                  className="p-1.5 rounded bg-white/20 hover:bg-white/30"
+                                  title="Download"
+                                >
+                                  <Download className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setShowEditDialog(true);
+                                  }}
+                                  className="p-1.5 rounded bg-white/20 hover:bg-white/30"
+                                  title="Edit"
+                                >
+                                  <Edit className="w-3.5 h-3.5" />
+                                </button>
                               </div>
                             </div>
-                            {design.analysis && (
-                              <div className="text-sm text-gray-600 mt-2">
-                                <p className="line-clamp-2">{design.analysis.description}</p>
-                              </div>
-                            )}
                           </div>
+
+                          {/* Loading State */}
+                          {imageStates[design.images[0]]?.loading && (
+                            <div className="absolute inset-0 flex items-center justify-center bg-gray-100 rounded-md">
+                              <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
+                            </div>
+                          )}
                         </div>
-                      </div>
-                    ))
-                ) : (
-                  <div className="text-center py-8 text-black">
-                    <p>No designs generated yet. Start by creating your first design above!</p>
-                  </div>
-                )}
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-6 text-gray-500 text-sm">
+                      No designs yet. Start by creating your first design above!
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -1688,21 +1897,25 @@ export default function LandingPage() {
               <div className="space-y-8">
                 {/* Size Ranges Section */}
                 <div>
-                  <h4 className="text-lg font-semibold text-gray-700 mb-3">
+                  <h4 className="text-lg font-semibold text-gray-800 mb-3">
                     Available Size Ranges
                   </h4>
                   <div className="space-y-4">
                     <div className="bg-blue-50 rounded-lg p-4">
-                      <p className="font-medium text-gray-700">Miniature</p>
-                      <p className="text-gray-600">About the size of a golf ball</p>
+                      <p className="font-medium text-gray-800">Mini (2x2x2in)</p>
+                      <p className="text-gray-700">Perfect for small decorative items and miniatures</p>
                     </div>
                     <div className="bg-blue-50 rounded-lg p-4">
-                      <p className="font-medium text-gray-700">Desktop</p>
-                      <p className="text-gray-600">About the size of a coffee mug</p>
+                      <p className="font-medium text-gray-800">Small (3.5x3.5x3.5in)</p>
+                      <p className="text-gray-700">Ideal for desktop accessories and small functional parts</p>
                     </div>
                     <div className="bg-blue-50 rounded-lg p-4">
-                      <p className="font-medium text-gray-700">Large Format</p>
-                      <p className="text-gray-600">About the size of a basketball</p>
+                      <p className="font-medium text-gray-800">Medium (5x5x5in)</p>
+                      <p className="text-gray-700">Great for most household items and medium-sized models</p>
+                    </div>
+                    <div className="bg-blue-50 rounded-lg p-4">
+                      <p className="font-medium text-gray-800">Large (10x10x10in)</p>
+                      <p className="text-gray-700">Suitable for large display pieces and substantial items</p>
                     </div>
                   </div>
                 </div>
@@ -1747,219 +1960,460 @@ export default function LandingPage() {
           </div>
 
           {/* Right Column: Manufacturing Analysis */}
-          <div className="lg:sticky lg:top-6 self-start">
-            <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-lg p-6">
-              <div className="flex items-center justify-between mb-4">
+          <div className="lg:sticky lg:top-6 self-start w-full" ref={analysisRef}>
+            <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-lg">
+              {/* Header Section */}
+              <div className="p-6 border-b border-gray-100">
                 <h2 className="text-2xl font-bold text-gray-900">
                   Bring Your Idea to Life
                 </h2>
-                <div className="flex items-center gap-2">
-                  <span className={`text-sm ${is3DView ? 'text-gray-400' : 'text-gray-700 font-medium'}`}>2D</span>
-                  <button
-                    onClick={() => setIs3DView(!is3DView)}
-                    className="w-12 h-6 rounded-full relative bg-gray-200 transition-colors duration-200 ease-in-out"
-                  >
-                    <div
-                      className={`absolute w-5 h-5 rounded-full bg-white shadow-sm transform transition-transform duration-200 ease-in-out ${
-                        is3DView ? 'translate-x-6' : 'translate-x-1'
-                      } top-0.5`}
-                    />
-                  </button>
-                  <span className={`text-sm ${is3DView ? 'text-gray-700 font-medium' : 'text-gray-400'}`}>3D</span>
-                </div>
+                {selectedDesign && (
+                  <div className="mt-2 flex items-center justify-between text-sm">
+                    <span className="text-gray-600">
+                      {designs.find(d => d.images.includes(selectedDesign))?.title || 'Untitled Design'}
+                    </span>
+                    <span className="text-gray-500">
+                      {new Date(designs.find(d => d.images.includes(selectedDesign))?.createdAt || '').toLocaleDateString()}
+                    </span>
+                  </div>
+                )}
               </div>
 
-              {/* Selected Design Preview */}
-              {selectedDesign ? (
-                <div className="space-y-6">
-                  {/* Image/3D Preview */}
-                  <div className="aspect-square rounded-lg overflow-hidden relative group">
-                    {is3DView ? (
-                      <div className="w-full h-full bg-gray-100 flex items-center justify-center">
-                        <p className="text-gray-500">3D view coming soon...</p>
-                      </div>
-                    ) : (
-                      <img
-                        src={selectedDesign}
-                        alt="Selected Design"
-                        className="w-full h-full object-cover"
-                      />
-                    )}
-                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                      <button
-                        onClick={() => setShowEditDialog(true)}
-                        className="px-4 py-2 bg-white rounded-lg hover:bg-gray-100 text-black font-medium flex items-center gap-2"
-                      >
-                        <Edit className="w-4 h-4" />
-                        Edit Design
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Manufacturing Analysis Component */}
-                  <ManufacturingAnalysis
-                    imageUrl={selectedDesign}
-                    existingAnalysis={designs.find(d => d.images.includes(selectedDesign))?.analysis}
-                    onAnalysisComplete={handleAnalysisComplete}
-                    onRedoAnalysis={handleRedoAnalysis}
-                    quantity={quantity}
-                    onQuantityChange={setQuantity}
-                    dimensions={dimensions}
-                    onDimensionsChange={setDimensions}
-                    isRedoing={isAnalyzing}
-                    designComments={designComments}
-                    onCommentsChange={setDesignComments}
-                  />
-
-                  {/* Material Selection */}
-                  <div className="space-y-4">
-                    <h3 className={headingStyles.h2}>
-                      Select Material
-                    </h3>
-                    <div className="grid grid-cols-1 gap-4">
-                      {MATERIAL_OPTIONS.map((material) => (
-                        <div
-                          key={material.title}
-                          className={`p-4 rounded-lg border transition-all ${
-                            selectedMethod === material.title
-                              ? 'border-blue-500 bg-blue-50'
-                              : 'border-gray-200 hover:border-blue-300'
-                          }`}
-                          onClick={() => setSelectedMethod(material.title)}
+              {/* Content Section */}
+              <div className="p-6">
+                {selectedDesign ? (
+                  <div className="space-y-8">
+                    {/* Edit Button and Image Preview - Outside the locked section */}
+                    <div className="space-y-3">
+                      <div className="flex justify-end">
+                        <button
+                          onClick={() => setShowEditDialog(true)}
+                          className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-700 font-medium flex items-center gap-1.5 text-sm transition-colors"
                         >
-                          <div className="flex justify-between items-start">
-                            <div className="flex-1">
-                              <h4 className={headingStyles.h4}>{material.title}</h4>
-                              <p className={textStyles.secondary}>{material.description}</p>
-                              <div className="mt-2 space-y-1">
-                                <p className="text-sm font-medium text-gray-700">{material.cost}</p>
-                                <p className="text-sm text-gray-600">{material.color}</p>
+                          <Edit className="w-4 h-4" />
+                          Edit Design
+                        </button>
+                      </div>
+
+                      <div className="aspect-square rounded-lg overflow-hidden relative">
+                        <img
+                          src={selectedDesign}
+                          alt="Selected Design"
+                          className="w-full h-full object-cover transition-opacity duration-300"
+                          loading="eager"
+                          decoding="async"
+                          onLoadStart={(e) => e.currentTarget.style.opacity = '0.5'}
+                          onLoad={(e) => e.currentTarget.style.opacity = '1'}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Finalize Design Button */}
+                    <div className="space-y-2">
+                      <button
+                        onClick={async () => {
+                          if (!selectedDesign) {
+                            toast({
+                              title: "Error",
+                              description: "Please upload or generate a design first",
+                              variant: "destructive"
+                            });
+                            return;
+                          }
+
+                          // Immediately set finalized state and unlock interface
+                          setIsDesignFinalized(true);
+
+                          // Show loading state for material recommendation
+                          toast({
+                            title: "Analyzing Design",
+                            description: "Generating material recommendation...",
+                            duration: 3000
+                          });
+
+                          // Get material recommendation in the background
+                          try {
+                            console.log('Starting material recommendation...');
+                            const { recommendedMaterial, reason } = await getMaterialRecommendation(selectedDesign);
+                            
+                            console.log('Received recommendation:', { recommendedMaterial, reason });
+                            
+                            if (!recommendedMaterial || !reason) {
+                              console.error('Invalid recommendation:', { recommendedMaterial, reason });
+                              throw new Error('Invalid recommendation received');
+                            }
+
+                            setSelectedMaterial(recommendedMaterial);
+                            setRecommendationInfo({ material: recommendedMaterial, reason });
+
+                            // Store the complete analysis in the design store
+                            const currentDesign = designs.find(d => d.images.includes(selectedDesign));
+                            if (currentDesign) {
+                              console.log('Storing analysis for design:', currentDesign.id);
+                              updateDesign(currentDesign.id, {
+                                analysis: {
+                                  ...currentDesign.analysis,
+                                  recommendedMaterial,
+                                  reason,
+                                  isFinalized: true,
+                                  dimensions,
+                                  quantity,
+                                  comments: designComments,
+                                  lastUpdated: new Date().toISOString()
+                                }
+                              });
+                            }
+
+                            toast({
+                              title: "Success",
+                              description: `Recommended Material: ${recommendedMaterial}`,
+                              duration: 5000
+                            });
+                          } catch (error) {
+                            console.error('Material recommendation error:', error);
+                            toast({
+                              title: "Notice",
+                              description: "Material recommendation failed. Please select a material manually.",
+                              variant: "destructive",
+                              duration: 5000
+                            });
+                          }
+                        }}
+                        disabled={isDesignFinalized}
+                        className={`w-full py-3 rounded-lg flex items-center justify-center gap-2 transition-colors ${
+                          isDesignFinalized
+                            ? 'bg-green-100 text-green-700 cursor-not-allowed'
+                            : 'bg-blue-500 hover:bg-blue-600 text-white'
+                        }`}
+                      >
+                        {isDesignFinalized ? (
+                          <>
+                            <Check className="w-5 h-5" />
+                            Design Finalized
+                          </>
+                        ) : (
+                          <>
+                            <Lock className="w-5 h-5" />
+                            Finalize Design
+                          </>
+                        )}
+                      </button>
+                      {!isDesignFinalized && (
+                        <p className="text-sm text-gray-500 text-center">
+                          Finalize your design to proceed with manufacturing options
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Manufacturing Options - This section remains locked until finalized */}
+                    <div className={`space-y-8 transition-all duration-200 ${
+                      isDesignFinalized ? 'opacity-100' : 'opacity-50 pointer-events-none'
+                    }`}>
+                      {/* Manufacturing Analysis Component */}
+                      <ManufacturingAnalysis
+                        imageUrl={selectedDesign}
+                        existingAnalysis={designs.find(d => d.images.includes(selectedDesign))?.analysis}
+                        onAnalysisComplete={handleAnalysisComplete}
+                        onRedoAnalysis={handleRedoAnalysis}
+                        quantity={quantity}
+                        onQuantityChange={setQuantity}
+                        dimensions={dimensions}
+                        onDimensionsChange={setDimensions}
+                        isRedoing={isAnalyzing}
+                        designComments={designComments}
+                        onCommentsChange={setDesignComments}
+                      />
+
+                      {/* Material Selection */}
+                      <div className="space-y-4">
+                        <div className="flex justify-between items-center">
+                          <h3 className={headingStyles.h2}>
+                            Select Material
+                            {dimensions.size && (
+                              <span className="ml-2 text-sm font-normal text-gray-800">
+                                • Size: {dimensions.size} ({SIZES.find(s => s.name === dimensions.size)?.dimensions})
+                              </span>
+                            )}
+                          </h3>
+                        </div>
+
+                        {/* Keep the recommendation display */}
+                        {recommendationInfo && (
+                          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                            <div className="flex items-start gap-2">
+                              <Sparkles className="w-5 h-5 text-blue-500 mt-0.5" />
+                              <div>
+                                <p className="font-medium text-gray-900">
+                                  Recommended: {recommendationInfo.material}
+                                </p>
+                                <p className="text-gray-600 mt-1">
+                                  {recommendationInfo.reason}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="grid grid-cols-1 gap-4">
+                          {MATERIAL_OPTIONS.map((material) => {
+                            const materialPrice = dimensions.size ? 
+                              PRICING[dimensions.size as keyof typeof PRICING]?.[material.title.replace(' PLA', '') as keyof typeof PRICING.Mini] 
+                              : null;
+
+                            return (
+                              <div
+                                key={material.title}
+                                className={`p-4 rounded-lg border transition-all ${
+                                  selectedMaterial === material.title
+                                    ? 'border-blue-500 bg-blue-50'
+                                    : 'border-gray-200 hover:border-blue-300'
+                                }`}
+                                onClick={() => setSelectedMaterial(material.title)}
+                              >
+                                <div className="flex justify-between items-center">
+                                  <div className="flex-1">
+                                    <h4 className={headingStyles.h4}>{material.title}</h4>
+                                    <p className={textStyles.secondary}>{material.description}</p>
+                                  </div>
+                                  <div className="ml-4 pl-4 border-l">
+                                    {dimensions.size ? (
+                                      <div className="text-right">
+                                        <p className={`text-lg font-bold ${
+                                          typeof materialPrice === 'number' 
+                                            ? 'text-blue-600' 
+                                            : 'text-gray-600'
+                                        }`}>
+                                          {typeof materialPrice === 'number' 
+                                            ? `$${materialPrice}`
+                                            : materialPrice === 'contact us' 
+                                              ? 'Contact for Quote'
+                                              : material.cost}
+                                        </p>
+                                      </div>
+                                    ) : (
+                                      <p className="text-gray-600 font-medium">
+                                        {material.cost}
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Price and Delivery Estimate */}
+                      {dimensions.size && selectedMaterial && (
+                        <div className="bg-gray-50 rounded-lg p-4">
+                          <h4 className="text-lg font-semibold text-gray-900 mb-3">Order Summary</h4>
+                          <div className="space-y-2">
+                            <div className="flex justify-between items-center">
+                              <span className="text-gray-600">Price:</span>
+                              <span className="font-medium text-gray-900">
+                                {typeof getPriceAndDelivery(dimensions.size, selectedMaterial).price === 'number'
+                                  ? `$${getPriceAndDelivery(dimensions.size, selectedMaterial).price}`
+                                  : 'Contact us for quote'}
+                              </span>
+                            </div>
+                            <div className="flex justify-between items-center">
+                              <span className="text-gray-600">Estimated Delivery:</span>
+                              <span className="font-medium text-gray-900">
+                                {getPriceAndDelivery(dimensions.size, selectedMaterial).delivery || 'Contact us'}
+                              </span>
+                            </div>
+                            {quantity > 1 && typeof getPriceAndDelivery(dimensions.size, selectedMaterial).price === 'number' && (
+                              <div className="flex justify-between items-center text-blue-600">
+                                <span>Bulk Discount (10% off):</span>
+                                <span>-${(Number(getPriceAndDelivery(dimensions.size, selectedMaterial).price) * quantity * 0.1).toFixed(2)}</span>
+                              </div>
+                            )}
+                            <div className="border-t pt-2 mt-2">
+                              <div className="flex justify-between items-center font-semibold text-lg">
+                                <span>Total:</span>
+                                <span>
+                                  {typeof getPriceAndDelivery(dimensions.size, selectedMaterial).price === 'number'
+                                    ? `$${(Number(getPriceAndDelivery(dimensions.size, selectedMaterial).price) * quantity * (quantity > 1 ? 0.9 : 1)).toFixed(2)}`
+                                    : 'Contact us for quote'}
+                                </span>
                               </div>
                             </div>
                           </div>
                         </div>
-                      ))}
+                      )}
+
+                      {/* Checkout Button */}
+                      <button
+                        onClick={handleGenerateManufacturingPlan}
+                        disabled={!selectedMethod || isUpdatingPlan}
+                        className="w-full py-3 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300 
+                          text-white rounded-lg transition-colors flex items-center justify-center gap-2"
+                      >
+                        {isUpdatingPlan ? (
+                          <>
+                            <RefreshCw className="w-5 h-5 animate-spin" />
+                            Processing...
+                          </>
+                        ) : (
+                          <>
+                            <Package className="w-5 h-5" />
+                            {typeof getPriceAndDelivery(dimensions.size || '', selectedMaterial)?.price === 'number'
+                              ? 'Proceed to Checkout'
+                              : 'Request Quote'}
+                          </>
+                        )}
+                      </button>
                     </div>
                   </div>
-
-                  {/* Checkout Button */}
-                  <button
-                    onClick={handleGenerateManufacturingPlan}
-                    disabled={!selectedMethod || isUpdatingPlan}
-                    className="w-full mt-6 py-3 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300 
-                      text-white rounded-lg transition-colors flex items-center justify-center gap-2"
-                  >
-                    {isUpdatingPlan ? (
-                      <>
-                        <RefreshCw className="w-5 h-5 animate-spin" />
-                        Processing...
-                      </>
-                    ) : (
-                      <>
-                        <Package className="w-5 h-5" />
-                        Proceed to Checkout
-                      </>
-                    )}
-                  </button>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-12 text-center">
-                  <Package className="w-12 h-12 text-gray-400 mb-4" />
-                  <p className={`${textStyles.primary} mb-2`}>
-                    Upload a design or generate one to get started
-                  </p>
-                  <p className={textStyles.secondary}>
-                    Your manufacturing options will appear here
-                  </p>
-                </div>
-              )}
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-12 text-center">
+                    <Package className="w-12 h-12 text-gray-400 mb-4" />
+                    <p className={`${textStyles.primary} mb-2`}>
+                      Upload a design or generate one to get started
+                    </p>
+                    <p className={textStyles.secondary}>
+                      Your manufacturing options will appear here
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
-
-            {/* Add version history dialog */}
-            {showVersionHistory && selectedDesign && (
-              <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                <div className="bg-white rounded-lg p-6 max-w-2xl w-full mx-4 space-y-4">
-                  <div className="flex justify-between items-center">
-                    <h3 className={headingStyles.h2}>Design History</h3>
-                    <button
-                      onClick={() => setShowVersionHistory(false)}
-                      className="text-gray-500 hover:text-gray-700"
-                    >
-                      <X className="w-5 h-5" />
-                    </button>
-                  </div>
-                  
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                    {designs.find(d => d.images.includes(selectedDesign))
-                      ?.imageVersions[selectedDesign]?.history.map((version, index) => (
-                      <div key={index} className="space-y-2">
-                        <div className="aspect-square rounded-lg overflow-hidden relative group">
-                          <img
-                            src={version}
-                            alt={`Version ${index + 1}`}
-                            className="w-full h-full object-cover"
-                          />
-                          <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                            <button
-                              onClick={() => handleRevertToVersion(selectedDesign, version)}
-                              className="px-3 py-1 bg-white rounded-lg hover:bg-gray-100 text-sm"
-                            >
-                              Revert to This
-                            </button>
-                          </div>
-                        </div>
-                        <div className="text-sm text-black">
-                          Version {index + 1}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Edit Dialog */}
-            {showEditDialog && (
-              <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4">
-                <div className="bg-white rounded-lg p-6 max-w-md w-full">
-                  <h3 className="text-lg font-semibold mb-4 text-gray-900">Edit Design</h3>
-                  <textarea
-                    value={editPrompt}
-                    onChange={(e) => setEditPrompt(e.target.value)}
-                    placeholder="Describe how you want to modify this 3D character model..."
-                    className="w-full p-2 border rounded-lg mb-4 h-32 text-gray-900 placeholder:text-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                  <div className="flex justify-end gap-2">
-                    <button
-                      onClick={() => setShowEditDialog(false)}
-                      className="px-4 py-2 text-gray-700 hover:text-gray-900 font-medium"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={handleEditDesign}
-                      disabled={isEditing || !editPrompt}
-                      className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 flex items-center gap-2 font-medium"
-                    >
-                      {isEditing ? (
-                        <>
-                          <RefreshCw className="w-4 h-4 animate-spin" />
-                          Updating...
-                        </>
-                      ) : (
-                        <>
-                          <PenTool className="w-4 h-4" />
-                          Update Design
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
         </div>
       </div>
+
+      {showEditDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Edit Design</h3>
+              <button
+                onClick={() => setShowEditDialog(false)}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Current Design Preview */}
+            <div className="mb-4">
+              <img
+                src={selectedDesign || ''}
+                alt="Current Design"
+                className="w-full h-48 object-contain rounded-lg bg-gray-50"
+              />
+            </div>
+
+            {/* Edit Instructions */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Describe your changes
+              </label>
+              <textarea
+                value={editPrompt}
+                onChange={(e) => setEditPrompt(e.target.value)}
+                placeholder="Describe how you want to modify this design..."
+                className="w-full p-3 border rounded-lg h-32 text-gray-900 placeholder:text-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setShowEditDialog(false)}
+                className="px-4 py-2 text-gray-700 hover:text-gray-900 font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  if (!selectedDesign || !editPrompt.trim()) {
+                    toast({
+                      variant: "destructive",
+                      title: "Error",
+                      description: "Please describe the changes you want to make"
+                    });
+                    return;
+                  }
+                  
+                  setIsEditing(true);
+                  try {
+                    // First analyze the current design
+                    const description = await analyzeImageForEdit(selectedDesign);
+                    console.log('Original design analysis:', description);
+                    
+                    // Create a prompt that combines the analysis and edit request
+                    const editRequest = `3D model design: ${description}. Modification: ${editPrompt.trim()}`;
+                    console.log('Edit request:', editRequest);
+
+                    // Generate new design with the combined prompt
+                    const result = await handleGenerateDesign(editRequest);
+                    
+                    if (!result?.imageUrl) {
+                      throw new Error('Failed to generate modified design');
+                    }
+
+                    // Update the design in the store
+                    const currentDesign = designs.find(d => d.images.includes(selectedDesign));
+                    if (currentDesign) {
+                      updateDesign(currentDesign.id, {
+                        images: [result.imageUrl, ...currentDesign.images],
+                        editHistory: [
+                          ...(currentDesign.editHistory || []),
+                          {
+                            originalImage: selectedDesign,
+                            newImage: result.imageUrl,
+                            description: description,
+                            changes: editPrompt,
+                            timestamp: new Date().toISOString()
+                          }
+                        ]
+                      });
+                    }
+                    
+                    // Update selected design
+                    setSelectedDesign(result.imageUrl);
+                    
+                    // Reset states
+                    setIsDesignFinalized(false);
+                    setRecommendationInfo(null);
+                    setSelectedMaterial('');
+                    
+                    toast({
+                      title: "Success",
+                      description: "Design updated successfully!"
+                    });
+                  } catch (error) {
+                    console.error('Error editing design:', error);
+                    toast({
+                      variant: "destructive",
+                      title: "Error",
+                      description: "Failed to update design. Please try again."
+                    });
+                  } finally {
+                    setIsEditing(false);
+                    setShowEditDialog(false);
+                    setEditPrompt('');
+                  }
+                }}
+                disabled={isEditing || !editPrompt}
+                className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 flex items-center gap-2"
+              >
+                {isEditing ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    Updating...
+                  </>
+                ) : (
+                  <>
+                    <PenTool className="w-4 h-4" />
+                    Update Design
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
