@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import OpenAI from 'openai';
-import sharp from 'sharp';
+import { saveDesignToFirebase } from '@/lib/firebase/utils';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
@@ -8,13 +8,16 @@ const openai = new OpenAI({
 
 export async function POST(req: Request) {
   try {
-    const { prompt, mode, style, originalDescription } = await req.json();
+    const { prompt, mode, style, originalDescription, userId } = await req.json();
 
     if (!prompt) {
       return NextResponse.json({ error: 'Prompt is required' }, { status: 400 });
     }
 
-    // Construct a more specific prompt for edits
+    if (!userId) {
+      return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
+    }
+
     let enhancedPrompt = prompt;
     if (mode === 'edit' && originalDescription) {
       enhancedPrompt = `Create a new version of this design with the following specific changes: ${prompt}. 
@@ -22,10 +25,6 @@ export async function POST(req: Request) {
         The original design was: ${originalDescription}.
         Make the requested changes prominent and clear in the new version.`;
     }
-
-    const openai = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-    });
 
     const response = await openai.images.generate({
       model: "dall-e-3",
@@ -42,10 +41,19 @@ export async function POST(req: Request) {
       throw new Error('No image generated');
     }
 
+    // Save to Firebase
+    const savedDesign = await saveDesignToFirebase({
+      imageUrl,
+      prompt: enhancedPrompt,
+      userId,
+      mode: 'generated'
+    });
+
     return NextResponse.json({ 
       success: true, 
-      imageUrl,
-      prompt: enhancedPrompt // Return the enhanced prompt for debugging
+      imageUrl: savedDesign.imageUrl,
+      designId: savedDesign.id,
+      prompt: enhancedPrompt
     });
 
   } catch (error) {

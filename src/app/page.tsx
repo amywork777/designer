@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Sparkles, Wand, Upload, PenTool, Type, Download, Cog, Clock, ChevronRight, Edit, Loader2, History, X, FileText, Info, Package, Palette, RefreshCw, ChevronDown, ChevronUp, Check, Lock } from 'lucide-react';
 import { useToast } from "@/components/ui/use-toast";
@@ -17,6 +17,7 @@ import { signIn } from "next-auth/react";
 import { ManufacturingRecommendations } from '@/components/ManufacturingRecommendations';
 import { DesignFeeSection } from '@/components/DesignFeeSection';
 import { SIZES } from '@/lib/types/sizes';
+import { saveDesignToFirebase } from '@/lib/firebase/utils';
 
 const PROGRESS_STEPS = [
   {
@@ -286,25 +287,20 @@ interface GenerateResponse {
   error?: string;
 }
 
-const handleGenerateDesign = async (options: GenerateOptions) => {
+const handleGenerateDesign = async () => {
   try {
-    // Add validation for required prompt
-    if (!options.prompt && !options.imageUrl) {
-      throw new Error('Either prompt or image is required');
-    }
-
-    const response = await fetch('/api/generate-design', {
+    setIsLoading(true);
+    
+    const response = await fetch('/api/generate', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        prompt: options.prompt || '', // Ensure prompt is never undefined
-        mode: options.mode || 'create',
-        style: options.style,
-        inputImages: options.inputImages || [],
-        primaryImage: options.primaryImage,
-        visionAnalysis: options.visionAnalysis
+        prompt: designPrompt,
+        mode: 'generate',
+        style: currentStyle,
+        userId: session?.user?.id // Add this line
       }),
     });
 
@@ -313,12 +309,32 @@ const handleGenerateDesign = async (options: GenerateOptions) => {
       throw new Error(errorData.error || 'Failed to generate design');
     }
 
-    const data = await response.json() as GenerateResponse;
-    return data;
+    const data = await response.json();
+    
+    if (!data.success || !data.imageUrl) {
+      throw new Error('Failed to generate design');
+    }
+
+    setCurrentDesign({
+      id: data.designId,
+      imageUrl: data.imageUrl,
+      prompt: designPrompt
+    });
+
+    toast({
+      title: "Success",
+      description: "Design generated and saved successfully"
+    });
 
   } catch (error) {
     console.error('Generation error:', error);
-    throw error;
+    toast({
+      variant: "destructive",
+      title: "Error",
+      description: error instanceof Error ? error.message : 'Failed to generate design'
+    });
+  } finally {
+    setIsLoading(false);
   }
 };
 
@@ -1419,6 +1435,142 @@ export default function LandingPage() {
       }, 100);
     }
   }, [scrollToAnalysis]);
+
+  const handleImageUpload = async (file: File) => {
+    try {
+      console.log('1. Starting image upload...');
+      setIsLoading(true);
+
+      // First, convert the file to base64
+      const base64String = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.readAsDataURL(file);
+      });
+
+      console.log('2. Image converted to base64');
+
+      // Save to Firebase
+      const tempUserId = 'temp-user-123'; // We'll replace this with real auth later
+      const savedDesign = await saveDesignToFirebase({
+        imageUrl: base64String,
+        prompt: 'User uploaded design',
+        userId: tempUserId,
+        mode: 'uploaded'
+      });
+
+      console.log('3. Design saved to Firebase:', savedDesign);
+
+      setCurrentDesign({
+        id: savedDesign.id,
+        imageUrl: savedDesign.imageUrl,
+        prompt: 'User uploaded design'
+      });
+
+      toast({
+        title: "Success",
+        description: "Image uploaded successfully"
+      });
+
+    } catch (error) {
+      console.error('Upload error:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error instanceof Error ? error.message : 'Failed to upload image'
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Update your file input handler
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      await handleImageUpload(file);
+    }
+  };
+
+  // Or if you're using react-dropzone
+  const onDrop = useCallback(async (acceptedFiles: File[]) => {
+    try {
+      console.log('1. File dropped, processing...');
+      const file = acceptedFiles[0];
+      if (!file) return;
+
+      setIsLoading(true);
+
+      // Convert file to base64
+      const base64String = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          console.log('2. File converted to base64');
+          resolve(reader.result as string);
+        };
+        reader.readAsDataURL(file);
+      });
+
+      // Save to Firebase
+      const tempUserId = 'temp-user-123';
+      console.log('3. Calling saveDesignToFirebase');
+      const savedDesign = await saveDesignToFirebase({
+        imageUrl: base64String,
+        prompt: 'User uploaded design',
+        userId: tempUserId,
+        mode: 'uploaded'
+      });
+
+      console.log('4. Design saved:', savedDesign);
+
+      // Update UI with the saved design
+      setSelectedDesign(savedDesign.imageUrl);
+      
+      toast({
+        title: "Success",
+        description: "Design uploaded successfully"
+      });
+    } catch (error) {
+      console.error('Upload error:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to upload design"
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // When generated image is clicked
+  const handleDesignClick = async (imageUrl: string) => {
+    try {
+      console.log('1. Design clicked, saving to Firebase...');
+      const tempUserId = 'temp-user-123';
+      
+      const savedDesign = await saveDesignToFirebase({
+        imageUrl,
+        prompt: designPrompt,
+        userId: tempUserId,
+        mode: 'generated'
+      });
+
+      console.log('2. Design saved:', savedDesign);
+      setSelectedDesign(savedDesign.imageUrl);
+      
+      toast({
+        title: "Success",
+        description: "Design saved successfully"
+      });
+    } catch (error) {
+      console.error('Error saving design:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to save design"
+      });
+    }
+  };
 
   if (status === "loading") {
     return <div>Loading...</div>;
