@@ -865,47 +865,28 @@ export default function LandingPage() {
     }
   };
 
+  // Main edit design handler
   const handleEditDesign = async () => {
+    if (!selectedDesign || !editPrompt.trim()) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Please describe the changes you want to make"
+      });
+      return;
+    }
+    
+    setIsEditing(true);
     try {
-      if (!selectedDesign || !editPrompt) {
-        toast({
-          variant: "destructive",
-          title: "Error",
-          description: "Please provide edit instructions"
-        });
-        return;
-      }
+      // First analyze the current design
+      const description = await analyzeImageForEdit(selectedDesign);
+      console.log('Original design analysis:', description);
+      
+      // Create a prompt that combines the analysis and edit request
+      const editRequest = `3D model design: ${description}. Modification: ${editPrompt.trim()}`;
+      console.log('Edit request:', editRequest);
 
-      setIsEditing(true);
-
-      // Convert image URL to base64 if needed
-      let imageData = selectedDesign;
-      if (!selectedDesign.startsWith('data:')) {
-        try {
-          // Use the proxy endpoint to fetch the image
-          const proxyResponse = await fetch('/api/proxy-image', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ imageUrl: selectedDesign })
-          });
-
-          if (!proxyResponse.ok) {
-            throw new Error('Failed to fetch image through proxy');
-          }
-
-          const blob = await proxyResponse.blob();
-          imageData = await new Promise((resolve) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result as string);
-            reader.readAsDataURL(blob);
-          });
-        } catch (error) {
-          console.error('Error processing image:', error);
-          throw new Error('Failed to process image');
-        }
-      }
-
-      // Send to the generate endpoint with edit mode
+      // Call the API to generate edited design
       const response = await fetch('/api/generate', {
         method: 'POST',
         headers: {
@@ -913,8 +894,8 @@ export default function LandingPage() {
         },
         body: JSON.stringify({
           mode: 'edit',
-          image: imageData,
-          text: editPrompt,
+          prompt: editRequest,
+          image: selectedDesign,
           style: selectedStyle
         }),
       });
@@ -925,56 +906,58 @@ export default function LandingPage() {
       }
 
       const data = await response.json();
-      
       if (!data.success || !data.imageUrl) {
-        throw new Error(data.error || 'Failed to generate edited image');
+        throw new Error('Failed to generate edited image');
       }
 
-      // Fetch the generated image through the proxy
-      const finalImageResponse = await fetch('/api/proxy-image', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageUrl: data.imageUrl })
+      // Save the edited design to Firebase
+      const userId = session?.user?.id || 'anonymous';
+      const savedDesign = await saveDesignToFirebase({
+        imageUrl: data.imageUrl,
+        prompt: editRequest,
+        userId,
+        mode: 'edited'
       });
 
-      if (!finalImageResponse.ok) {
-        throw new Error('Failed to fetch generated image');
-      }
+      console.log('Edited design saved to Firebase:', savedDesign);
 
-      const finalImageBlob = await finalImageResponse.blob();
-      const finalImageUrl = URL.createObjectURL(finalImageBlob);
+      // Create a new design entry instead of updating the existing one
+      const newDesign = {
+        id: savedDesign.id,
+        title: 'Edited Design',
+        images: [savedDesign.imageUrl],
+        createdAt: new Date().toISOString(),
+        prompt: editRequest,
+        originalDesignId: selectedDesign, // Reference to the original design
+        editHistory: [{
+          originalImage: selectedDesign,
+          newImage: savedDesign.imageUrl,
+          description: description,
+          changes: editPrompt,
+          timestamp: new Date().toISOString()
+        }]
+      };
 
-      // Find or create the design in the store
-      let currentDesign = designs.find(d => d.images.includes(selectedDesign));
+      // Add the new design to the store
+      addDesign(newDesign, userId);
       
-      if (!currentDesign) {
-        currentDesign = {
-          id: Date.now().toString(),
-          title: 'Edited Design',
-          images: [selectedDesign],
-          createdAt: new Date().toISOString(),
-          prompt: editPrompt,
-          style: selectedStyle || null
-        };
-      }
-
-      // Update the design with the new image
-      updateDesign(currentDesign.id, {
-        images: [...currentDesign.images, finalImageUrl],
-        prompt: editPrompt
-      });
-      
-      setSelectedDesign(finalImageUrl);
+      // Update selected design and UI states
+      setSelectedDesign(savedDesign.imageUrl);
       setShowEditDialog(false);
       setEditPrompt('');
-
+      
+      // Reset analysis states since this is a new version
+      setIsDesignFinalized(false);
+      setRecommendationInfo(null);
+      setSelectedMaterial('');
+      
       toast({
         title: "Success",
-        description: "Design updated successfully"
+        description: "New design version created successfully!"
       });
 
     } catch (error) {
-      console.error('Edit failed:', error);
+      console.error('Error editing design:', error);
       toast({
         variant: "destructive",
         title: "Error",
@@ -2525,95 +2508,19 @@ export default function LandingPage() {
                 Cancel
               </button>
               <button
-                onClick={async () => {
-                  if (!selectedDesign || !editPrompt.trim()) {
-                    toast({
-                      variant: "destructive",
-                      title: "Error",
-                      description: "Please describe the changes you want to make"
-                    });
-                    return;
-                  }
-                  
-                  setIsEditing(true);
-                  try {
-                    // First analyze the current design
-                    const description = await analyzeImageForEdit(selectedDesign);
-                    console.log('Original design analysis:', description);
-                    
-                    // Create a prompt that combines the analysis and edit request
-                    const editRequest = `3D model design: ${description}. Modification: ${editPrompt.trim()}`;
-                    console.log('Edit request:', editRequest);
-
-                    // Generate new design with the combined prompt
-                    const result = await handleGenerateDesign({
-                      prompt: editRequest,
-                      mode: 'edit',
-                      primaryImage: selectedDesign,
-                      style: selectedStyle,
-                      inputImages: [selectedDesign],
-                      visionAnalysis: description
-                    });
-                    
-                    if (!result?.imageUrl) {
-                      throw new Error('Failed to generate modified design');
-                    }
-
-                    // Update the design in the store
-                    const currentDesign = designs.find(d => d.images.includes(selectedDesign));
-                    if (currentDesign) {
-                      updateDesign(currentDesign.id, {
-                        images: [result.imageUrl, ...currentDesign.images],
-                        editHistory: [
-                          ...(currentDesign.editHistory || []),
-                          {
-                            originalImage: selectedDesign,
-                            newImage: result.imageUrl,
-                            description: description,
-                            changes: editPrompt,
-                            timestamp: new Date().toISOString()
-                          }
-                        ]
-                      });
-                    }
-                    
-                    // Update selected design
-                    setSelectedDesign(result.imageUrl);
-                    
-                    // Reset states
-                    setIsDesignFinalized(false);
-                    setRecommendationInfo(null);
-                    setSelectedMaterial('');
-                    
-                    toast({
-                      title: "Success",
-                      description: "Design updated successfully!"
-                    });
-                  } catch (error) {
-                    console.error('Error editing design:', error);
-                    toast({
-                      variant: "destructive",
-                      title: "Error",
-                      description: "Failed to update design. Please try again."
-                    });
-                  } finally {
-                    setIsEditing(false);
-                    setShowEditDialog(false);
-                    setEditPrompt('');
-                  }
-                }}
+                onClick={handleEditDesign}
                 disabled={isEditing || !editPrompt}
                 className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 flex items-center gap-2"
               >
                 {isEditing ? (
                   <>
                     <RefreshCw className="w-4 h-4 animate-spin" />
-                    Updating...
+                    <span>Updating...</span>
                   </>
                 ) : (
                   <>
                     <PenTool className="w-4 h-4" />
-                    Update Design
+                    <span>Update Design</span>
                   </>
                 )}
               </button>
