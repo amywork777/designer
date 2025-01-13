@@ -26,18 +26,29 @@ export async function saveDesignToFirebase({
     const timestamp = Date.now();
     const randomId = Math.random().toString(36).substring(2, 8);
     const imagePath = `designs/${userId}/${timestamp}-${randomId}.png`;
-    console.log('Created image path:', imagePath);
+    const storageRef = ref(storage, imagePath);
     
-    // 2. Save metadata to Firestore with only defined values
+    let downloadUrl = imageUrl;
+    
+    // Only upload to storage if it's a base64 image
+    if (imageUrl.startsWith('data:image')) {
+      console.log('Uploading base64 image to Storage...');
+      const imageData = imageUrl.split(',')[1];
+      await uploadString(storageRef, imageData, 'base64', {
+        contentType: 'image/png'
+      });
+      downloadUrl = await getDownloadURL(storageRef);
+    }
+
+    // 2. Save metadata to Firestore
     console.log('Saving to Firestore...');
     const designsRef = collection(db, 'designs');
     const designData = {
       userId,
-      imageUrl,
+      imageUrl: downloadUrl,
       mode,
       storagePath: imagePath,
       createdAt: serverTimestamp(),
-      // Only include prompt if it exists
       ...(prompt && { prompt }),
     };
 
@@ -47,7 +58,7 @@ export async function saveDesignToFirebase({
     console.log('Successfully saved to Firebase:', designDoc.id);
     return {
       id: designDoc.id,
-      imageUrl,
+      imageUrl: downloadUrl,
       storagePath: imagePath
     };
   } catch (error) {

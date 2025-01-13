@@ -537,32 +537,48 @@ export default function LandingPage() {
     const files = Array.from(e.target.files || []);
     if (files.length > 0) {
       try {
+        setLoading(true);
         const file = files[0];
-        const base64Image = await new Promise<string>((resolve) => {
+
+        // Convert to base64
+        const base64Image = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
           reader.onloadend = () => {
             if (typeof reader.result === 'string') {
               resolve(reader.result);
+            } else {
+              reject(new Error('Failed to convert file'));
             }
           };
+          reader.onerror = reject;
           reader.readAsDataURL(file);
         });
 
-        // Create new design
+        // Save to Firebase first
+        const userId = session?.user?.id || 'anonymous';
+        const savedDesign = await saveDesignToFirebase({
+          imageUrl: base64Image,
+          prompt: 'User uploaded design',
+          userId,
+          mode: 'uploaded'
+        });
+
+        // Create new design for local store
         const newDesign = {
-          id: Date.now().toString(),
+          id: savedDesign.id,
           title: 'Uploaded Design',
-          images: [base64Image],
+          images: [savedDesign.imageUrl],
           createdAt: new Date().toISOString(),
           prompt: ''
         };
 
-        // Add to store
-        const userId = session?.user?.id || 'anonymous';
+        // Add to local store
         addDesign(newDesign, userId);
         
-        setSelectedDesign(base64Image);
+        // Update UI
+        setSelectedDesign(savedDesign.imageUrl);
         setShowAnalysis(true);
+        setScrollToAnalysis(true);
 
         toast({
           title: "Success",
@@ -573,8 +589,92 @@ export default function LandingPage() {
         toast({
           variant: "destructive",
           title: "Error",
-          description: "Failed to upload image"
+          description: error instanceof Error ? error.message : "Failed to upload image"
         });
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
+
+  // Drag and drop handlers
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) {
+      try {
+        setLoading(true);
+        const file = files[0];
+
+        if (!file.type.startsWith('image/')) {
+          toast({
+            variant: "destructive",
+            title: "Error",
+            description: "Please upload an image file"
+          });
+          return;
+        }
+
+        // Convert to base64
+        const base64Image = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            if (typeof reader.result === 'string') {
+              resolve(reader.result);
+            } else {
+              reject(new Error('Failed to convert file'));
+            }
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+
+        // Save to Firebase first
+        const userId = session?.user?.id || 'anonymous';
+        const savedDesign = await saveDesignToFirebase({
+          imageUrl: base64Image,
+          prompt: 'User uploaded design',
+          userId,
+          mode: 'uploaded'
+        });
+
+        // Create new design for local store
+        const newDesign = {
+          id: savedDesign.id,
+          title: 'Uploaded Design',
+          images: [savedDesign.imageUrl],
+          createdAt: new Date().toISOString(),
+          prompt: ''
+        };
+
+        // Add to local store
+        addDesign(newDesign, userId);
+        
+        // Update UI
+        setSelectedDesign(savedDesign.imageUrl);
+        setShowAnalysis(true);
+        setScrollToAnalysis(true);
+
+        toast({
+          title: "Success",
+          description: "Design uploaded successfully!"
+        });
+      } catch (error) {
+        console.error('Upload failed:', error);
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: error instanceof Error ? error.message : "Failed to upload image"
+        });
+      } finally {
+        setLoading(false);
       }
     }
   };
