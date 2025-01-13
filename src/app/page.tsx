@@ -286,29 +286,26 @@ interface GenerateResponse {
   error?: string;
 }
 
-const handleGenerateDesign = async (text: string, style?: string, images: string[] = []) => {
+const handleGenerateDesign = async (options: GenerateOptions) => {
   try {
-    // Create the request body with reference images
-    const requestBody = {
-      text,
-      style,
-      mode: 'generate',
-      styleDescription: style ? STYLE_PROMPTS[style] : '',
-      referenceImages: images // Use passed images parameter
-    };
+    // Add validation for required prompt
+    if (!options.prompt && !options.imageUrl) {
+      throw new Error('Either prompt or image is required');
+    }
 
-    console.log('Generating design with:', {
-      text,
-      style,
-      hasReferenceImages: images.length > 0
-    });
-
-    const response = await fetch('/api/generate', {
+    const response = await fetch('/api/generate-design', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(requestBody),
+      body: JSON.stringify({
+        prompt: options.prompt || '', // Ensure prompt is never undefined
+        mode: options.mode || 'create',
+        style: options.style,
+        inputImages: options.inputImages || [],
+        primaryImage: options.primaryImage,
+        visionAnalysis: options.visionAnalysis
+      }),
     });
 
     if (!response.ok) {
@@ -317,19 +314,11 @@ const handleGenerateDesign = async (text: string, style?: string, images: string
     }
 
     const data = await response.json() as GenerateResponse;
-    
-    if (!data.success || !data.imageUrl) {
-      throw new Error(data.error || 'Failed to generate image');
-    }
-
-    return {
-      imageUrl: data.imageUrl,
-      prompt: data.prompt
-    };
+    return data;
 
   } catch (error) {
     console.error('Generation error:', error);
-    throw error instanceof Error ? error : new Error('Failed to generate design');
+    throw error;
   }
 };
 
@@ -531,97 +520,45 @@ export default function LandingPage() {
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     if (files.length > 0) {
-      if (inputMethod === 'upload') {
-        // For direct uploads, add directly to designs
-        try {
-          const newImages = await Promise.all(
-            files.map(async (file) => {
-              const base64Image = await new Promise<string>((resolve) => {
-                const reader = new FileReader();
-                reader.onloadend = () => {
-                  if (typeof reader.result === 'string') {
-                    resolve(reader.result);
-                  }
-                };
-                reader.readAsDataURL(file);
-              });
-              return base64Image;
-            })
-          );
-
-          // Create new design and add to store
-          const newDesign = {
-            id: Date.now().toString(),
-            title: 'Uploaded Design',
-            images: [newImages[0]],
-            createdAt: new Date().toISOString(),
-            prompt: '',
-            style: null
+      try {
+        const file = files[0];
+        const base64Image = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            if (typeof reader.result === 'string') {
+              resolve(reader.result);
+            }
           };
+          reader.readAsDataURL(file);
+        });
 
-          // Add the design to the store with the user ID
-          const userId = session?.user?.id || 'anonymous';
-          addDesign(newDesign, userId);
-          
-          // Set the uploaded image as selected and trigger scroll
-          setSelectedDesign(newImages[0]);
-          setShowAnalysis(true);
-          setScrollToAnalysis(true); // Add this line to trigger scroll
+        // Create new design
+        const newDesign = {
+          id: Date.now().toString(),
+          title: 'Uploaded Design',
+          images: [base64Image],
+          createdAt: new Date().toISOString(),
+          prompt: ''
+        };
 
-          toast({
-            title: "Success",
-            description: "Design uploaded successfully!"
-          });
-        } catch (error) {
-          console.error('Error processing images:', error);
-          toast({
-            variant: "destructive",
-            title: "Error",
-            description: "Failed to process images. Please try again."
-          });
-        }
-      } else {
-        // For reference images in text mode
-        if (inspirationImages.length + files.length > MAX_INSPIRATION_IMAGES) {
-          toast({
-            variant: "destructive",
-            title: "Error",
-            description: `You can only upload up to ${MAX_INSPIRATION_IMAGES} inspiration images`
-          });
-          return;
-        }
+        // Add to store
+        const userId = session?.user?.id || 'anonymous';
+        addDesign(newDesign, userId);
+        
+        setSelectedDesign(base64Image);
+        setShowAnalysis(true);
 
-        try {
-          const newImages = await Promise.all(
-            files.map(async (file) => {
-              const base64Image = await new Promise<string>((resolve) => {
-                const reader = new FileReader();
-                reader.onloadend = () => {
-                  if (typeof reader.result === 'string') {
-                    resolve(reader.result);
-                  }
-                };
-                reader.readAsDataURL(file);
-              });
-              return base64Image;
-            })
-          );
-
-          // Set the inspiration images without adding to designs store
-          setInspirationImages(prev => [...prev, ...newImages]);
-          
-          toast({
-            title: "Success",
-            description: "Reference image uploaded successfully!"
-          });
-        } catch (error) {
-          console.error('Error processing images:', error);
-          toast({
-            variant: "destructive",
-            title: "Error",
-            description: "Failed to process images. Please try again."
-          });
-        }
+        toast({
+          title: "Success",
+          description: "Design uploaded successfully!"
+        });
+      } catch (error) {
+        console.error('Upload failed:', error);
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "Failed to upload image"
+        });
       }
     }
   };
@@ -638,28 +575,39 @@ export default function LandingPage() {
 
     setGenerating(true);
     try {
-      const result = await handleGenerateDesign(textPrompt, selectedStyle || undefined, inspirationImages);
+      const response = await fetch('/api/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          prompt: textPrompt,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.details || error.error || 'Failed to generate image');
+      }
+
+      const result = await response.json();
       
       if (result?.imageUrl) {
-        // Create new design and add to store
+        // Create new design
         const newDesign = {
           id: Date.now().toString(),
-          title: generateDesignTitle(textPrompt),
+          title: textPrompt ? generateDesignTitle(textPrompt) : 'New Design',
           images: [result.imageUrl],
           createdAt: new Date().toISOString(),
-          prompt: textPrompt,
-          style: selectedStyle,
-          referenceImages: [...inspirationImages]
+          prompt: textPrompt
         };
 
-        // Add the design to the store with the user ID
+        // Add to design store
         const userId = session?.user?.id || 'anonymous';
         addDesign(newDesign, userId);
         
-        // Set the new design as selected and trigger scroll
         setSelectedDesign(result.imageUrl);
         setShowAnalysis(true);
-        setScrollToAnalysis(true); // Add this line to trigger scroll
 
         toast({
           title: "Success",
@@ -671,7 +619,7 @@ export default function LandingPage() {
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Failed to generate design. Please try again."
+        description: error instanceof Error ? error.message : "Failed to generate design"
       });
     } finally {
       setGenerating(false);
@@ -802,16 +750,16 @@ export default function LandingPage() {
   };
 
   const handleEditDesign = async () => {
-    if (!selectedDesign || !editPrompt) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Please provide edit instructions"
-      });
-      return;
-    }
-
     try {
+      if (!selectedDesign || !editPrompt) {
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "Please provide edit instructions"
+        });
+        return;
+      }
+
       setIsEditing(true);
 
       // Convert image URL to base64 if needed
@@ -2346,7 +2294,14 @@ export default function LandingPage() {
                     console.log('Edit request:', editRequest);
 
                     // Generate new design with the combined prompt
-                    const result = await handleGenerateDesign(editRequest);
+                    const result = await handleGenerateDesign({
+                      prompt: editRequest,
+                      mode: 'edit',
+                      primaryImage: selectedDesign,
+                      style: selectedStyle,
+                      inputImages: [selectedDesign],
+                      visionAnalysis: description
+                    });
                     
                     if (!result?.imageUrl) {
                       throw new Error('Failed to generate modified design');
