@@ -1,19 +1,21 @@
 import { storage, db } from './config';
 import { ref, uploadString, getDownloadURL } from 'firebase/storage';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, getDoc, updateDoc, doc } from 'firebase/firestore';
 
 interface SaveDesignProps {
   imageUrl: string;
   prompt?: string;
   userId: string;
-  mode: 'generated' | 'uploaded';
+  mode: 'generated' | 'uploaded' | 'edited';
+  originalDesignId?: string;
 }
 
 export async function saveDesignToFirebase({
   imageUrl,
   prompt,
   userId,
-  mode
+  mode,
+  originalDesignId
 }: SaveDesignProps) {
   try {
     console.log('Starting saveDesignToFirebase:', { userId, mode });
@@ -22,16 +24,16 @@ export async function saveDesignToFirebase({
       throw new Error('imageUrl and userId are required');
     }
 
-    // 1. Save image to Firebase Storage
-    const timestamp = Date.now();
-    const randomId = Math.random().toString(36).substring(2, 8);
-    const imagePath = `designs/${userId}/${timestamp}-${randomId}.png`;
-    const storageRef = ref(storage, imagePath);
-    
     let downloadUrl = imageUrl;
-    
-    // Only upload to storage if it's a base64 image
+    let imagePath = '';
+
+    // Only create storage entry for base64 images (uploads)
     if (imageUrl.startsWith('data:image')) {
+      const timestamp = Date.now();
+      const randomId = Math.random().toString(36).substring(2, 8);
+      imagePath = `designs/${userId}/${timestamp}-${randomId}.png`;
+      const storageRef = ref(storage, imagePath);
+      
       console.log('Uploading base64 image to Storage...');
       const imageData = imageUrl.split(',')[1];
       await uploadString(storageRef, imageData, 'base64', {
@@ -40,26 +42,25 @@ export async function saveDesignToFirebase({
       downloadUrl = await getDownloadURL(storageRef);
     }
 
-    // 2. Save metadata to Firestore
+    // Save metadata to Firestore
     console.log('Saving to Firestore...');
-    const designsRef = collection(db, 'designs');
     const designData = {
       userId,
       imageUrl: downloadUrl,
       mode,
-      storagePath: imagePath,
+      ...(imagePath && { storagePath: imagePath }), // Only add if we created a storage entry
       createdAt: serverTimestamp(),
       ...(prompt && { prompt }),
+      ...(originalDesignId && { originalDesignId })
     };
 
     console.log('Design data to save:', designData);
-    const designDoc = await addDoc(designsRef, designData);
+    const designDoc = await addDoc(collection(db, 'designs'), designData);
 
-    console.log('Successfully saved to Firebase:', designDoc.id);
     return {
       id: designDoc.id,
       imageUrl: downloadUrl,
-      storagePath: imagePath
+      ...(imagePath && { storagePath: imagePath })
     };
   } catch (error) {
     console.error('Error saving design to Firebase:', error);

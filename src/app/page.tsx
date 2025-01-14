@@ -96,18 +96,24 @@ async function preprocessImage(file: File): Promise<string> {
   });
 }
 
+// Add these types at the top of your file or in a separate types file
+interface EditHistoryEntry {
+  originalImage: string;
+  newImage: string;
+  description: string;
+  changes: string;
+  timestamp: string;
+  designId: string; // Reference to the design document
+}
+
 interface Design {
   id: string;
-  imageUrl: string;
-  date: string;
-  name: string;
-  manufacturingOption?: {
-    name: string;
-    description: string;
-    setup: string;
-    perUnit: string;
-    leadTime: string;
-  };
+  title: string;
+  images: string[];
+  createdAt: string;
+  prompt: string;
+  originalDesignId?: string;
+  editHistory?: EditHistoryEntry[];
 }
 
 const generateDesignTitle = (prompt: string): string => {
@@ -912,11 +918,16 @@ export default function LandingPage() {
 
       // Save the edited design to Firebase
       const userId = session?.user?.id || 'anonymous';
+      const currentDesign = designs.find(d => d.images.includes(selectedDesign));
+      if (!currentDesign) return;
+
+      // Save edited version with reference
       const savedDesign = await saveDesignToFirebase({
         imageUrl: data.imageUrl,
         prompt: editRequest,
         userId,
-        mode: 'edited'
+        mode: 'edited',
+        originalDesignId: currentDesign.id // Clear reference to original
       });
 
       console.log('Edited design saved to Firebase:', savedDesign);
