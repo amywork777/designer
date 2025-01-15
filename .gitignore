@@ -36,3 +36,13 @@ next-env.d.ts
 # prisma
 /prisma/*.db
 /prisma/migrations/
+
+# Cloud Functions
+functions/function-key.json
+functions/*key.json
+functions/*.pem
+functions/__pycache__/
+functions/*.py[cod]
+functions/*.pyc
+functions/.env
+functions/policy.json

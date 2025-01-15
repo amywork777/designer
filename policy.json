@@ -1,0 +1,9 @@
+{
+  "bindings": [
+    {
+      "role": "roles/run.invoker",
+      "members": ["serviceAccount:function-invoker@taiyaki-test1.iam.gserviceaccount.com"]
+    }
+  ],
+  "version": 1
+}
