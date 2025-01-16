@@ -46,3 +46,4 @@ functions/*.py[cod]
 functions/*.pyc
 functions/.env
 functions/policy.json
+functions/taiyaki-test1-firebase-adminsdk-o2zgz-d8bac27916.json
