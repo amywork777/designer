@@ -9,7 +9,12 @@
         "firebase-debug.log",
         "firebase-debug.*.log",
         "*.local"
-      ]
+      ],
+      "runtime": "python312",
+      "memory": "8GB",
+      "timeout": 540,
+      "min_instances": 1,
+      "region": "us-central1"
     }
   ]
 }
