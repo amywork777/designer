@@ -1,4 +1,5 @@
 firebase-admin
 firebase-functions
+functions-framework
 gradio-client
 requests
