@@ -114,6 +114,12 @@ interface Design {
   prompt: string;
   originalDesignId?: string;
   editHistory?: EditHistoryEntry[];
+  threeDData?: {
+    videoUrl: string;
+    glbUrls: string[];
+    preprocessedUrl: string;
+    timestamp: number;
+  };
 }
 
 const generateDesignTitle = (prompt: string): string => {
@@ -459,6 +465,21 @@ const LoadingSkeleton = () => (
   </div>
 );
 
+// Update the Process3DResponse interface
+interface Process3DResponse {
+  success: boolean;
+  status: string;
+  video_url?: string;
+  preprocessed_url?: string;
+  glb_urls?: string[];
+  timestamp: number;
+  userId: string;
+}
+
+// Add these constants at the top of the file
+const MAX_RETRIES = 3;
+const RETRY_DELAY = 2000; // 2 seconds
+
 export default function LandingPage() {
   const { toast } = useToast();
   const router = useRouter();
@@ -513,6 +534,9 @@ export default function LandingPage() {
   const analysisRef = useRef<HTMLDivElement>(null);
   // Add this at the top of your component with other state declarations
   const [scrollToAnalysis, setScrollToAnalysis] = useState(false);
+  // Add these states at the top with other state declarations
+  const [processing3D, setProcessing3D] = useState(false);
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
 
   const handleImageError = (imageUrl: string) => (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
     const img = e.target as HTMLImageElement;
@@ -1666,6 +1690,82 @@ export default function LandingPage() {
     }
   };
 
+  // Update the handle3DProcessing function
+  const handle3DProcessing = async () => {
+    if (!selectedDesign) return;
+    
+    setProcessing3D(true);
+    let attempts = 0;
+    
+    while (attempts < MAX_RETRIES) {
+      try {
+        const response = await fetch('https://us-central1-taiyaki-test1.cloudfunctions.net/process_3d', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            image_url: selectedDesign,
+            userId: session?.user?.id || 'default'
+          })
+        });
+
+        // Get the raw response text first for debugging
+        const rawText = await response.text();
+        console.log('Raw response:', rawText);
+
+        let data;
+        try {
+          data = JSON.parse(rawText);
+        } catch (e) {
+          console.error('Failed to parse response:', e);
+          throw new Error('Invalid response from server');
+        }
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Server error');
+        }
+
+        if (data.success && data.video_url) {
+          const currentDesign = designs.find(d => d.images.includes(selectedDesign));
+          if (currentDesign) {
+            updateDesign(currentDesign.id, {
+              threeDData: {
+                videoUrl: data.video_url,
+                glbUrls: data.glb_urls || [],
+                preprocessedUrl: data.preprocessed_url,
+                timestamp: data.timestamp
+              }
+            });
+          }
+
+          toast({
+            title: "Success",
+            description: "3D model generated successfully"
+          });
+          return; // Success - exit the retry loop
+        }
+        
+      } catch (error) {
+        console.error(`Attempt ${attempts + 1} failed:`, error);
+        attempts++;
+        
+        if (attempts === MAX_RETRIES) {
+          toast({
+            variant: "destructive",
+            title: "Error",
+            description: `Failed after ${MAX_RETRIES} attempts. Please try again later.`
+          });
+        } else {
+          // Wait before retrying
+          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+        }
+      }
+    }
+    
+    setProcessing3D(false);
+  };
+
   if (status === "loading") {
     return <div>Loading...</div>;
   }
@@ -2179,13 +2279,30 @@ export default function LandingPage() {
                   <div className="space-y-8">
                     {/* Edit Button and Image Preview - Outside the locked section */}
                     <div className="space-y-3">
-                      <div className="flex justify-end">
+                      <div className="flex justify-end gap-2">
                         <button
                           onClick={() => setShowEditDialog(true)}
                           className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-700 font-medium flex items-center gap-1.5 text-sm transition-colors"
                         >
                           <Edit className="w-4 h-4" />
                           Edit Design
+                        </button>
+                        <button
+                          onClick={handle3DProcessing}
+                          disabled={processing3D}
+                          className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-700 font-medium flex items-center gap-1.5 text-sm transition-colors"
+                        >
+                          {processing3D ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              Processing... {/* You could add attempt number here if desired */}
+                            </>
+                          ) : (
+                            <>
+                              <Package className="w-4 h-4" />
+                              Show in 3D
+                            </>
+                          )}
                         </button>
                       </div>
 
@@ -2201,6 +2318,26 @@ export default function LandingPage() {
                         />
                       </div>
                     </div>
+
+                    {/* Add video preview below the buttons */}
+                    {selectedDesign && designs.find(d => d.images.includes(selectedDesign))?.threeDData?.videoUrl && (
+                      <div className="mt-4">
+                        <h4 className="text-sm font-medium text-gray-700 mb-2">3D Preview</h4>
+                        <video 
+                          width="100%" 
+                          height="auto" 
+                          controls 
+                          className="rounded-lg"
+                          key={designs.find(d => d.images.includes(selectedDesign))?.threeDData?.videoUrl}
+                        >
+                          <source 
+                            src={designs.find(d => d.images.includes(selectedDesign))?.threeDData?.videoUrl} 
+                            type="video/mp4" 
+                          />
+                          Your browser does not support the video tag.
+                        </video>
+                      </div>
+                    )}
 
                     {/* Finalize Design Button */}
                     <div className="space-y-2">
@@ -2263,12 +2400,12 @@ export default function LandingPage() {
                               description: `Recommended Material: ${recommendedMaterial}`,
                               duration: 5000
                             });
-                          } catch (error) {
+    } catch (error) {
                             console.error('Material recommendation error:', error);
-                            toast({
+      toast({
                               title: "Notice",
                               description: "Material recommendation failed. Please select a material manually.",
-                              variant: "destructive",
+        variant: "destructive",
                               duration: 5000
                             });
                           }
@@ -2354,7 +2491,7 @@ export default function LandingPage() {
                               PRICING[dimensions.size as keyof typeof PRICING]?.[material.title.replace(' PLA', '') as keyof typeof PRICING.Mini] 
                               : null;
 
-                            return (
+  return (
                               <div
                                 key={material.title}
                                 className={`p-4 rounded-lg border transition-all ${

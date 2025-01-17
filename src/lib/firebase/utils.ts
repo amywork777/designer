@@ -27,15 +27,29 @@ export async function saveDesignToFirebase({
     let downloadUrl = imageUrl;
     let imagePath = '';
 
-    // Only create storage entry for base64 images (uploads)
-    if (imageUrl.startsWith('data:image')) {
+    // Handle different types of image URLs
+    if (imageUrl.startsWith('data:image') || imageUrl.startsWith('blob:')) {
+      // Convert blob URL to base64 if needed
+      if (imageUrl.startsWith('blob:')) {
+        const response = await fetch(imageUrl);
+        const blob = await response.blob();
+        const reader = new FileReader();
+        downloadUrl = await new Promise((resolve) => {
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.readAsDataURL(blob);
+        });
+      } else {
+        downloadUrl = imageUrl;
+      }
+
+      // Upload to Firebase Storage
       const timestamp = Date.now();
       const randomId = Math.random().toString(36).substring(2, 8);
       imagePath = `designs/${userId}/${timestamp}-${randomId}.png`;
       const storageRef = ref(storage, imagePath);
       
-      console.log('Uploading base64 image to Storage...');
-      const imageData = imageUrl.split(',')[1];
+      console.log('Uploading image to Storage...');
+      const imageData = downloadUrl.split(',')[1];
       await uploadString(storageRef, imageData, 'base64', {
         contentType: 'image/png'
       });
@@ -43,18 +57,17 @@ export async function saveDesignToFirebase({
     }
 
     // Save metadata to Firestore
-    console.log('Saving to Firestore...');
+    console.log('Saving to Firestore with URL:', downloadUrl);
     const designData = {
       userId,
       imageUrl: downloadUrl,
       mode,
-      ...(imagePath && { storagePath: imagePath }), // Only add if we created a storage entry
+      ...(imagePath && { storagePath: imagePath }),
       createdAt: serverTimestamp(),
       ...(prompt && { prompt }),
       ...(originalDesignId && { originalDesignId })
     };
 
-    console.log('Design data to save:', designData);
     const designDoc = await addDoc(collection(db, 'designs'), designData);
 
     return {

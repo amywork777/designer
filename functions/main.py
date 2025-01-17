@@ -6,18 +6,86 @@ import json
 import requests
 import tempfile
 import os
+import httpx
+from functools import wraps
 
-# Increase your function's overall timeout in code if you like (9 minutes shown in the Firebase console).
+# Increase timeout to 540 seconds (9 minutes)
 options.set_global_options(
     region="us-central1",
     memory=2048,  # 2 GiB
     timeout_sec=540  # 9 minutes
 )
 
-# Initialize Firebase Admin using Application Default Credentials.
+# Initialize Firebase Admin
 app = initialize_app(options={
     'storageBucket': 'taiyaki-test1.firebasestorage.app'
 })
+
+def retry_operation(max_retries=3, initial_delay=2):
+    def decorator(operation):
+        @wraps(operation)
+        def wrapper(*args, **kwargs):
+            last_exception = None
+            delay = initial_delay
+            
+            for attempt in range(max_retries):
+                try:
+                    print(f"Attempt {attempt + 1} of {max_retries} for {operation.__name__}")
+                    return operation(*args, **kwargs)
+                except (httpx.ReadTimeout, httpx.ConnectTimeout) as e:
+                    last_exception = e
+                    print(f"Timeout on attempt {attempt + 1}: {str(e)}")
+                except Exception as e:
+                    last_exception = e
+                    print(f"Error on attempt {attempt + 1}: {str(e)}")
+                
+                if attempt < max_retries - 1:
+                    # Exponential backoff
+                    sleep_time = delay * (2 ** attempt)
+                    print(f"Waiting {sleep_time} seconds before retry...")
+                    time.sleep(sleep_time)
+            
+            print(f"All {max_retries} attempts failed for {operation.__name__}")
+            raise last_exception
+        return wrapper
+    return decorator
+
+@retry_operation(max_retries=3, initial_delay=5)
+def download_image(url: str, temp_path: str) -> None:
+    with httpx.Client(timeout=60.0) as client:  # 60 second timeout
+        response = client.get(url)
+        response.raise_for_status()
+        with open(temp_path, 'wb') as f:
+            f.write(response.content)
+
+@retry_operation(max_retries=3, initial_delay=5)
+def run_preprocessing(client: Client, temp_path: str):
+    return client.submit(
+        image=handle_file(temp_path),
+        api_name="/preprocess_image"
+    ).result(timeout=300)  # 5 minutes
+
+@retry_operation(max_retries=3, initial_delay=5)
+def run_3d_generation(client: Client, temp_path: str):
+    return client.submit(
+        image=handle_file(temp_path),
+        multiimages=[],
+        seed=0,
+        ss_guidance_strength=7.5,
+        ss_sampling_steps=12,
+        slat_guidance_strength=3,
+        slat_sampling_steps=12,
+        multiimage_algo="stochastic",
+        api_name="/image_to_3d"
+    ).result(timeout=420)  # 7 minutes
+
+@retry_operation(max_retries=3, initial_delay=5)
+def run_glb_extraction(client: Client):
+    return client.submit(
+        0.95,
+        1024,
+        api_name="/extract_glb"
+    ).result(timeout=300)  # 5 minutes
 
 def upload_to_firebase(local_path, destination_path):
     """
@@ -40,7 +108,7 @@ def upload_to_firebase(local_path, destination_path):
 
 @https_fn.on_request()
 def process_3d(request: https_fn.Request) -> https_fn.Response:
-    """Process 3D endpoint"""
+    """Process 3D endpoint with improved error handling and retries"""
     if request.method == 'OPTIONS':
         headers = {
             'Access-Control-Allow-Origin': '*',
@@ -57,14 +125,16 @@ def process_3d(request: https_fn.Request) -> https_fn.Response:
     temp_files = []
 
     try:
-        # Create a Gradio client (no timeout in the constructor).
+        # Create Gradio client
         client = Client("eleelenawa/TRELLIS")
+        print("Created Gradio client")
 
-        print("Starting session...")
-        session_result = client.predict(api_name="/start_session")
+        # Start session
+        client.predict(api_name="/start_session")
         time.sleep(2)
+        print("Started session")
 
-        # Grab JSON from the request
+        # Get request data
         request_json = request.get_json()
         image_url = request_json.get('image_url')
         user_id = request_json.get('userId', 'default')
@@ -78,84 +148,41 @@ def process_3d(request: https_fn.Request) -> https_fn.Response:
 
         timestamp = int(time.time() * 1000)
         
-        print(f"Downloading image from: {image_url}")
-        response = requests.get(image_url, stream=True, timeout=300)
-        response.raise_for_status()
-        
+        # Download image
         temp_path = os.path.join(tempfile.gettempdir(), f"temp_image_{timestamp}.png")
         temp_files.append(temp_path)
-        
-        with open(temp_path, 'wb') as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
+        print(f"Downloading image from: {image_url}")
+        download_image(image_url, temp_path)
+        print("Image downloaded successfully")
 
-        # ---------------------------
-        # 1) Preprocessing Step
-        # ---------------------------
+        # Run preprocessing
         print("Starting preprocessing...")
-        job = client.submit(
-            image=handle_file(temp_path),
-            api_name="/preprocess_image"
-        )
-        preprocessed_result = job.result(timeout=300)  # up to 5 minutes
-
-        print(f"DEBUG: preprocessed_result = {preprocessed_result}")
-        # If it might return a tuple or list, pick the first one (or handle them all).
-        if isinstance(preprocessed_result, (list, tuple)):
-            preprocessed_path = preprocessed_result[0]
-        else:
-            preprocessed_path = preprocessed_result
-
+        preprocessed_result = run_preprocessing(client, temp_path)
+        preprocessed_path = preprocessed_result[0] if isinstance(preprocessed_result, (list, tuple)) else preprocessed_result
         temp_files.append(preprocessed_path)
+        
         preprocessed_url = upload_to_firebase(
             preprocessed_path,
             f"processed/{user_id}/{timestamp}/preprocessed.png"
         )
+        print("Preprocessing complete")
 
-        # ---------------------------
-        # 2) 3D Generation Step
-        # ---------------------------
+        # Run 3D generation
         print("Starting 3D generation...")
-        job = client.submit(
-            image=handle_file(temp_path),
-            multiimages=[],
-            seed=0,
-            ss_guidance_strength=7.5,
-            ss_sampling_steps=12,
-            slat_guidance_strength=3,
-            slat_sampling_steps=12,
-            multiimage_algo="stochastic",
-            api_name="/image_to_3d"
-        )
-        three_d_result = job.result(timeout=600)  # up to 10 minutes
-
-        # According to your docs, /image_to_3d returns a dict with 'video'.
-        print(f"DEBUG: three_d_result = {three_d_result}")
+        three_d_result = run_3d_generation(client, temp_path)
         video_path = three_d_result['video']
         temp_files.append(video_path)
-
+        
         video_url = upload_to_firebase(
             video_path,
             f"processed/{user_id}/{timestamp}/preview.mp4"
         )
+        print("3D generation complete")
+
+        # Extract GLB
+        print("Starting GLB extraction...")
+        glb_result = run_glb_extraction(client)
         
-        time.sleep(5)
-
-        # ---------------------------
-        # 3) GLB Extraction Step
-        # ---------------------------
-        print("Extracting GLB...")
-        job = client.submit(
-            0.95,
-            1024,
-            api_name="/extract_glb"
-        )
-        glb_result = job.result(timeout=600)  # up to 10 minutes
-
-        print(f"DEBUG: glb_result = {glb_result}")
-        # According to docs, /extract_glb returns a tuple of 2 elements: [0] filepath, [1] filepath
-        # So handle both if we want to upload them all:
         glb_urls = []
         if isinstance(glb_result, (list, tuple)):
             for idx, one_glb in enumerate(glb_result):
@@ -166,17 +193,14 @@ def process_3d(request: https_fn.Request) -> https_fn.Response:
                 )
                 glb_urls.append(glb_url)
         else:
-            # Single glb
             temp_files.append(glb_result)
             glb_url = upload_to_firebase(
                 glb_result,
                 f"processed/{user_id}/{timestamp}/model.glb"
             )
             glb_urls = [glb_url]
+        print("GLB extraction complete")
 
-        # ---------------------------
-        # Return final JSON response
-        # ---------------------------
         return https_fn.Response(
             json.dumps({
                 "success": True,
@@ -191,7 +215,7 @@ def process_3d(request: https_fn.Request) -> https_fn.Response:
         )
 
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Error in process_3d: {str(e)}")
         print(f"Error type: {type(e)}")
         return https_fn.Response(
             json.dumps({
@@ -203,7 +227,7 @@ def process_3d(request: https_fn.Request) -> https_fn.Response:
         )
         
     finally:
-        # Clean up the temporary files
+        # Clean up temp files
         for temp_file in temp_files:
             if temp_file and os.path.exists(temp_file):
                 try:
