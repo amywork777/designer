@@ -3,3 +3,4 @@ firebase-functions
 functions-framework
 gradio-client
 requests
+google-cloud-storage

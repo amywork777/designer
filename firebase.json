@@ -7,8 +7,7 @@
       ".git",
       "firebase-debug.log",
       "firebase-debug.*.log",
-      "*.local"
-    ],
+      "*.local"    ],
     "runtime": "python312",
     "region": "us-central1"
   }
