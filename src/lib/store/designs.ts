@@ -11,6 +11,12 @@ interface Design {
   images: string[];
   createdAt: string;
   userId: string;
+  threeDData?: {
+    videoUrl: string;
+    glbUrls: string[];
+    preprocessedUrl: string;
+    timestamp: number;
+  };
 }
 
 interface DesignStore {
@@ -19,6 +25,7 @@ interface DesignStore {
   updateDesign: (id: string, updates: Partial<Design>) => void;
   clearDesigns: () => void;
   getUserDesigns: (userId: string) => Design[];
+  loadDesign: (designId: string) => Promise<void>;
 }
 
 // Helper function to compress base64 image
@@ -106,6 +113,55 @@ export const useDesignStore = create<DesignStore>()(
         return get().designs
           .filter(design => design.userId === userId)
           .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      },
+      loadDesign: async (designId: string) => {
+        try {
+          // Check if design already exists in store
+          const existingDesign = get().designs.find(d => d.id === designId);
+          
+          // Create threeDData object with the correct structure
+          const threeDData = {
+            videoUrl: `https://storage.googleapis.com/taiyaki-test1.firebasestorage.app/processed/anonymous/${designId}/preview.mp4`,
+            glbUrls: [
+              `https://storage.googleapis.com/taiyaki-test1.firebasestorage.app/processed/anonymous/${designId}/model_0.glb`,
+              `https://storage.googleapis.com/taiyaki-test1.firebasestorage.app/processed/anonymous/${designId}/model_1.glb`
+            ],
+            preprocessedUrl: `https://storage.googleapis.com/taiyaki-test1.firebasestorage.app/processed/anonymous/${designId}/preprocessed.png`,
+            timestamp: parseInt(designId.split('-')[0])
+          };
+
+          if (existingDesign) {
+            // Update existing design with threeDData
+            set({
+              designs: get().designs.map(design =>
+                design.id === designId 
+                  ? { ...design, threeDData } 
+                  : design
+              )
+            });
+            return;
+          }
+
+          // If design doesn't exist, create new one with threeDData
+          const designUrl = `https://firebasestorage.googleapis.com/v0/b/taiyaki-test1.firebasestorage.app/o/designs%2Fanonymous%2F${designId}.png?alt=media`;
+          
+          const newDesign = {
+            id: designId,
+            title: 'Loaded Design',
+            images: [designUrl],
+            createdAt: new Date().toISOString(),
+            userId: 'anonymous',
+            threeDData
+          };
+
+          set((state) => ({
+            designs: [newDesign, ...state.designs]
+          }));
+
+        } catch (error) {
+          console.error('Error loading design:', error);
+          throw error;
+        }
       }
     }),
     {
