@@ -3,11 +3,14 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { ManufacturingAnalysis } from '@/components/ManufacturingAnalysis';
-import { Package, Lock, Check, Sparkles, Download } from 'lucide-react';
+import { Package, Lock, Check, Sparkles, Download, Info as InfoIcon, DollarSign, ArrowRight } from 'lucide-react';
 import { useDesignStore } from '@/lib/store/designs';
 import { useToast } from "@/components/ui/use-toast";
 import { getMaterialRecommendation } from '@/lib/utils/materials';
 import Link from 'next/link';
+import Show3DButton from 'components/Show3DButton';
+import { useRouter } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 
 const MATERIAL_OPTIONS = [
   {
@@ -62,47 +65,24 @@ const getPriceAndDelivery = (size: string, material: string) => {
 };
 
 export default function GetItMade() {
+  const { designs, loadDesign, updateDesign } = useDesignStore();
+  const { toast } = useToast();
   const searchParams = useSearchParams();
   const designId = searchParams.get('designId');
-  const { designs, loadDesign } = useDesignStore();
-  const { toast } = useToast();
+  const router = useRouter();
+  const { data: session } = useSession();
   
-  const [isLoading, setIsLoading] = useState(true);
   const [isDesignFinalized, setIsDesignFinalized] = useState(false);
-  const [dimensions, setDimensions] = useState({ length: 0, width: 0, height: 0, unit: 'mm' });
-  const [quantity, setQuantity] = useState(1);
-  const [designComments, setDesignComments] = useState('');
   const [selectedMaterial, setSelectedMaterial] = useState('');
   const [recommendationInfo, setRecommendationInfo] = useState<{ material: string; reason: string } | null>(null);
+  const [dimensions, setDimensions] = useState('');
+  const [quantity, setQuantity] = useState(1);
+  const [designComments, setDesignComments] = useState('');
   const [processing3D, setProcessing3D] = useState(false);
-  const MAX_RETRIES = 3;
-
-  // Load design data when the page loads
-  useEffect(() => {
-    async function fetchDesign() {
-      if (designId) {
-        setIsLoading(true);
-        try {
-          await loadDesign(designId);
-        } catch (error) {
-          console.error('Error loading design:', error);
-          toast({
-            variant: "destructive",
-            title: "Error",
-            description: "Failed to load design"
-          });
-        } finally {
-          setIsLoading(false);
-        }
-      }
-    }
-    fetchDesign();
-  }, [designId]);
 
   const design = designs.find(d => d.id === designId);
   const selectedDesign = design?.images[0];
 
-  // Reference the finalize design handler from page.tsx
   const handleFinalizeDesign = async () => {
     if (!design?.images[0]) return;
 
@@ -115,31 +95,51 @@ export default function GetItMade() {
     });
 
     try {
-      const { recommendedMaterial, reason } = await getMaterialRecommendation(design.images[0]);
-      
-      if (!recommendedMaterial || !reason) {
-        throw new Error('Invalid recommendation received');
+      const response = await fetch('/api/analyze-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          imageUrl: design.images[0]
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to analyze image');
       }
 
-      setSelectedMaterial(recommendedMaterial);
-      setRecommendationInfo({ material: recommendedMaterial, reason });
+      const data = await response.json();
+      
+      if (!data.success) {
+        throw new Error(data.error || 'Analysis failed');
+      }
+
+      const updatedAnalysis = {
+        productDescription: data.description,
+        dimensions: dimensions,
+        manufacturingOptions: [],
+        status: 'analyzed' as const,
+        features: data.features,
+        recommendedMethod: data.recommendedMethod,
+        recommendedMaterials: data.recommendedMaterials
+      };
 
       updateDesign(design.id, {
-        analysis: {
-          ...design.analysis,
-          recommendedMaterial,
-          reason,
-          isFinalized: true,
-          dimensions,
-          quantity,
-          comments: designComments,
-          lastUpdated: new Date().toISOString()
-        }
+        analysis: updatedAnalysis
       });
+
+      // Set the recommended material
+      if (data.recommendedMaterials && data.recommendedMaterials.length > 0) {
+        setSelectedMaterial(data.recommendedMaterials[0]);
+        setRecommendationInfo({
+          material: data.recommendedMaterials[0],
+          reason: data.description || 'Based on design analysis'
+        });
+      }
 
       toast({
         title: "Success",
-        description: `Recommended Material: ${recommendedMaterial}`,
+        description: `Recommended Material: ${data.recommendedMaterials?.[0] || 'PLA'}`,
         duration: 5000
       });
     } catch (error) {
@@ -149,93 +149,37 @@ export default function GetItMade() {
         title: "Error",
         description: "Failed to generate material recommendation"
       });
+      setIsDesignFinalized(false);
     }
   };
 
-  useEffect(() => {
-    async function handle3DProcessing() {
-      if (!design?.images[0]) return;
-      
-      setProcessing3D(true);
-      let attempts = 0;
-      
-      while (attempts < MAX_RETRIES) {
-        try {
-          const response = await fetch('https://us-central1-taiyaki-test1.cloudfunctions.net/process_3d', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              image_url: design.images[0],
-              userId: 'anonymous'
-            })
-          });
-
-          // Get the raw response text first for debugging
-          const rawText = await response.text();
-          console.log('Raw response:', rawText);
-
-          let data;
-          try {
-            data = JSON.parse(rawText);
-          } catch (e) {
-            console.error('Failed to parse response:', e);
-            throw new Error('Invalid response from server');
-          }
-
-          if (!response.ok) {
-            throw new Error(data.error || 'Server error');
-          }
-
-          if (data.success && data.video_url) {
-            updateDesign(design.id, {
-              threeDData: {
-                videoUrl: data.video_url,
-                glbUrls: data.glb_urls || [],
-                preprocessedUrl: data.preprocessed_url,
-                timestamp: data.timestamp
-              }
-            });
-
-            toast({
-              title: "Success",
-              description: "3D model generated successfully"
-            });
-            return; // Success - exit the retry loop
-          }
-          
-        } catch (error) {
-          console.error('Attempt failed:', error);
-          attempts++;
-          if (attempts === MAX_RETRIES) {
-            toast({
-              variant: "destructive",
-              title: "Error",
-              description: "Failed to generate 3D model"
-            });
-          }
-          // Wait before retrying
-          await new Promise(resolve => setTimeout(resolve, 2000));
-        } finally {
-          setProcessing3D(false);
-        }
-      }
+  const handleProceed = async () => {
+    if (!session?.user) {
+      // Redirect to sign in if not authenticated
+      router.push('/auth/signin');
+      return;
     }
 
-    handle3DProcessing();
-  }, [design?.images[0]]);
+    if (!dimensions.size || !selectedMaterial) {
+      return;
+    }
 
-  if (isLoading) {
-    return (
-      <div className="container max-w-7xl mx-auto px-4 py-8">
-        <div className="text-center">
-          <Package className="w-12 h-12 mx-auto text-gray-400 animate-pulse mb-4" />
-          <h1 className="text-2xl font-bold text-gray-900">Loading Design...</h1>
-        </div>
-      </div>
-    );
-  }
+    const isCustomQuote = typeof getPriceAndDelivery(dimensions.size, selectedMaterial).price !== 'number';
+
+    if (isCustomQuote) {
+      // Handle custom quote request
+      router.push(`/request-quote?designId=${design.id}&size=${dimensions.size}&material=${selectedMaterial}&quantity=${quantity}`);
+    } else {
+      // Handle direct checkout
+      try {
+        // You can add your checkout logic here
+        router.push(`/checkout?designId=${design.id}&size=${dimensions.size}&material=${selectedMaterial}&quantity=${quantity}`);
+      } catch (error) {
+        console.error('Checkout error:', error);
+        // Handle error appropriately
+      }
+    }
+  };
 
   if (!design) {
     return (
@@ -251,200 +195,274 @@ export default function GetItMade() {
 
   return (
     <div className="container max-w-7xl mx-auto px-4 py-8">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Left Column: Design Preview */}
-        <div>
-          <div className="bg-white rounded-xl shadow-lg p-6">
-            <h2 className="text-2xl font-bold text-gray-900 mb-4">Your Design</h2>
-            <div className="aspect-square relative rounded-lg overflow-hidden mb-4">
-              <img
-                src={design.images[0]}
-                alt="Design Preview"
-                className="object-contain w-full h-full"
-              />
-            </div>
-            
-            {/* Debug log */}
-            {console.log('Design 3D Data:', design?.threeDData)}
-            
-            {/* 3D Preview */}
-            {design?.threeDData?.videoUrl && (
-              <div className="mt-4">
-                <h4 className="text-sm font-medium text-gray-700 mb-2">3D Preview</h4>
+      <div className="mb-8 bg-white rounded-xl shadow-lg p-6">
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">Your Design</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          {/* Design Preview */}
+          <div className="aspect-square relative rounded-lg overflow-hidden">
+            <img
+              src={design.images[0]}
+              alt="Design Preview"
+              className="object-contain w-full h-full"
+            />
+          </div>
+
+          {/* 3D Preview if available */}
+          {design?.threeDData?.videoUrl && design?.threeDData?.timestamp && !processing3D && (
+            <div>
+              <h4 className="text-sm font-medium text-gray-700 mb-2">3D Preview</h4>
+              <div className="aspect-video">
                 <video 
-                  width="100%" 
-                  height="auto" 
-                  controls 
-                  className="rounded-lg"
-                  key={design.threeDData.videoUrl}
+                  src={design.threeDData.videoUrl}
+                  controls
+                  className="w-full h-full rounded-lg"
+                  preload="metadata"
                 >
-                  <source 
-                    src={design.threeDData.videoUrl} 
-                    type="video/mp4" 
-                  />
                   Your browser does not support the video tag.
                 </video>
               </div>
-            )}
+              <p className="text-sm text-gray-500 mt-2 italic">
+                Note: This is an AI-generated preview. The actual 3D model will be professionally optimized for manufacturing.
+              </p>
+            </div>
+          )}
+
+          {/* Show 3D Generation Button if no video exists */}
+          {(!design?.threeDData?.videoUrl || !design?.threeDData?.timestamp) && (
+            <div>
+              <button
+                onClick={() => {
+                  // Implement 3D generation logic here
+                  console.log('Generate 3D');
+                }}
+                className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 disabled:bg-gray-400 flex items-center justify-center gap-2"
+              >
+                <InfoIcon className="w-4 h-4" />
+                Generate 3D Preview
+              </button>
+            </div>
+          )}
+        </div>
+
+
+        {/* Creative Guidelines Section */}
+        <div className="mt-8 bg-gray-50 rounded-lg p-6">
+          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            <InfoIcon className="w-5 h-5 text-blue-500" />
+            Creative Guidelines
+          </h3>
+          
+          <ul className="space-y-2 text-gray-600">
+            <li className="flex items-start gap-2">
+              • This is great for artistic and decorative items!
+            </li>
+            <li className="flex items-start gap-2">
+              • Best for items where exact measurements aren't crucial
+            </li>
+            <li className="flex items-start gap-2">
+              • Sizes are approximate and may vary slightly
+            </li>
+          </ul>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="mt-4 grid grid-cols-2 gap-4">
+          <button
+            onClick={async () => {
+              try {
+                const response = await fetch('/api/analyze-material', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ 
+                    imageUrl: design.images[0]
+                  }),
+                });
+
+                if (!response.ok) {
+                  throw new Error('Failed to get recommendation');
+                }
+
+                const data = await response.json();
+                
+                if (data.recommendedMaterial) {
+                  setSelectedMaterial(data.recommendedMaterial);
+                  setRecommendationInfo({
+                    material: data.recommendedMaterial,
+                    reason: data.reason
+                  });
+
+                  // Save recommendation to design
+                  updateDesign(design.id, {
+                    recommendedMaterial: data.recommendedMaterial,
+                    recommendationReason: data.reason
+                  });
+
+                  // Scroll to material section
+                  const materialElement = document.getElementById(data.recommendedMaterial);
+                  if (materialElement) {
+                    materialElement.scrollIntoView({ behavior: 'smooth' });
+                    materialElement.classList.add('border-blue-500', 'border-2');
+                  }
+
+                  toast({
+                    title: "Recommendation Ready",
+                    description: `We recommend using ${data.recommendedMaterial}`,
+                    duration: 5000
+                  });
+                }
+              } catch (error) {
+                console.error('Error:', error);
+                toast({
+                  variant: "destructive",
+                  title: "Error",
+                  description: "Failed to get material recommendation"
+                });
+              }
+            }}
+            disabled={design.recommendedMaterial !== undefined}
+            className={`flex items-center justify-center px-4 py-2 rounded-lg transition-colors
+              ${design.recommendedMaterial 
+                ? 'bg-gray-300 cursor-not-allowed' 
+                : 'bg-blue-600 hover:bg-blue-700 text-white'}`}
+          >
+            <Sparkles className="w-4 h-4 mr-2" />
+            {design.recommendedMaterial ? 'Recommendation Made' : 'What material should I choose?'}
+          </button>
+          <Link 
+            href={`/get-files?designId=${design.id}`}
+            className="flex items-center justify-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+          >
+            <Download className="w-4 h-4 mr-2" />
+            Get Files
+          </Link>
+        </div>
+
+        {/* Manufacturing Analysis Section */}
+        <div className="mt-8">
+          <ManufacturingAnalysis
+            imageUrl={design.images[0]}
+            existingAnalysis={design.analysis}
+            onAnalysisComplete={(analysis) => {
+              updateDesign(design.id, { analysis });
+            }}
+            quantity={quantity}
+            onQuantityChange={setQuantity}
+            dimensions={dimensions}
+            onDimensionsChange={setDimensions}
+            designComments={designComments}
+            onCommentsChange={setDesignComments}
+          />
+        </div>
+
+        {/* Material Selection Section */}
+        <div className="mt-8">
+          <h3 className="text-xl font-semibold mb-4">Select Material</h3>
+
+          {/* Recommendation Info Display */}
+          {recommendationInfo && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+              <div className="flex items-start gap-2">
+                <Sparkles className="w-5 h-5 text-blue-500 mt-0.5" />
+                <div>
+                  <p className="font-medium text-gray-900">
+                    Recommended: {recommendationInfo.material}
+                  </p>
+                  <p className="text-gray-600 mt-1">
+                    {recommendationInfo.reason}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-4">
+            {MATERIAL_OPTIONS.map((material) => (
+              <div
+                key={material.title}
+                className={`flex items-center justify-between p-4 bg-white rounded-lg border hover:border-blue-500 cursor-pointer ${
+                  selectedMaterial === material.title ? 'border-blue-500 bg-blue-50' : 'border-gray-200'
+                }`}
+                onClick={() => setSelectedMaterial(material.title)}
+              >
+                <div>
+                  <h4 className="font-medium">{material.title}</h4>
+                  <p className="text-sm text-gray-600">{material.description}</p>
+                </div>
+                <span className="text-gray-500">{material.cost}</span>
+              </div>
+            ))}
           </div>
         </div>
 
-        {/* Right Column: Manufacturing Options */}
-        <div>
-          <div className="bg-white rounded-xl shadow-lg p-6">
-            <div className="space-y-6">
-              {/* Manufacturing Analysis Component */}
-              <ManufacturingAnalysis
-                imageUrl={design.images[0]}
-                existingAnalysis={design.analysis}
-                onAnalysisComplete={(analysis) => {
-                  updateDesign(design.id, { analysis });
-                }}
-                quantity={quantity}
-                onQuantityChange={setQuantity}
-                dimensions={dimensions}
-                onDimensionsChange={setDimensions}
-                designComments={designComments}
-                onCommentsChange={setDesignComments}
-              />
-
-              {/* Material Selection Section */}
-              <div className="space-y-4">
-                <div className="flex justify-between items-center">
-                  <h3 className="text-2xl font-semibold text-gray-800">
-                    Select Material
-                    {dimensions.size && (
-                      <span className="ml-2 text-sm font-normal text-gray-800">
-                        • Size: {dimensions.size}
-                      </span>
-                    )}
-                  </h3>
-                  <button
-                    onClick={handleFinalizeDesign}
-                    className="inline-flex items-center px-4 py-2 rounded-md bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
-                  >
-                    <Sparkles className="w-4 h-4 mr-2" />
-                    What material should I choose?
-                  </button>
-                </div>
-
-                {/* Show recommendation if available */}
-                {recommendationInfo && (
-                  <div className="mt-4 p-4 bg-blue-50 rounded-lg">
-                    <h4 className="font-medium text-blue-900 mb-2">Recommended Material: {recommendationInfo.material}</h4>
-                    <p className="text-blue-800 text-sm">{recommendationInfo.reason}</p>
-                  </div>
-                )}
-
-                {/* Material Options */}
-                <div className="space-y-3">
-                  {MATERIAL_OPTIONS.map((material) => {
-                    const materialPrice = dimensions.size ? 
-                      PRICING[dimensions.size as keyof typeof PRICING]?.[material.title.replace(' PLA', '') as keyof typeof PRICING.Mini] 
-                      : null;
-
-                    return (
-                      <div
-                        key={material.title}
-                        className={`p-4 rounded-lg border transition-all ${
-                          selectedMaterial === material.title
-                            ? 'border-blue-500 bg-blue-50'
-                            : 'border-gray-200 hover:border-blue-300'
-                        }`}
-                        onClick={() => setSelectedMaterial(material.title)}
-                      >
-                        <div className="flex justify-between items-center">
-                          <div className="flex-1">
-                            <h4 className="font-medium text-gray-900">{material.title}</h4>
-                            <p className="text-sm text-gray-600">{material.description}</p>
-                          </div>
-                          <div className="ml-4 pl-4 border-l">
-                            {dimensions.size ? (
-                              <div className="text-right">
-                                <p className={`text-lg font-bold ${
-                                  typeof materialPrice === 'number' 
-                                    ? 'text-blue-600' 
-                                    : 'text-gray-600'
-                                }`}>
-                                  {typeof materialPrice === 'number' 
-                                    ? `$${materialPrice}`
-                                    : materialPrice === 'contact us' 
-                                      ? 'Contact for Quote'
-                                      : material.cost}
-                                </p>
-                              </div>
-                            ) : (
-                              <p className="text-gray-600 font-medium">
-                                {material.cost}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Price and Delivery Estimate */}
-                {dimensions.size && selectedMaterial && (
-                  <div className="bg-gray-50 rounded-lg p-4">
-                    <h4 className="text-lg font-semibold text-gray-900 mb-3">Order Summary</h4>
-                    <div className="space-y-2">
-                      <div className="flex justify-between items-center">
-                        <span className="text-gray-600">Price:</span>
-                        <span className="font-medium text-gray-900">
-                          {typeof getPriceAndDelivery(dimensions.size, selectedMaterial).price === 'number'
-                            ? `$${getPriceAndDelivery(dimensions.size, selectedMaterial).price}`
-                            : 'Contact us for quote'}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-gray-600">Estimated Delivery:</span>
-                        <span className="font-medium text-gray-900">
-                          {getPriceAndDelivery(dimensions.size, selectedMaterial).delivery || 'Contact us'}
-                        </span>
-                      </div>
-                      {quantity > 1 && typeof getPriceAndDelivery(dimensions.size, selectedMaterial).price === 'number' && (
-                        <div className="flex justify-between items-center text-blue-600">
-                          <span>Bulk Discount (10% off):</span>
-                          <span>-${(Number(getPriceAndDelivery(dimensions.size, selectedMaterial).price) * quantity * 0.1).toFixed(2)}</span>
-                        </div>
-                      )}
-                      <div className="border-t pt-2 mt-2">
-                        <div className="flex justify-between items-center font-semibold text-lg">
-                          <span>Total:</span>
-                          <span>
-                            {typeof getPriceAndDelivery(dimensions.size, selectedMaterial).price === 'number'
-                              ? `$${(Number(getPriceAndDelivery(dimensions.size, selectedMaterial).price) * quantity * (quantity > 1 ? 0.9 : 1)).toFixed(2)}`
-                              : 'Contact us for quote'}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
+        {/* Price and Delivery Estimate */}
+        <div className="bg-gray-50 rounded-lg p-4 mt-8">
+          <h4 className="text-lg font-semibold text-gray-900 mb-4">Price Estimate</h4>
+          <div className="space-y-2">
+            <div className="flex justify-between items-center">
+              <span className="text-gray-600">Base Price:</span>
+              <span className="font-medium text-gray-900">
+                {dimensions.size && selectedMaterial 
+                  ? (typeof getPriceAndDelivery(dimensions.size, selectedMaterial).price === 'number'
+                    ? `$${getPriceAndDelivery(dimensions.size, selectedMaterial).price}`
+                    : 'Contact us for quote')
+                  : '(Select size and material)'}
+              </span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-gray-600">Quantity:</span>
+              <span className="font-medium text-gray-900">{quantity || 1}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-gray-600">Estimated Delivery:</span>
+              <span className="font-medium text-gray-900">
+                {dimensions.size && selectedMaterial
+                  ? (getPriceAndDelivery(dimensions.size, selectedMaterial).delivery || 'Contact us')
+                  : '(Select size and material)'}
+              </span>
+            </div>
+            {quantity > 1 && dimensions.size && selectedMaterial && typeof getPriceAndDelivery(dimensions.size, selectedMaterial).price === 'number' && (
+              <div className="flex justify-between items-center text-blue-600">
+                <span>Bulk Discount (10% off):</span>
+                <span>-${(Number(getPriceAndDelivery(dimensions.size, selectedMaterial).price) * quantity * 0.1).toFixed(2)}</span>
               </div>
-
-              {/* Proceed Button */}
+            )}
+            <div className="border-t pt-2 mt-2">
+              <div className="flex justify-between items-center font-semibold text-lg mb-4">
+                <span>Total:</span>
+                <span>
+                  {dimensions.size && selectedMaterial
+                    ? (typeof getPriceAndDelivery(dimensions.size, selectedMaterial).price === 'number'
+                      ? `$${(Number(getPriceAndDelivery(dimensions.size, selectedMaterial).price) * quantity * (quantity > 1 ? 0.9 : 1)).toFixed(2)}`
+                      : 'Contact us for quote')
+                    : '(Complete selections above)'}
+                </span>
+              </div>
+              
+              {/* Add Checkout/Quote Button */}
               <button
-                onClick={handleFinalizeDesign}
-                disabled={!selectedMaterial}
-                className="w-full py-3 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300 
-                  text-white rounded-lg transition-colors flex items-center justify-center gap-2"
+                onClick={handleProceed}
+                disabled={!dimensions.size || !selectedMaterial}
+                className={`w-full py-4 rounded-lg transition-all transform hover:scale-[1.02] 
+                  shadow-lg hover:shadow-xl flex items-center justify-center gap-3 font-semibold text-lg
+                  ${(!dimensions.size || !selectedMaterial)
+                    ? 'bg-gray-300 cursor-not-allowed'
+                    : typeof getPriceAndDelivery(dimensions.size, selectedMaterial).price === 'number'
+                      ? 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white'
+                      : 'bg-gradient-to-r from-green-600 to-teal-600 hover:from-green-700 hover:to-teal-700 text-white'
+                  }`}
               >
-                <Package className="w-5 h-5" />
-                {typeof getPriceAndDelivery(dimensions.size || '', selectedMaterial)?.price === 'number'
-                  ? 'Proceed to Checkout'
-                  : 'Request Quote'}
+                <DollarSign className="w-5 h-5" />
+                {!dimensions.size || !selectedMaterial
+                  ? 'Complete Selections Above'
+                  : typeof getPriceAndDelivery(dimensions.size, selectedMaterial).price === 'number'
+                    ? 'Proceed to Checkout'
+                    : 'Get Custom Quote'}
+                <ArrowRight className="w-5 h-5" />
               </button>
-
-              <Link 
-                href={`/get-files?designId=${designId}`}
-                className="inline-flex items-center px-4 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-700 transition-colors"
-              >
-                <Download className="w-4 h-4 mr-2" />
-                Get Files
-              </Link>
+              
+              <p className="text-center text-sm text-gray-500 mt-3">
+                Secure payment powered by Stripe
+              </p>
             </div>
           </div>
         </div>

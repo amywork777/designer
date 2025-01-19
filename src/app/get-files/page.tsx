@@ -1,198 +1,206 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Package, Download } from 'lucide-react';
+import { Download, Crown, Info as InfoIcon, Package, Loader2 } from 'lucide-react';
 import { useDesignStore } from '@/lib/store/designs';
-import { useToast } from "@/components/ui/use-toast";
+import Link from 'next/link';
 
 export default function GetFiles() {
   const searchParams = useSearchParams();
   const designId = searchParams.get('designId');
-  const { designs, loadDesign } = useDesignStore();
-  const { toast } = useToast();
-  const [isLoading, setIsLoading] = useState(true);
-  const [downloadCount, setDownloadCount] = useState(0);
+  const { designs } = useDesignStore();
   const design = designs.find(d => d.id === designId);
-
-  useEffect(() => {
-    async function loadDesignData() {
-      if (!designId) {
-        setIsLoading(false);
-        return;
-      }
-
-      try {
-        await loadDesign(designId);
-      } catch (error) {
-        console.error('Error loading design:', error);
-        toast({
-          variant: "destructive",
-          title: "Error",
-          description: "Failed to load design"
-        });
-      } finally {
-        setIsLoading(false);
-      }
-    }
-
-    loadDesignData();
-  }, [designId, loadDesign, toast]);
-
-  const handleDownload = async (url: string, fileType: string) => {
-    if (fileType === 'STL' && downloadCount >= 5) {
-      toast({
-        variant: "destructive",
-        title: "Download Limit Reached",
-        description: "You've used all your free STL downloads"
-      });
-      return;
-    }
-
-    let attempts = 0;
-    const MAX_RETRIES = 3;
-
-    while (attempts < MAX_RETRIES) {
-      try {
-        const proxyUrl = `/api/proxy-file?url=${encodeURIComponent(url)}`;
-        const response = await fetch(proxyUrl, {
-          signal: AbortSignal.timeout(30000) // 30 second timeout
-        });
-        
-        if (!response.ok) {
-          throw new Error('Failed to download file');
-        }
-
-        const blob = await response.blob();
-        const downloadUrl = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = downloadUrl;
-        a.download = `design.${fileType.toLowerCase()}`;
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(downloadUrl);
-        document.body.removeChild(a);
-
-        if (fileType === 'STL') {
-          setDownloadCount(prev => prev + 1);
-          toast({
-            title: "Success",
-            description: `${5 - (downloadCount + 1)} STL downloads remaining`
-          });
-        }
-        return; // Success - exit retry loop
-
-      } catch (error) {
-        console.error('Download attempt failed:', error);
-        attempts++;
-        
-        if (attempts === MAX_RETRIES) {
-          toast({
-            variant: "destructive",
-            title: "Error",
-            description: "Failed to download file after multiple attempts"
-          });
-        } else {
-          // Wait before retrying
-          await new Promise(resolve => setTimeout(resolve, 2000));
-        }
-      }
-    }
-  };
-
-  if (isLoading) {
-    return (
-      <div className="container max-w-7xl mx-auto px-4 py-8">
-        <div className="text-center">
-          <Package className="w-12 h-12 mx-auto text-gray-400 animate-pulse mb-4" />
-          <h1 className="text-2xl font-bold text-gray-900">Loading Design...</h1>
-        </div>
-      </div>
-    );
-  }
+  const [processing3D, setProcessing3D] = useState(false);
 
   if (!design) {
-    return (
-      <div className="container max-w-7xl mx-auto px-4 py-8">
-        <div className="text-center">
-          <Package className="w-12 h-12 mx-auto text-gray-400 mb-4" />
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">No Design Found</h1>
-          <p className="text-gray-600">The design you're looking for could not be found.</p>
-        </div>
-      </div>
-    );
+    return <div>Design not found</div>;
   }
 
   return (
     <div className="container max-w-7xl mx-auto px-4 py-8">
-      {/* Design Preview */}
-      {design && (
-        <div className="mb-8 bg-white rounded-xl shadow-lg p-6">
-          <h2 className="text-2xl font-bold text-gray-900 mb-4">Your Design</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <div className="aspect-square relative rounded-lg overflow-hidden">
-              <img
-                src={design.images[0]}
-                alt="Design Preview"
-                className="object-contain w-full h-full"
-              />
-            </div>
-            {design?.threeDData?.videoUrl && (
-              <div>
-                <h4 className="text-sm font-medium text-gray-700 mb-2">3D Preview</h4>
+      {/* Design Preview Section */}
+      <div className="mb-8 bg-white rounded-xl shadow-lg p-6">
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">Your Design</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          {/* Design Preview */}
+          <div className="aspect-square relative rounded-lg overflow-hidden">
+            <img
+              src={design.images[0]}
+              alt="Design Preview"
+              className="object-contain w-full h-full"
+            />
+          </div>
+
+          {/* 3D Preview if available */}
+          {design?.threeDData?.videoUrl && design?.threeDData?.timestamp && (
+            <div>
+              <h4 className="text-sm font-medium text-gray-700 mb-2">3D Preview</h4>
+              <div className="aspect-video">
                 <video 
-                  width="100%" 
-                  height="auto" 
-                  controls 
-                  className="rounded-lg"
-                  key={design.threeDData.videoUrl}
+                  src={design.threeDData.videoUrl}
+                  controls
+                  className="w-full h-full rounded-lg"
+                  preload="metadata"
                 >
-                  <source 
-                    src={design.threeDData.videoUrl} 
-                    type="video/mp4" 
-                  />
                   Your browser does not support the video tag.
                 </video>
               </div>
-            )}
-          </div>
-        </div>
-      )}
+              <p className="text-sm text-gray-500 mt-2 italic">
+                Note: This is an AI-generated preview. The actual 3D model will be professionally optimized for manufacturing.
+              </p>
+            </div>
+          )}
 
-      {/* Download Options */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-        {/* STL Files Section */}
-        <div className="bg-indigo-600 rounded-xl p-8 text-white text-center">
-          <Download className="w-8 h-8 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold mb-2">Get STL Files</h2>
-          <p className="text-indigo-200 mb-4">Starting at 5 free/month</p>
-          <div className="space-y-4">
-            <button className="bg-white text-indigo-600 px-6 py-2 rounded-lg font-medium hover:bg-indigo-50 transition-colors">
-              View Plans
-            </button>
-            <button
-              onClick={() => handleDownload(design?.threeDData?.glbUrls?.[0] || '', 'STL')}
-              className="block w-full bg-indigo-500 text-white px-6 py-2 rounded-lg font-medium hover:bg-indigo-400 transition-colors"
-              disabled={downloadCount >= 5 || !design?.threeDData?.glbUrls?.[0]}
-            >
-              Download STL File
-              <span className="text-sm block text-indigo-200">
-                {5 - downloadCount} downloads remaining
+          {/* Show 3D Generation Button if no video exists */}
+          {(!design?.threeDData?.videoUrl || !design?.threeDData?.timestamp) && (
+            <div>
+              <button
+                onClick={() => {
+                  setProcessing3D(true);
+                  // Add your 3D generation logic here
+                  console.log('Generate 3D');
+                }}
+                disabled={processing3D}
+                className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 
+                  disabled:bg-gray-400 flex items-center justify-center gap-2"
+              >
+                {processing3D ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  <>
+                    <Package className="w-4 h-4" />
+                    Generate 3D Preview
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Creative Guidelines Section */}
+      <div className="mt-8 bg-gray-50 rounded-lg p-6 mb-8">
+        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+          <InfoIcon className="w-5 h-5 text-blue-500" />
+          Creative Guidelines
+        </h3>
+        
+        <ul className="space-y-2 text-gray-600">
+          <li className="flex items-start gap-2">
+            • All key design elements and artistic details will be preserved
+          </li>
+          <li className="flex items-start gap-2">
+            • Minor adjustments may be made to ensure structural stability
+          </li>
+          <li className="flex items-start gap-2">
+            • Material-specific optimizations will be applied as needed
+          </li>
+        </ul>
+      </div>
+
+      {/* File Download Options */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* STL File Section */}
+        <div className="bg-indigo-600 rounded-2xl p-6 text-white">
+          <div className="flex flex-col items-center text-center mb-8">
+            <Download className="w-8 h-8 mb-2" />
+            <h2 className="text-2xl font-bold">Get STL Files</h2>
+            <p className="text-indigo-200">Starting at 5 free/month</p>
+          </div>
+
+          <div className="bg-white rounded-xl p-6 text-gray-900">
+            <div className="flex justify-between items-start mb-4">
+              <div>
+                <h3 className="text-xl font-bold">STL File</h3>
+                <p className="text-gray-600">Optimized for 3D printing</p>
+              </div>
+              <span className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-sm font-medium">
+                Free Plan
               </span>
+            </div>
+
+            <p className="flex items-center text-gray-600 mb-4">
+              <InfoIcon className="w-4 h-4 mr-2" />
+              5 downloads remaining this month
+            </p>
+
+            <button
+              onClick={() => {/* Add download logic */}}
+              className="w-full py-4 bg-purple-600 hover:bg-purple-700 text-white rounded-lg 
+                transition-all transform hover:scale-[1.02] shadow-lg hover:shadow-xl 
+                flex items-center justify-center gap-3 font-semibold text-lg"
+            >
+              <Download className="w-5 h-5" />
+              Download STL
             </button>
+
+            <div className="mt-6 bg-purple-50 rounded-lg p-4">
+              <div className="flex items-center gap-2 text-purple-700 mb-2">
+                <Crown className="w-5 h-5" />
+                <p className="font-medium">Need more downloads?</p>
+              </div>
+              <p className="text-gray-600 text-sm">
+                Get 50 downloads/month with Hobbyist ($12.99/mo) or unlimited with Pro ($39.99/mo)
+              </p>
+              <Link href="/plans" className="text-purple-600 hover:text-purple-700 font-medium mt-2 inline-block">
+                View Plans →
+              </Link>
+            </div>
           </div>
-          <p className="text-sm text-indigo-200 mt-4">STL for 3D printing (instant)</p>
+
+          <p className="text-center text-indigo-200 mt-4">
+            STL for 3D printing (instant)
+          </p>
         </div>
 
-        {/* STEP Files Section */}
-        <div className="bg-indigo-500 rounded-xl p-8 text-white text-center">
-          <Download className="w-8 h-8 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold mb-2">Get STEP Files</h2>
-          <p className="text-indigo-200 mb-4">Available with Hobbyist plan</p>
-          <button className="bg-white text-indigo-500 px-6 py-2 rounded-lg font-medium hover:bg-indigo-50 transition-colors">
-            View Plans
-          </button>
-          <p className="text-sm text-indigo-200 mt-4">STEP for CAD editing (24-48hr)</p>
+        {/* STEP File Section */}
+        <div className="bg-indigo-500 rounded-2xl p-6 text-white">
+          <div className="flex flex-col items-center text-center mb-8">
+            <Download className="w-8 h-8 mb-2" />
+            <h2 className="text-2xl font-bold">Get STEP Files</h2>
+            <p className="text-indigo-200">Available with Hobbyist plan</p>
+          </div>
+
+          <div className="bg-white rounded-xl p-6 text-gray-900">
+            <div className="flex justify-between items-start mb-4">
+              <div>
+                <h3 className="text-xl font-bold">STEP File</h3>
+                <p className="text-gray-600">For CAD editing</p>
+              </div>
+              <span className="bg-yellow-100 text-yellow-700 px-3 py-1 rounded-full text-sm font-medium">
+                Paid Plans Only
+              </span>
+            </div>
+
+            <div className="bg-yellow-50 rounded-lg p-4 mb-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Crown className="w-5 h-5 text-yellow-700" />
+                <p className="font-medium text-gray-800">Available with paid plans:</p>
+              </div>
+              <ul className="text-gray-600 text-sm space-y-1">
+                <li>• Hobbyist: 5 STEP files/month</li>
+                <li>• Pro: 20 STEP files/month</li>
+              </ul>
+            </div>
+
+            <Link
+              href="/plans"
+              className="w-full py-4 bg-gradient-to-r from-yellow-500 to-yellow-600 hover:from-yellow-600 
+                hover:to-yellow-700 text-white rounded-lg transition-all transform hover:scale-[1.02] 
+                shadow-lg hover:shadow-xl flex items-center justify-center gap-3 font-semibold text-lg"
+            >
+              <Crown className="w-5 h-5" />
+              Upgrade to Download
+            </Link>
+          </div>
+
+          <p className="text-center text-indigo-200 mt-4">
+            STEP for CAD editing (24-48hr)
+          </p>
         </div>
       </div>
     </div>

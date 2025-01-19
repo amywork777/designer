@@ -2319,7 +2319,25 @@ export default function LandingPage() {
                       </div>
                     </div>
 
-                    {/* Add video preview below the buttons */}
+                    {/* Action Buttons - Always visible when design is selected */}
+                    <div className="mt-4 grid grid-cols-2 gap-4">
+                      <Link 
+                        href={`/get-it-made?designId=${designs.find(d => d.images.includes(selectedDesign))?.id}`}
+                        className="flex items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                      >
+                        <Package className="w-4 h-4 mr-2" />
+                        Get it Made
+                      </Link>
+                      <Link 
+                        href={`/get-files?designId=${designs.find(d => d.images.includes(selectedDesign))?.id}`}
+                        className="flex items-center justify-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+                      >
+                        <Download className="w-4 h-4 mr-2" />
+                        Get Files
+                      </Link>
+                    </div>
+
+                    {/* 3D Preview - Shown when available */}
                     {selectedDesign && designs.find(d => d.images.includes(selectedDesign))?.threeDData?.videoUrl && (
                       <div className="mt-4">
                         <h4 className="text-sm font-medium text-gray-700 mb-2">3D Preview</h4>
@@ -2336,6 +2354,9 @@ export default function LandingPage() {
                           />
                           Your browser does not support the video tag.
                         </video>
+                        <p className="text-sm text-gray-500 mt-2 italic">
+                          Note: This is an AI-generated preview. The actual 3D model will be professionally optimized for manufacturing with cleaner geometry and proper dimensions.
+                        </p>
                       </div>
                     )}
 
