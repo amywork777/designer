@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { Download, Crown, Info as InfoIcon, Package, Loader2 } from 'lucide-react';
 import { useDesignStore } from '@/lib/store/designs';
 import Link from 'next/link';
+import { toast } from '@/components/ui/use-toast';
 
 export default function GetFiles() {
   const searchParams = useSearchParams();
@@ -16,6 +17,55 @@ export default function GetFiles() {
   if (!design) {
     return <div>Design not found</div>;
   }
+
+  const handleSTLDownload = async () => {
+    if (!design?.threeDData?.glbUrls?.[0]) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "No 3D model available for conversion"
+      });
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/convert-glb', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          glbUrl: design.threeDData.glbUrls[0],
+          designId: design.id
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Conversion failed');
+      }
+
+      // Create blob from response and download
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${design.id}.stl`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      toast({
+        title: "Success",
+        description: "STL file downloaded successfully"
+      });
+    } catch (error) {
+      console.error('Download error:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to download STL file"
+      });
+    }
+  };
 
   return (
     <div className="container max-w-7xl mx-auto px-4 py-8">
@@ -129,7 +179,7 @@ export default function GetFiles() {
             </p>
 
             <button
-              onClick={() => {/* Add download logic */}}
+              onClick={handleSTLDownload}
               className="w-full py-4 bg-purple-600 hover:bg-purple-700 text-white rounded-lg 
                 transition-all transform hover:scale-[1.02] shadow-lg hover:shadow-xl 
                 flex items-center justify-center gap-3 font-semibold text-lg"
