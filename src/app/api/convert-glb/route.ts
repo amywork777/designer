@@ -18,6 +18,7 @@ export async function POST(req: Request) {
     }
 
     // Download GLB file
+    console.log('Downloading GLB file...');
     const glbResponse = await fetch(glbUrl);
     if (!glbResponse.ok) {
       throw new Error(`Failed to fetch GLB: ${glbResponse.status}`);
@@ -27,11 +28,20 @@ export async function POST(req: Request) {
     const glbPath = path.join(tempDir, `${designId}.glb`);
     const stlPath = path.join(tempDir, `${designId}.stl`);
     
+    console.log('Writing GLB to temp file:', glbPath);
     fs.writeFileSync(glbPath, Buffer.from(glbBuffer));
 
     // Use full path to Blender executable
-    const blenderPath = '/Applications/Blender.app/Contents/MacOS/Blender';
+    const blenderPath = process.platform === 'darwin' 
+      ? '/Applications/Blender.app/Contents/MacOS/Blender'
+      : 'blender'; // Add Windows/Linux paths as needed
+      
     const blenderScript = path.join(process.cwd(), 'scripts', 'convert_glb.py');
+    
+    console.log('Checking paths:');
+    console.log('- Blender path exists:', fs.existsSync(blenderPath));
+    console.log('- Script path exists:', fs.existsSync(blenderScript));
+    console.log('- GLB path exists:', fs.existsSync(glbPath));
     
     const blenderCommand = `"${blenderPath}" --background --python "${blenderScript}" -- "${glbPath}" "${stlPath}"`;
     console.log('Running command:', blenderCommand);

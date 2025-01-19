@@ -6,6 +6,12 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
+const STYLE_PROMPTS = {
+  cartoon: "ultra-cute chibi style, soft rounded shapes, vibrant colors, clean lines",
+  realistic: "photorealistic 3D render, detailed textures, physically accurate materials",
+  geometric: "low-poly 3D model, clean geometric shapes, modern minimal style"
+};
+
 export async function POST(req: Request) {
   try {
     const { prompt, mode, style, originalDescription, userId } = await req.json();
@@ -18,13 +24,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
     }
 
-    let enhancedPrompt = prompt;
-    if (mode === 'edit' && originalDescription) {
-      enhancedPrompt = `Create a new version of this design with the following specific changes: ${prompt}. 
-        Important: Focus ONLY on modifying these aspects while maintaining all other elements from the original design.
-        The original design was: ${originalDescription}.
-        Make the requested changes prominent and clear in the new version.`;
-    }
+    // Get style modifier from STYLE_PROMPTS
+    const styleModifier = STYLE_PROMPTS[style?.toLowerCase()] || '';
+
+    // Construct enhanced prompt with style
+    let enhancedPrompt = `Create a 3D model design with ${styleModifier}: ${prompt}`;
+
+    console.log('Final prompt:', enhancedPrompt); // For debugging
 
     const response = await openai.images.generate({
       model: "dall-e-3",
@@ -32,7 +38,7 @@ export async function POST(req: Request) {
       n: 1,
       size: "1024x1024",
       quality: "standard",
-      style: style || "natural",
+      style: "vivid",
     });
 
     const imageUrl = response.data[0]?.url;

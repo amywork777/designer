@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { ManufacturingAnalysis } from '@/components/ManufacturingAnalysis';
-import { Package, Lock, Check, Sparkles, Download, Info as InfoIcon, DollarSign, ArrowRight } from 'lucide-react';
+import { Package, Lock, Check, Sparkles, Download, Info as InfoIcon, DollarSign, ArrowRight, Loader2 } from 'lucide-react';
 import { useDesignStore } from '@/lib/store/designs';
 import { useToast } from "@/components/ui/use-toast";
 import { getMaterialRecommendation } from '@/lib/utils/materials';
@@ -181,6 +181,83 @@ export default function GetItMade() {
     }
   };
 
+  const MAX_RETRIES = 3;
+
+  const handle3DProcessing = async () => {
+    if (!design?.images[0]) return;
+    
+    setProcessing3D(true);
+    let attempts = 0;
+    
+    while (attempts < MAX_RETRIES) {
+      try {
+        const response = await fetch('https://us-central1-taiyaki-test1.cloudfunctions.net/process_3d', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            image_url: design.images[0],
+            userId: 'default'  // Replace with actual user ID when auth is implemented
+          })
+        });
+
+        const rawText = await response.text();
+        console.log('Raw response:', rawText);
+
+        let data;
+        try {
+          data = JSON.parse(rawText);
+        } catch (e) {
+          console.error('Failed to parse response:', e);
+          throw new Error('Invalid response from server');
+        }
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Server error');
+        }
+
+        if (data.success && data.video_url) {
+          // Update the design with 3D data
+          updateDesign(design.id, {
+            threeDData: {
+              videoUrl: data.video_url,
+              glbUrls: data.glb_urls || [],
+              preprocessedUrl: data.preprocessed_url,
+              timestamp: data.timestamp
+            }
+          });
+
+          toast({
+            title: "Success",
+            description: "3D preview generated successfully"
+          });
+          return; // Success - exit the retry loop
+        }
+        
+        attempts++;
+        await new Promise(resolve => setTimeout(resolve, 2000)); // Wait before retrying
+        
+      } catch (error) {
+        console.error('Error generating 3D:', error);
+        attempts++;
+        
+        if (attempts >= MAX_RETRIES) {
+          toast({
+            variant: "destructive",
+            title: "Error",
+            description: "Failed to generate 3D preview after multiple attempts"
+          });
+          break;
+        }
+        
+        await new Promise(resolve => setTimeout(resolve, 2000)); // Wait before retrying
+      }
+    }
+    
+    setProcessing3D(false);
+  };
+
   if (!design) {
     return (
       <div className="container max-w-7xl mx-auto px-4 py-8">
@@ -231,14 +308,22 @@ export default function GetItMade() {
           {(!design?.threeDData?.videoUrl || !design?.threeDData?.timestamp) && (
             <div>
               <button
-                onClick={() => {
-                  // Implement 3D generation logic here
-                  console.log('Generate 3D');
-                }}
-                className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 disabled:bg-gray-400 flex items-center justify-center gap-2"
+                onClick={handle3DProcessing}
+                disabled={processing3D}
+                className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 
+                  disabled:bg-gray-400 flex items-center justify-center gap-2"
               >
-                <InfoIcon className="w-4 h-4" />
-                Generate 3D Preview
+                {processing3D ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  <>
+                    <Package className="w-4 h-4" />
+                    Generate 3D Preview
+                  </>
+                )}
               </button>
             </div>
           )}

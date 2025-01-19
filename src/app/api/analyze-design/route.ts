@@ -25,19 +25,20 @@ async function retryOperation<T>(
 
 export async function POST(req: Request) {
   try {
-    const { imageUrl } = await req.json();
+    const { imageUrl, mode } = await req.json();
     console.log('Analyzing design, received URL:', imageUrl ? 'URL received' : 'No URL');
 
-    if (!imageUrl) {
-      throw new Error('No image URL provided');
-    }
-
-    // Process the image URL if it's base64
     let finalImageUrl = imageUrl;
+
+    // Handle base64 images
     if (imageUrl.startsWith('data:image')) {
-      console.log('Processing base64 image...');
       finalImageUrl = imageUrl;
-    } else if (!imageUrl.startsWith('http')) {
+    } 
+    // Handle http URLs
+    else if (imageUrl.startsWith('http')) {
+      finalImageUrl = imageUrl;
+    } 
+    else {
       throw new Error('Invalid image URL format');
     }
 
@@ -49,24 +50,14 @@ export async function POST(req: Request) {
           messages: [
             {
               role: "system",
-              content: `You are an expert in 3D design analysis. Provide an extremely detailed and specific analysis of the visual elements in this design.
-
-              Focus on capturing:
-              1. Exact shape details and geometry
-              2. Specific proportions and dimensions
-              3. Surface textures and patterns
-              4. Key design features and their placement
-              5. Overall style and artistic characteristics
-              6. Material properties and visual effects
-              
-              Be precise and thorough - this description will be used as the primary reference for recreating this design.`
+              content: "You are an expert in 3D design analysis. Provide a brief, 2-3 sentence description of the key visual elements and style of the design. Focus on the most distinctive features and overall aesthetic."
             },
             {
               role: "user",
               content: [
                 { 
                   type: "text", 
-                  text: "Analyze every visual detail of this design. Be specific and comprehensive." 
+                  text: "Describe this design's key visual elements and style in 2-3 sentences." 
                 },
                 { 
                   type: "image_url", 
@@ -78,7 +69,7 @@ export async function POST(req: Request) {
               ]
             }
           ],
-          max_tokens: 500,
+          max_tokens: 150,
           temperature: 0.3
         });
       });
