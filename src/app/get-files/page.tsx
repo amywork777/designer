@@ -114,29 +114,32 @@ export default function GetFiles() {
         })
       });
 
-      // Log the raw response for debugging
-      const responseText = await response.text();
-      console.log('Raw response:', responseText);
-
       if (!response.ok) {
-        let errorMessage;
-        try {
-          const errorData = JSON.parse(responseText);
-          errorMessage = errorData.details || errorData.error || 'Failed to convert file';
-        } catch {
-          errorMessage = 'Failed to convert file';
-        }
-        throw new Error(errorMessage);
+        const errorData = await response.json();
+        throw new Error(errorData.details || errorData.error || 'Failed to convert file');
       }
 
-      // Convert the text back to blob for download
-      const blob = new Blob([responseText], { type: 'application/octet-stream' });
+      // Log response details
+      console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+      console.log('Response type:', response.type);
       
-      // Create download link
+      // Get the blob and log its details
+      const blob = await response.blob();
+      console.log('Blob details:', {
+        size: blob.size,
+        type: blob.type
+      });
+      
+      // Create and trigger download
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       a.download = `${design.id}.stl`;
+      
+      // Log download details
+      console.log('Download URL:', url);
+      console.log('Filename:', a.download);
+      
       document.body.appendChild(a);
       a.click();
       
@@ -293,8 +296,9 @@ export default function GetFiles() {
             </div>
           )}
 
-          <Link 
-            href={`/get-files?designId=${design.id}`}
+          <button 
+            onClick={() => handleDownload('stl')}
+            disabled={!design?.threeDData?.videoUrl}
             className={`w-full py-4 rounded-lg transition-all transform hover:scale-[1.02] 
               shadow-lg hover:shadow-xl flex items-center justify-center gap-3 font-semibold text-lg
               ${!design?.threeDData?.videoUrl 
@@ -303,7 +307,7 @@ export default function GetFiles() {
           >
             <Download className="w-5 h-5" />
             Get Files
-          </Link>
+          </button>
 
           <div className="mt-6 bg-purple-50 rounded-lg p-4">
             <div className="flex items-center gap-2 text-purple-700 mb-2">
