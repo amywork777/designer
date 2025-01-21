@@ -47,10 +47,16 @@ export async function handlePasswordReset(email: string) {
 
 export const handleSignOut = async () => {
   try {
+    // Sign out from Firebase first
+    await signOut(auth);
+    
+    // Then sign out from NextAuth with redirect
     await nextAuthSignOut({ 
       callbackUrl: "/",
       redirect: true 
     });
+    
+    return { error: null };
   } catch (error) {
     console.error("Error signing out:", error);
     throw error;

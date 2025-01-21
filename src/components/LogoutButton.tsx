@@ -15,15 +15,16 @@ export function LogoutButton() {
       // Sign out from Firebase
       await signOutUser();
       
-      // Sign out from NextAuth
-      await signOut({ redirect: false });
+      // Sign out from NextAuth and redirect
+      await signOut({ 
+        redirect: true,
+        callbackUrl: '/' 
+      });
       
       toast({
         title: "Logged out successfully",
         description: "You have been logged out of your account"
       });
-      
-      router.push('/login');
     } catch (error) {
       console.error('Logout error:', error);
       toast({

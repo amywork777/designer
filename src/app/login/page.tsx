@@ -6,6 +6,7 @@ import { Loader2 } from 'lucide-react';
 import Image from 'next/image';
 import { signInWithEmail, signUpWithEmail, handlePasswordReset } from '@/lib/firebase/auth';
 import { useToast } from "@/components/ui/use-toast";
+import { useRouter } from 'next/navigation';
 
 export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
@@ -13,11 +14,14 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [isSignUp, setIsSignUp] = useState(false);
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
   const { toast } = useToast();
 
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
+    setError(null);
 
     try {
       if (isSignUp) {
@@ -31,19 +35,26 @@ export default function LoginPage() {
           description: "Account created! Please verify your email."
         });
       } else {
-        const { user, error } = await signInWithEmail(email, password);
-        if (error) throw error;
-        toast({
-          title: "Success",
-          description: "Signed in successfully!"
-        });
+        const { user, error: signInError } = await signInWithEmail(email, password);
+        
+        if (signInError) {
+          setError(signInError.message);
+          return;
+        }
+
+        if (user) {
+          toast({
+            title: "Success",
+            description: "Signed in successfully!"
+          });
+          
+          // Redirect to landing page
+          router.push('/');
+          router.refresh();
+        }
       }
     } catch (error: any) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error.message
-      });
+      setError(error.message || 'An error occurred');
     } finally {
       setIsLoading(false);
     }
