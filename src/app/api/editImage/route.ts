@@ -5,7 +5,14 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
-const BASE_SETTINGS = "centered composition, clean white background, high quality";
+const BASE_SETTINGS = `Create a 3D model with these specific requirements:
+- Pure white or transparent background, no environmental elements
+- Isometric view to show depth and dimension
+- Professional 3D rendering with clear details
+- Clean, modern aesthetic
+- High contrast lighting to emphasize depth
+- Sharp, clear edges and surfaces
+Maintain the same style as the reference image while keeping these requirements.`;
 
 interface ImageUrlObject {
   type: string;
@@ -22,8 +29,7 @@ interface RequestBody {
 
 export async function POST(request: Request) {
   try {
-    const body: RequestBody = await request.json();
-    const { imageUrl, prompt } = body;
+    const { imageUrl, prompt } = await request.json();
 
     if (!imageUrl || !prompt) {
       return NextResponse.json(
@@ -32,20 +38,19 @@ export async function POST(request: Request) {
       );
     }
 
-    // First analyze the current image
     const visionResponse = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
         {
           role: "system",
-          content: "You are a 3D artist."
+          content: "You are a 3D artist specializing in isometric views and clean designs."
         },
         {
           role: "user",
           content: [
             {
               type: "text",
-              text: "Describe this 3D model's appearance."
+              text: "Describe this 3D model's appearance, focusing on geometry, materials, and scale."
             },
             {
               type: "image_url",
@@ -66,12 +71,11 @@ export async function POST(request: Request) {
       throw new Error('Failed to analyze model');
     }
 
-    // Generate new image with modifications
     const response = await openai.images.generate({
       model: "dall-e-3",
       prompt: `${BASE_SETTINGS}
         Starting with this 3D model: ${currentDesign}
-        Make these changes: ${prompt}`,
+        Make these changes while maintaining isometric view and clean background: ${prompt}`,
       n: 1,
       size: "1024x1024",
       quality: "standard",
@@ -86,12 +90,11 @@ export async function POST(request: Request) {
       success: true,
       imageUrl: response.data[0].url
     });
-
-  } catch (error) {
-    console.error('Error in editImage API:', error);
-    return NextResponse.json(
-      { success: false, error: 'Failed to edit image' },
-      { status: 500 }
-    );
+  } catch (error: any) {
+    console.error('Edit error:', error);
+    return NextResponse.json({ 
+      success: false, 
+      error: error.message || 'Failed to edit image' 
+    }, { status: 500 });
   }
 } 

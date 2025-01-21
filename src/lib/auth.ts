@@ -43,14 +43,7 @@ export const authConfig = {
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        // For Google Auth
-        if ('id' in user) {
-          token.id = user.id;
-        }
-        // For Email/Password Auth
-        else if ('uid' in user) {
-          token.id = user.uid;
-        }
+        token.id = user.id;
       }
       return token;
     },

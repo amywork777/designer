@@ -7,6 +7,7 @@ import {
   sendEmailVerification,
   User
 } from 'firebase/auth';
+import { signOut as nextAuthSignOut } from "next-auth/react";
 
 interface AuthError {
   code: string;
@@ -44,15 +45,17 @@ export async function handlePasswordReset(email: string) {
   }
 }
 
-export async function handleSignOut() {
+export const handleSignOut = async () => {
   try {
-    await signOut(auth);
-    return { success: true, error: null };
+    await nextAuthSignOut({ 
+      callbackUrl: "/",
+      redirect: true 
+    });
   } catch (error) {
-    console.error('Sign out error:', error);
-    return { success: false, error: error as AuthError };
+    console.error("Error signing out:", error);
+    throw error;
   }
-}
+};
 
 export async function signOutUser() {
   try {

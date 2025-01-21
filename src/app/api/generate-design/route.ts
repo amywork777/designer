@@ -6,15 +6,18 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
-const STYLE_PROMPTS = {
-  cartoon: "ultra-cute chibi style, soft rounded shapes, vibrant colors, clean lines",
-  realistic: "photorealistic 3D render, detailed textures, physically accurate materials",
-  geometric: "low-poly 3D model, clean geometric shapes, modern minimal style"
-};
+const BASE_SETTINGS = `Create a 3D model with these specific requirements:
+- Pure white or transparent background, no environmental elements
+- Isometric view to show depth and dimension
+- Professional 3D rendering with clear details
+- Clean, modern aesthetic
+- High contrast lighting to emphasize depth
+- Sharp, clear edges and surfaces
+`;
 
 export async function POST(req: Request) {
   try {
-    const { prompt, mode, style, originalDescription, userId } = await req.json();
+    const { prompt, style, originalDescription, userId } = await req.json();
 
     if (!prompt) {
       return NextResponse.json({ error: 'Prompt is required' }, { status: 400 });
@@ -24,21 +27,23 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
     }
 
-    // Get style modifier from STYLE_PROMPTS
-    const styleModifier = STYLE_PROMPTS[style?.toLowerCase()] || '';
+    const stylePrompt = style ? `Style: ${style}. ` : '';
+    const fullPrompt = `${BASE_SETTINGS}
+    
+${stylePrompt}
+Design requirements: ${prompt}
 
-    // Construct enhanced prompt with style
-    let enhancedPrompt = `Create a 3D model design with ${styleModifier}: ${prompt}`;
+Remember: Maintain pure white/transparent background and isometric perspective.`;
 
-    console.log('Final prompt:', enhancedPrompt); // For debugging
+    console.log('Sending prompt:', fullPrompt);
 
     const response = await openai.images.generate({
       model: "dall-e-3",
-      prompt: enhancedPrompt,
+      prompt: fullPrompt,
       n: 1,
       size: "1024x1024",
       quality: "standard",
-      style: "vivid",
+      style: "natural"
     });
 
     const imageUrl = response.data[0]?.url;
@@ -50,7 +55,7 @@ export async function POST(req: Request) {
     // Save to Firebase
     const savedDesign = await saveDesignToFirebase({
       imageUrl,
-      prompt: enhancedPrompt,
+      prompt: fullPrompt,
       userId,
       mode: 'generated'
     });
@@ -59,14 +64,14 @@ export async function POST(req: Request) {
       success: true, 
       imageUrl: savedDesign.imageUrl,
       designId: savedDesign.id,
-      prompt: enhancedPrompt
+      prompt: fullPrompt
     });
 
-  } catch (error) {
-    console.error('Design generation error:', error);
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to generate design' },
-      { status: 500 }
-    );
+  } catch (error: any) {
+    console.error('Generation error:', error);
+    return NextResponse.json({ 
+      success: false, 
+      error: error.message || 'Failed to generate image' 
+    }, { status: 500 });
   }
 } 

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import OpenAI from 'openai';
+import sharp from 'sharp';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY || ''
@@ -23,81 +24,98 @@ async function retryOperation<T>(
   throw new Error('Max retries reached');
 }
 
-export async function POST(req: Request) {
+async function processImage(imageUrl: string): Promise<string> {
   try {
-    const { imageUrl, mode } = await req.json();
-    console.log('Analyzing design, received URL:', imageUrl ? 'URL received' : 'No URL');
+    let imageBuffer: Buffer;
 
-    let finalImageUrl = imageUrl;
-
-    // Handle base64 images
     if (imageUrl.startsWith('data:image')) {
-      finalImageUrl = imageUrl;
-    } 
-    // Handle http URLs
-    else if (imageUrl.startsWith('http')) {
-      finalImageUrl = imageUrl;
-    } 
-    else {
+      const base64Data = imageUrl.split(',')[1];
+      imageBuffer = Buffer.from(base64Data, 'base64');
+    } else if (imageUrl.startsWith('blob:')) {
+      const response = await fetch(imageUrl);
+      const blob = await response.blob();
+      const arrayBuffer = await blob.arrayBuffer();
+      imageBuffer = Buffer.from(arrayBuffer);
+    } else if (imageUrl.startsWith('http')) {
+      const response = await fetch(imageUrl);
+      const arrayBuffer = await response.arrayBuffer();
+      imageBuffer = Buffer.from(arrayBuffer);
+    } else {
       throw new Error('Invalid image URL format');
     }
 
-    try {
-      console.log('Calling OpenAI API...');
-      const response = await retryOperation(async () => {
-        return await openai.chat.completions.create({
-          model: "gpt-4o",
-          messages: [
-            {
-              role: "system",
-              content: "You are an expert in 3D design analysis. Provide a brief, 2-3 sentence description of the key visual elements and style of the design. Focus on the most distinctive features and overall aesthetic."
-            },
-            {
-              role: "user",
-              content: [
-                { 
-                  type: "text", 
-                  text: "Describe this design's key visual elements and style in 2-3 sentences." 
-                },
-                { 
-                  type: "image_url", 
-                  image_url: { 
-                    url: finalImageUrl,
-                    detail: "high"
-                  } 
-                }
-              ]
-            }
-          ],
-          max_tokens: 150,
-          temperature: 0.3
-        });
-      });
+    // Process image: convert to PNG and remove background
+    const processedBuffer = await sharp(imageBuffer)
+      .png()
+      .resize(1024, 1024, {
+        fit: 'inside',
+        withoutEnlargement: true,
+        background: { r: 255, g: 255, b: 255, alpha: 0 }
+      })
+      .toBuffer();
 
-      console.log('OpenAI API response received');
-      const description = response.choices[0]?.message?.content;
-      
-      if (!description) {
-        console.error('No description in OpenAI response');
-        throw new Error('Failed to get design description from OpenAI');
-      }
+    return `data:image/png;base64,${processedBuffer.toString('base64')}`;
+  } catch (error) {
+    console.error('Image processing error:', error);
+    throw error;
+  }
+}
 
-      console.log('Analysis successful:', description.substring(0, 100) + '...');
-      return NextResponse.json({ description });
-
-    } catch (openAiError) {
-      console.error('OpenAI API error:', openAiError);
-      throw new Error(`OpenAI API error: ${openAiError.message}`);
+export async function POST(req: Request) {
+  try {
+    const { imageUrl, prompt } = await req.json();
+    
+    if (!imageUrl) {
+      return NextResponse.json({ error: 'No image URL provided' }, { status: 400 });
     }
 
-  } catch (error) {
-    console.error('Design analysis error:', error);
-    return NextResponse.json(
-      { 
-        error: error instanceof Error ? error.message : 'Failed to analyze design',
-        details: error instanceof Error ? error.stack : undefined
-      },
-      { status: 500 }
-    );
+    const processedImageUrl = await processImage(imageUrl);
+
+    const response = await retryOperation(async () => {
+      return await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: "Focus only on describing the main 3D object. Ignore any background or environmental elements."
+          },
+          {
+            role: "user",
+            content: [
+              { 
+                type: "text", 
+                text: prompt || "Describe only the main 3D object's key visual elements, ignoring the background." 
+              },
+              { 
+                type: "image_url", 
+                image_url: { 
+                  url: processedImageUrl,
+                  detail: "high"
+                } 
+              }
+            ]
+          }
+        ],
+        max_tokens: 300
+      });
+    });
+
+    const description = response.choices[0]?.message?.content;
+    
+    if (!description) {
+      throw new Error('No description generated');
+    }
+
+    return NextResponse.json({ 
+      success: true,
+      description 
+    });
+
+  } catch (error: any) {
+    console.error('Analysis error:', error);
+    return NextResponse.json({ 
+      success: false, 
+      error: error.message || 'Failed to analyze image' 
+    }, { status: 500 });
   }
 } 

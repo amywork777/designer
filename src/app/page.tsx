@@ -18,6 +18,7 @@ import { ManufacturingRecommendations } from '@/components/ManufacturingRecommen
 import { DesignFeeSection } from '@/components/DesignFeeSection';
 import { SIZES } from '@/lib/types/sizes';
 import { saveDesignToFirebase } from '@/lib/firebase/utils';
+import { handleSignOut } from "@/lib/firebase/auth";
 
 const PROGRESS_STEPS = [
   {
@@ -1872,6 +1873,18 @@ export default function LandingPage() {
     );
   };
 
+  const handleSignOutClick = async () => {
+    try {
+      await handleSignOut();
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: "Error signing out",
+        description: "Please try again"
+      });
+    }
+  };
+
   if (status === "loading") {
     return <div>Loading...</div>;
   }
@@ -1901,7 +1914,7 @@ export default function LandingPage() {
                   <span className="text-black">{session.user?.name}</span>
                 </div>
                 <button
-                  onClick={() => signOut()}
+                  onClick={handleSignOutClick}
                   className="px-4 py-2 text-black hover:text-gray-900"
                 >
                   Sign Out
