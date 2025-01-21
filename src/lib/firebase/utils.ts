@@ -1,6 +1,6 @@
 import { storage, db } from './config';
 import { ref, uploadString, getDownloadURL } from 'firebase/storage';
-import { collection, addDoc, serverTimestamp, getDoc, updateDoc, doc } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, getDoc, updateDoc, doc, query, where, getDocs, orderBy } from 'firebase/firestore';
 
 interface SaveDesignProps {
   imageUrl: string;
@@ -8,6 +8,7 @@ interface SaveDesignProps {
   userId: string;
   mode: 'generated' | 'uploaded' | 'edited';
   originalDesignId?: string;
+  threeDData?: string;
 }
 
 export async function saveDesignToFirebase({
@@ -15,7 +16,8 @@ export async function saveDesignToFirebase({
   prompt,
   userId,
   mode,
-  originalDesignId
+  originalDesignId,
+  threeDData
 }: SaveDesignProps) {
   try {
     console.log('Starting saveDesignToFirebase:', { userId, mode });
@@ -56,8 +58,7 @@ export async function saveDesignToFirebase({
       downloadUrl = await getDownloadURL(storageRef);
     }
 
-    // Save metadata to Firestore
-    console.log('Saving to Firestore with URL:', downloadUrl);
+    // Enhanced design data structure
     const designData = {
       userId,
       imageUrl: downloadUrl,
@@ -65,18 +66,47 @@ export async function saveDesignToFirebase({
       ...(imagePath && { storagePath: imagePath }),
       createdAt: serverTimestamp(),
       ...(prompt && { prompt }),
-      ...(originalDesignId && { originalDesignId })
+      ...(originalDesignId && { originalDesignId }),
+      ...(threeDData && { threeDData }),
+      title: prompt || 'Untitled Design',
+      images: [downloadUrl],
+      status: 'active'
     };
 
     const designDoc = await addDoc(collection(db, 'designs'), designData);
-
+    
     return {
       id: designDoc.id,
-      imageUrl: downloadUrl,
-      ...(imagePath && { storagePath: imagePath })
+      ...designData,
+      createdAt: new Date().toISOString()
     };
   } catch (error) {
     console.error('Error saving design to Firebase:', error);
+    throw error;
+  }
+}
+
+// Add this new function to fetch user's designs
+export async function getUserDesigns(userId: string) {
+  try {
+    if (!userId) throw new Error('userId is required');
+
+    const designsRef = collection(db, 'designs');
+    const q = query(
+      designsRef,
+      where('userId', '==', userId),
+      where('status', '==', 'active'),
+      orderBy('createdAt', 'desc')
+    );
+
+    const querySnapshot = await getDocs(q);
+    return querySnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+      createdAt: doc.data().createdAt?.toDate?.()?.toISOString() || new Date().toISOString()
+    }));
+  } catch (error) {
+    console.error('Error fetching user designs:', error);
     throw error;
   }
 } 

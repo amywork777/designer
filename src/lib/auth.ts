@@ -1,6 +1,8 @@
 import type { NextAuthConfig } from "next-auth";
 import NextAuth from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
+import CredentialsProvider from "next-auth/providers/credentials";
+import { signInWithEmail } from "./firebase/auth";
 
 export const authConfig = {
   providers: [
@@ -8,6 +10,32 @@ export const authConfig = {
       clientId: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
     }),
+    CredentialsProvider({
+      name: "Email",
+      credentials: {
+        email: { label: "Email", type: "email" },
+        password: { label: "Password", type: "password" }
+      },
+      async authorize(credentials) {
+        if (!credentials?.email || !credentials?.password) {
+          throw new Error('Please enter both email and password');
+        }
+        
+        const { user, error } = await signInWithEmail(
+          credentials.email,
+          credentials.password
+        );
+
+        if (error) throw new Error(error.message);
+        if (!user) throw new Error('Authentication failed');
+
+        return {
+          id: user.uid,
+          email: user.email,
+          name: user.displayName,
+        };
+      }
+    })
   ],
   session: {
     strategy: "jwt",
@@ -15,7 +43,14 @@ export const authConfig = {
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        token.id = user.id;
+        // For Google Auth
+        if ('id' in user) {
+          token.id = user.id;
+        }
+        // For Email/Password Auth
+        else if ('uid' in user) {
+          token.id = user.uid;
+        }
       }
       return token;
     },
@@ -27,7 +62,7 @@ export const authConfig = {
     },
   },
   pages: {
-    signIn: '/auth/signin',
+    signIn: '/login',
     error: '/auth/error',
   },
 } satisfies NextAuthConfig;

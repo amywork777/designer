@@ -6,3 +6,74 @@
 export function cn(...classes: string[]): string {
   return classes.filter(Boolean).join(' ');
 }
+
+export const compressBase64Image = async (base64: string): Promise<string> => {
+  try {
+    // If it's not a base64 string, return as is
+    if (!base64.startsWith('data:image')) {
+      return base64;
+    }
+
+    // Create an image element
+    const img = document.createElement('img');
+    img.crossOrigin = "anonymous";
+    
+    await new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = reject;
+      img.src = base64;
+    });
+
+    // Create a canvas
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    
+    if (!ctx) {
+      console.error('Could not get canvas context');
+      return base64;
+    }
+
+    // Set dimensions
+    const maxWidth = 800;
+    const maxHeight = 800;
+    let width = img.width;
+    let height = img.height;
+
+    // Calculate new dimensions
+    if (width > height) {
+      if (width > maxWidth) {
+        height *= maxWidth / width;
+        width = maxWidth;
+      }
+    } else {
+      if (height > maxHeight) {
+        width *= maxHeight / height;
+        height = maxHeight;
+      }
+    }
+
+    // Set canvas dimensions
+    canvas.width = width;
+    canvas.height = height;
+
+    // Fill with white background first
+    ctx.fillStyle = 'white';
+    ctx.fillRect(0, 0, width, height);
+
+    try {
+      // Draw and compress
+      ctx.drawImage(img, 0, 0, width, height);
+      return canvas.toDataURL('image/jpeg', 0.8);
+    } catch (error) {
+      console.error('Error drawing image to canvas:', error);
+      return base64; // Return original if drawing fails
+    }
+  } catch (error) {
+    console.error('Error compressing image:', error);
+    return base64; // Return original if compression fails
+  }
+};
+
+// Make sure this is properly exported
+export type { CompressImageFunction };
+type CompressImageFunction = (base64: string) => Promise<string>;

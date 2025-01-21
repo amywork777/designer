@@ -11,6 +11,8 @@ import Link from 'next/link';
 import Show3DButton from 'components/Show3DButton';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
+import { doc, updateDoc } from 'firebase/firestore';
+import { db } from '@/lib/firebase/config';
 
 const MATERIAL_OPTIONS = [
   {
@@ -184,7 +186,7 @@ export default function GetItMade() {
   const MAX_RETRIES = 3;
 
   const handle3DProcessing = async () => {
-    if (!design?.images[0]) return;
+    if (!design?.images[0] || !session?.user?.id) return;
     
     setProcessing3D(true);
     let attempts = 0;
@@ -198,63 +200,42 @@ export default function GetItMade() {
           },
           body: JSON.stringify({
             image_url: design.images[0],
-            userId: 'default'  // Replace with actual user ID when auth is implemented
+            userId: session.user.id
           })
         });
 
-        const rawText = await response.text();
-        console.log('Raw response:', rawText);
-
-        let data;
-        try {
-          data = JSON.parse(rawText);
-        } catch (e) {
-          console.error('Failed to parse response:', e);
-          throw new Error('Invalid response from server');
-        }
-
-        if (!response.ok) {
-          throw new Error(data.error || 'Server error');
-        }
+        const data = await response.json();
 
         if (data.success && data.video_url) {
-          // Update the design with 3D data
-          updateDesign(design.id, {
-            threeDData: {
-              videoUrl: data.video_url,
-              glbUrls: data.glb_urls || [],
-              preprocessedUrl: data.preprocessed_url,
-              timestamp: data.timestamp
-            }
+          const threeDData = {
+            videoUrl: data.video_url,
+            glbUrls: data.glb_urls || [],
+            preprocessedUrl: data.preprocessed_url,
+            timestamp: data.timestamp
+          };
+
+          // Update in Firebase
+          await updateDoc(doc(db, 'designs', design.id), {
+            threeDData
           });
+
+          // Update local store
+          updateDesign(design.id, { threeDData });
 
           toast({
             title: "Success",
-            description: "3D preview generated successfully"
+            description: "3D preview generated and saved"
           });
-          return; // Success - exit the retry loop
+          return;
         }
         
         attempts++;
-        await new Promise(resolve => setTimeout(resolve, 2000)); // Wait before retrying
-        
+        await new Promise(resolve => setTimeout(resolve, 2000));
       } catch (error) {
-        console.error('Error generating 3D:', error);
-        attempts++;
-        
-        if (attempts >= MAX_RETRIES) {
-          toast({
-            variant: "destructive",
-            title: "Error",
-            description: "Failed to generate 3D preview after multiple attempts"
-          });
-          break;
-        }
-        
-        await new Promise(resolve => setTimeout(resolve, 2000)); // Wait before retrying
+        console.error('3D processing error:', error);
+        break;
       }
     }
-    
     setProcessing3D(false);
   };
 
