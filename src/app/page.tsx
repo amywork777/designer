@@ -12,13 +12,13 @@ import { ManufacturingAnalysis } from '@/components/ManufacturingAnalysis';
 import Link from 'next/link';
 import { put } from '@vercel/blob';
 import { AnalysisData } from '@/types/analysis';
-import { useSession } from "next-auth/react";
-import { signIn } from "next-auth/react";
+import { useSession, signIn } from "next-auth/react";
 import { ManufacturingRecommendations } from '@/components/ManufacturingRecommendations';
 import { DesignFeeSection } from '@/components/DesignFeeSection';
 import { SIZES } from '@/lib/types/sizes';
 import { saveDesignToFirebase } from '@/lib/firebase/utils';
 import { handleSignOut } from "@/lib/firebase/auth";
+import { useAuth } from "@/contexts/AuthContext";
 
 const PROGRESS_STEPS = [
   {
@@ -1885,6 +1885,12 @@ export default function LandingPage() {
     }
   };
 
+  // Add console.log to debug session data
+  useEffect(() => {
+    console.log('Session status:', status);
+    console.log('Session data:', session);
+  }, [session, status]);
+
   if (status === "loading") {
     return <div>Loading...</div>;
   }
@@ -1898,42 +1904,55 @@ export default function LandingPage() {
               Manufacturing AI Assistant
             </h1>
             
-            {/* Add auth button */}
-            {session ? (
-              <div className="flex items-center gap-4">
+            {/* Auth Section */}
+            <div className="flex items-center gap-2">
+              {status === "loading" ? (
                 <div className="flex items-center gap-2">
-                  {session.user?.image && (
-                    <Image
-                      src={session.user.image}
-                      alt="Profile"
-                      width={32}
-                      height={32}
-                      className="rounded-full"
-                    />
-                  )}
-                  <span className="text-black">{session.user?.name}</span>
+                  <div className="w-8 h-8 rounded-full bg-gray-200 animate-pulse" />
+                  <div className="h-4 w-20 bg-gray-200 animate-pulse rounded" />
                 </div>
+              ) : session ? (
+                <div className="flex items-center gap-4 bg-white/80 backdrop-blur-sm px-4 py-2 rounded-lg shadow-sm">
+                  <div className="flex items-center gap-2">
+                    {session.user?.image ? (
+                      <Image
+                        src={session.user.image}
+                        alt="Profile"
+                        width={32}
+                        height={32}
+                        className="rounded-full"
+                      />
+                    ) : (
+                      <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center">
+                        {session.user?.email?.[0].toUpperCase() || session.user?.name?.[0].toUpperCase() || 'U'}
+                      </div>
+                    )}
+                    <span className="text-black font-medium">
+                      {session.user?.name || session.user?.email?.split('@')[0] || 'User'}
+                    </span>
+                  </div>
+                  <button
+                    onClick={handleSignOutClick}
+                    className="text-gray-600 hover:text-gray-900 text-sm"
+                  >
+                    Sign Out
+                  </button>
+                </div>
+              ) : (
                 <button
-                  onClick={handleSignOutClick}
-                  className="px-4 py-2 text-black hover:text-gray-900"
+                  onClick={() => router.push('/login')}
+                  className="flex items-center gap-2 px-4 py-2 bg-white/80 backdrop-blur-sm rounded-lg shadow-sm hover:bg-white/90 transition-colors"
                 >
-                  Sign Out
+                  <Image
+                    src="/google.svg"
+                    alt="Google"
+                    width={20}
+                    height={20}
+                  />
+                  <span className="text-black">Sign in</span>
                 </button>
-              </div>
-            ) : (
-              <button
-                onClick={() => router.push('/login')}
-                className="flex items-center gap-2 px-4 py-2 bg-white rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors"
-              >
-                <Image
-                  src="/google.svg"
-                  alt="Google"
-                  width={20}
-                  height={20}
-                />
-                <span className="text-black">Sign in</span>
-              </button>
-            )}
+              )}
+            </div>
           </div>
         </div>
 

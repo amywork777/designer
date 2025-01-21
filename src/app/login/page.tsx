@@ -35,28 +35,39 @@ export default function LoginPage() {
           description: "Account created! Please verify your email."
         });
       } else {
-        const { user, error: signInError } = await signInWithEmail(email, password);
+        const result = await signIn('credentials', {
+          redirect: false,
+          email: email,
+          password: password,
+        });
         
-        if (signInError) {
-          setError(signInError.message);
-          return;
+        if (result?.error) {
+          throw new Error(result.error);
         }
 
-        if (user) {
-          toast({
-            title: "Success",
-            description: "Signed in successfully!"
-          });
-          
-          // Redirect to landing page
-          router.push('/');
-          router.refresh();
-        }
+        toast({
+          title: "Success",
+          description: "Signed in successfully!"
+        });
+        
+        router.push('/');
+        router.refresh();
       }
     } catch (error: any) {
       setError(error.message || 'An error occurred');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    setIsLoading(true);
+    try {
+      await signIn('google', {
+        callbackUrl: '/',
+      });
+    } catch (error) {
+      console.error('Google sign in error:', error);
     }
   };
 
@@ -125,7 +136,7 @@ export default function LoginPage() {
         </div>
 
         <button
-          onClick={() => signIn("google", { callbackUrl: "/" })}
+          onClick={handleGoogleSignIn}
           className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-white border rounded-lg hover:bg-gray-50 transition-colors"
         >
           <Image src="/google.svg" alt="Google" width={20} height={20} />
