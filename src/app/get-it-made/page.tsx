@@ -19,6 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { MATERIAL_OPTIONS } from '@/lib/constants/materials';
+import SignInPopup from '@/components/SignInPopup';
 
 const PRICING = {
   Mini: { PLA: 20, Wood: 40, TPU: 45, Resin: 60, Aluminum: 200 },
@@ -74,6 +75,7 @@ export default function GetItMade() {
   const [selectedProcess, setSelectedProcess] = useState('3d-printing');
   const [filesUnlocked, setFilesUnlocked] = useState(false);
   const [show3DPreview, setShow3DPreview] = useState(false);
+  const [showSignInPopup, setShowSignInPopup] = useState(false);
 
   const design = designs.find(d => d.id === designId);
   const selectedDesign = design?.images[0];
@@ -290,6 +292,21 @@ export default function GetItMade() {
     }
   };
 
+  const handleUnlockFiles = () => {
+    if (!session) {
+      // If user is not signed in, show sign-in popup
+      setShowSignInPopup(true);
+      return;
+    }
+
+    // If user is signed in, proceed with unlocking files
+    setFilesUnlocked(true);
+    toast({
+      title: "Files Unlocked",
+      description: "You can now download the files",
+    });
+  };
+
   if (!design) {
     return (
       <div className="container max-w-7xl mx-auto px-4 py-8">
@@ -380,7 +397,7 @@ export default function GetItMade() {
                           <Button 
                             variant="default" 
                             className="w-full bg-black text-white hover:bg-gray-800 font-dm-sans font-medium text-sm rounded-[10px]"
-                            onClick={() => setFilesUnlocked(true)}
+                            onClick={handleUnlockFiles}
                           >
                             <Lock className="mr-2 h-4 w-4" />
                             Unlock Files
@@ -649,6 +666,12 @@ export default function GetItMade() {
           </div>
         </div>
       </div>
+
+      {/* Add SignInPopup component */}
+      <SignInPopup 
+        isOpen={showSignInPopup} 
+        onClose={() => setShowSignInPopup(false)} 
+      />
     </div>
   );
 } 

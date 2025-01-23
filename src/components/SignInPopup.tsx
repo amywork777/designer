@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Loader2, X } from 'lucide-react';
 import { signIn } from 'next-auth/react';
+import { useToast } from '@/components/ui/use-toast';
 
 interface SignInPopupProps {
   isOpen: boolean;
@@ -14,6 +15,7 @@ export default function SignInPopup({ isOpen, onClose }: SignInPopupProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const { toast } = useToast();
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,13 +29,25 @@ export default function SignInPopup({ isOpen, onClose }: SignInPopupProps) {
       });
       
       if (result?.error) {
-        // Handle error
-        console.error(result.error);
+        toast({
+          variant: "destructive",
+          title: "Authentication Error",
+          description: result.error
+        });
       } else {
+        toast({
+          title: "Success",
+          description: "Signed in successfully!"
+        });
         onClose();
       }
     } catch (error) {
       console.error(error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "An unexpected error occurred"
+      });
     } finally {
       setIsLoading(false);
     }
