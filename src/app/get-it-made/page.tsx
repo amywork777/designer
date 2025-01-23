@@ -20,6 +20,8 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { MATERIAL_OPTIONS } from '@/lib/constants/materials';
 import SignInPopup from '@/components/SignInPopup';
+import { canDownloadFile } from '@/lib/utils/download-limits';
+import { recordDownload } from '@/lib/utils/download-limits';
 
 const PRICING = {
   Mini: { PLA: 20, Wood: 40, TPU: 45, Resin: 60, Aluminum: 200 },
@@ -263,6 +265,11 @@ export default function GetItMade() {
   };
 
   const handleDownload = async (type: 'stl' | 'step') => {
+    if (!session?.user) {
+      setShowSignInPopup(true);
+      return;
+    }
+
     if (!design?.threeDData?.videoUrl) {
       toast({
         title: "Generate 3D Preview First",
@@ -273,8 +280,26 @@ export default function GetItMade() {
     }
 
     try {
+      // Check download limits
+      const { allowed, remaining } = await canDownloadFile(session.user.id, type);
+      
+      if (!allowed) {
+        toast({
+          title: "Download Limit Reached",
+          description: `You've reached your ${type.toUpperCase()} download limit for this period. Consider upgrading your plan for more downloads.`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Proceed with download
       const response = await fetch(`/api/designs/${design.id}/download?type=${type}`);
       const blob = await response.blob();
+      
+      // Record the download
+      await recordDownload(session.user.id, design.id, type);
+      
+      // Create download link
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -283,6 +308,12 @@ export default function GetItMade() {
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
+
+      // Show remaining downloads
+      toast({
+        title: "Download Successful",
+        description: `You have ${remaining - 1} ${type.toUpperCase()} downloads remaining this period.`,
+      });
     } catch (error) {
       toast({
         title: "Download Failed",

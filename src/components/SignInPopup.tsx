@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Loader2, X } from 'lucide-react';
 import { signIn } from 'next-auth/react';
 import { useToast } from '@/components/ui/use-toast';
+import { signInWithEmail, signUpWithEmail } from '@/lib/firebase/auth';
 
 interface SignInPopupProps {
   isOpen: boolean;
@@ -22,27 +23,47 @@ export default function SignInPopup({ isOpen, onClose }: SignInPopupProps) {
     setIsLoading(true);
     
     try {
-      const result = await signIn('credentials', {
+      let result;
+      
+      if (isSignUp) {
+        // Handle sign up
+        result = await signUpWithEmail(email, password);
+      } else {
+        // Handle sign in
+        result = await signInWithEmail(email, password);
+      }
+      
+      if (result.error) {
+        toast({
+          variant: "destructive",
+          title: "Authentication Error",
+          description: result.error.message
+        });
+        return;
+      }
+
+      // If Firebase auth successful, also sign in with NextAuth
+      const nextAuthResult = await signIn('credentials', {
         email,
         password,
         redirect: false,
       });
       
-      if (result?.error) {
+      if (nextAuthResult?.error) {
         toast({
           variant: "destructive",
           title: "Authentication Error",
-          description: result.error
+          description: nextAuthResult.error
         });
       } else {
         toast({
           title: "Success",
-          description: "Signed in successfully!"
+          description: isSignUp ? "Account created successfully!" : "Signed in successfully!"
         });
         onClose();
       }
     } catch (error) {
-      console.error(error);
+      console.error('Auth error:', error);
       toast({
         variant: "destructive",
         title: "Error",
