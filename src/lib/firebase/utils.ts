@@ -1,6 +1,6 @@
-import { storage, db } from './config';
-import { ref, uploadString, getDownloadURL } from 'firebase/storage';
-import { collection, addDoc, serverTimestamp, getDoc, updateDoc, doc, query, where, getDocs, orderBy } from 'firebase/firestore';
+import { db } from './config';
+import { collection, addDoc, serverTimestamp, getDoc, updateDoc, doc, query, where, getDocs, orderBy, deleteDoc } from 'firebase/firestore';
+import { uploadFile, getDesignBasePath, deleteDesignFiles } from './storage';
 
 interface SaveDesignProps {
   imageUrl: string;
@@ -20,73 +20,111 @@ export async function saveDesignToFirebase({
   threeDData
 }: SaveDesignProps) {
   try {
-    console.log('Starting saveDesignToFirebase:', { userId, mode });
-    
     if (!imageUrl || !userId) {
       throw new Error('imageUrl and userId are required');
     }
 
-    let downloadUrl = imageUrl;
-    let imagePath = '';
-
-    // Handle different types of image URLs
-    if (imageUrl.startsWith('data:image') || imageUrl.startsWith('blob:')) {
-      // Convert blob URL to base64 if needed
-      if (imageUrl.startsWith('blob:')) {
-        const response = await fetch(imageUrl);
-        const blob = await response.blob();
-        const reader = new FileReader();
-        downloadUrl = await new Promise((resolve) => {
-          reader.onloadend = () => resolve(reader.result as string);
-          reader.readAsDataURL(blob);
-        });
-      } else {
-        downloadUrl = imageUrl;
-      }
-
-      // Upload to Firebase Storage
-      const timestamp = Date.now();
-      const randomId = Math.random().toString(36).substring(2, 8);
-      imagePath = `designs/${userId}/${timestamp}-${randomId}.png`;
-      const storageRef = ref(storage, imagePath);
-      
-      console.log('Uploading image to Storage...');
-      const imageData = downloadUrl.split(',')[1];
-      await uploadString(storageRef, imageData, 'base64', {
-        contentType: 'image/png'
-      });
-      downloadUrl = await getDownloadURL(storageRef);
-    }
-
-    // Enhanced design data structure
+    // Create design document first to get an ID
     const designData = {
       userId,
-      imageUrl: downloadUrl,
       mode,
-      ...(imagePath && { storagePath: imagePath }),
       createdAt: serverTimestamp(),
       ...(prompt && { prompt }),
       ...(originalDesignId && { originalDesignId }),
       ...(threeDData && { threeDData }),
       title: prompt || 'Untitled Design',
-      images: [downloadUrl],
-      status: 'active'
+      status: 'active',
+      storagePath: ''
     };
 
     const designDoc = await addDoc(collection(db, 'designs'), designData);
-    
-    return {
-      id: designDoc.id,
-      ...designData,
-      createdAt: new Date().toISOString()
-    };
+    const designId = designDoc.id;
+
+    try {
+      // Upload the image to the correct path
+      const { url: finalUrl, path } = await uploadFile(
+        imageUrl,
+        userId,
+        designId,
+        'original'
+      );
+
+      // Update the document with the storage path and URL
+      const updatedData = {
+        imageUrl: finalUrl,
+        storagePath: getDesignBasePath(userId, designId),
+        images: [finalUrl]
+      };
+
+      await updateDoc(doc(db, 'designs', designId), updatedData);
+
+      return {
+        id: designId,
+        ...designData,
+        ...updatedData,
+        createdAt: new Date().toISOString()
+      };
+    } catch (uploadError) {
+      // If upload fails, delete the design document
+      await deleteDoc(doc(db, 'designs', designId));
+      throw uploadError;
+    }
   } catch (error) {
     console.error('Error saving design to Firebase:', error);
     throw error;
   }
 }
 
-// Add this new function to fetch user's designs
+export async function updateDesignWithThreeDData(
+  designId: string, 
+  userId: string,
+  threeDData: {
+    videoUrl?: string;
+    glbUrls?: string[];
+    preprocessedUrl?: string;
+  }
+) {
+  try {
+    const uploadTasks = [];
+
+    if (threeDData.videoUrl) {
+      uploadTasks.push(uploadFile(threeDData.videoUrl, userId, designId, 'preview'));
+    }
+
+    if (threeDData.glbUrls?.[0]) {
+      uploadTasks.push(uploadFile(threeDData.glbUrls[0], userId, designId, 'model'));
+    }
+
+    if (threeDData.glbUrls?.[1]) {
+      uploadTasks.push(uploadFile(threeDData.glbUrls[1], userId, designId, 'model_1'));
+    }
+
+    if (threeDData.preprocessedUrl) {
+      uploadTasks.push(uploadFile(threeDData.preprocessedUrl, userId, designId, 'preprocessed'));
+    }
+
+    const results = await Promise.all(uploadTasks);
+    
+    // Map the results to their respective types
+    const updatedData: any = {};
+    results.forEach(({ url }, index) => {
+      if (index === 0 && threeDData.videoUrl) updatedData.videoUrl = url;
+      if (index === 1 && threeDData.glbUrls?.[0]) updatedData.glbUrls = [url];
+      if (index === 2 && threeDData.glbUrls?.[1]) updatedData.glbUrls = [...(updatedData.glbUrls || []), url];
+      if (index === 3 && threeDData.preprocessedUrl) updatedData.preprocessedUrl = url;
+    });
+
+    await updateDoc(doc(db, 'designs', designId), {
+      threeDData: updatedData
+    });
+
+    return updatedData;
+  } catch (error) {
+    console.error('Error updating design with 3D data:', error);
+    throw error;
+  }
+}
+
 export async function getUserDesigns(userId: string) {
   try {
     if (!userId) throw new Error('userId is required');
@@ -109,4 +147,4 @@ export async function getUserDesigns(userId: string) {
     console.error('Error fetching user designs:', error);
     throw error;
   }
-} 
+}
