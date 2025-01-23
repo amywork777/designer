@@ -1934,57 +1934,9 @@ export default function LandingPage() {
 
       {/* Main Content Layer - Keep at normal z-index */}
       <div className="relative container mx-auto px-4 py-12">
-        {/* Replace the existing container background classes */}
         <div className="mb-12">
           <div className="flex items-center justify-between">
-            {/* Main Title */}
-            <h1 className="font-dm-sans font-medium text-2xl">
-              Manufacturing AI Assistant
-            </h1>
-            
-            {/* Update auth section background to be more transparent */}
-            <div className="flex items-center gap-2">
-              {status === "loading" ? (
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-full bg-gray-200 animate-pulse" />
-                  <div className="h-4 w-20 bg-gray-200 animate-pulse rounded" />
-                </div>
-              ) : session ? (
-                <div className="flex items-center gap-4 bg-white/60 backdrop-blur-sm px-4 py-2 rounded-2xl shadow-sm">
-                  <div className="flex items-center gap-2">
-                    {session.user?.image ? (
-                      <Image
-                        src={session.user.image}
-                        alt="Profile"
-                        width={32}
-                        height={32}
-                        className="rounded-full"
-                      />
-                    ) : (
-                      <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center">
-                        {session.user?.email?.[0].toUpperCase() || session.user?.name?.[0].toUpperCase() || 'U'}
-                      </div>
-                    )}
-                    <span className="text-black font-medium">
-                      {session.user?.name || session.user?.email?.split('@')[0] || 'User'}
-                    </span>
-                  </div>
-                  <button
-                    onClick={handleSignOutClick}
-                    className="text-gray-600 hover:text-gray-900 text-sm"
-                  >
-                    Sign Out
-                  </button>
-                </div>
-              ) : (
-                <Link
-                  href="/login"
-                  className="flex items-center gap-2 px-4 py-2 bg-white/60 backdrop-blur-sm rounded-2xl border border-gray-200/50 hover:bg-white/80 transition-colors"
-                >
-                  <span className="text-black">Sign In</span>
-                </Link>
-              )}
-            </div>
+            {/* Remove auth section */}
           </div>
         </div>
 
@@ -2207,7 +2159,7 @@ export default function LandingPage() {
                 <div className="p-3">
                   {userDesigns.length > 0 ? (
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                      {userDesigns.map((design, index) => (
+                      {(isHistoryCollapsed ? userDesigns.slice(0, 4) : userDesigns).map((design, index) => (
                         <div 
                           key={index} 
                           className="relative aspect-square group cursor-pointer bg-white border border-gray-200 hover:border-gray-300 rounded-xl transition-all"

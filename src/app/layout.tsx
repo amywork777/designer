@@ -1,5 +1,6 @@
 import '@/styles/globals.css';
 import { Providers } from '@/components/Providers';
+import Header from '@/components/Header';
 import { Viewport } from 'next';
 
 export const viewport: Viewport = {
@@ -23,7 +24,8 @@ export default function RootLayout({
     <html lang="en">
       <body>
         <Providers>
-          <main>
+          <Header />
+          <main className="min-h-screen">
             {children}
           </main>
         </Providers>
