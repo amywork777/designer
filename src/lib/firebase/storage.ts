@@ -8,13 +8,19 @@ interface UploadResult {
 
 export async function uploadBase64Image(
   base64String: string,
-  folder: 'designs' | 'references' = 'designs'
+  userId: string,
+  designId: string,
+  fileType: 'original' | '3d_preview' | '3d_model' | '3d_preprocessed' = 'original'
 ): Promise<UploadResult> {
   try {
-    const timestamp = Date.now();
-    const randomString = Math.random().toString(36).substring(2, 8);
-    const filename = `${timestamp}-${randomString}.png`;
-    const path = `${folder}/${filename}`;
+    // Determine file extension based on type
+    const extension = fileType === '3d_model' ? '.glb' : 
+                     fileType === '3d_preview' ? '.mp4' : '.png';
+    
+    // Build the correct path based on file type
+    const path = fileType.startsWith('3d_') 
+      ? `users/${userId}/designs/${designId}/3d/${fileType.replace('3d_', '')}${extension}`
+      : `users/${userId}/designs/${designId}/original${extension}`;
     
     const storageRef = ref(storage, path);
     const base64WithoutPrefix = base64String.replace(/^data:image\/\w+;base64,/, '');
@@ -24,7 +30,7 @@ export async function uploadBase64Image(
     
     return { url, path };
   } catch (error) {
-    console.error('Error uploading base64 image:', error);
+    console.error('Error uploading file:', error);
     throw error;
   }
 }
