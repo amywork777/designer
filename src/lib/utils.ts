@@ -1,10 +1,13 @@
+import { type ClassValue, clsx } from "clsx"
+import { twMerge } from "tailwind-merge"
+
 /**
  * Utility function to join CSS classes conditionally.
  * @param classes - Array of class names.
  * @returns Joined string of class names.
  */
-export function cn(...classes: string[]): string {
-  return classes.filter(Boolean).join(' ');
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs))
 }
 
 export const compressBase64Image = async (base64: string): Promise<string> => {

@@ -1939,18 +1939,12 @@ export default function LandingPage() {
                   </button>
                 </div>
               ) : (
-                <button
-                  onClick={() => router.push('/login')}
-                  className="flex items-center gap-2 px-4 py-2 bg-white/80 backdrop-blur-sm rounded-lg shadow-sm hover:bg-white/90 transition-colors"
+                <Link
+                  href="/login"
+                  className="flex items-center gap-2 px-4 py-2 bg-white rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors"
                 >
-                  <Image
-                    src="/google.svg"
-                    alt="Google"
-                    width={20}
-                    height={20}
-                  />
-                  <span className="text-black">Sign in</span>
-                </button>
+                  <span className="text-black">Sign In</span>
+                </Link>
               )}
             </div>
           </div>

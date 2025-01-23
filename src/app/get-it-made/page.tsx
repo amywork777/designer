@@ -3,42 +3,47 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { ManufacturingAnalysis } from '@/components/ManufacturingAnalysis';
-import { Package, Lock, Check, Sparkles, Download, Info as InfoIcon, DollarSign, ArrowRight, Loader2 } from 'lucide-react';
+import { Package, Lock, Check, Sparkles, Download, Info as InfoIcon, DollarSign, ArrowRight, Loader2, FileDown, ChevronDown } from 'lucide-react';
 import { useDesignStore } from '@/lib/store/designs';
 import { useToast } from "@/components/ui/use-toast";
 import { getMaterialRecommendation } from '@/lib/utils/materials';
 import Link from 'next/link';
-import Show3DButton from 'components/Show3DButton';
+import Show3DButton from '@/components/Show3DButton';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase/config';
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 
 const MATERIAL_OPTIONS = [
   {
-    title: "PLA",
-    description: "Basic plastic filament, easy to print, most common and cost-effective.",
-    cost: "$ (Most Affordable)"
+    title: 'PLA',
+    description: 'Standard 3D printing material, good for prototypes and decorative items',
+    cost: '$ (Most Affordable)'
   },
   {
-    title: "Wood PLA",
-    description: "Regular PLA mixed with wood particles for natural look.",
-    cost: "$$ (Mid-Range)"
+    title: 'PETG',
+    description: 'Stronger than PLA, good for functional parts',
+    cost: '$$ (Mid-Range)'
   },
   {
-    title: "TPU",
-    description: "Flexible, squishy rubber-like material that can bend.",
-    cost: "$$ (Mid-Range)"
+    title: 'ABS',
+    description: 'Durable and heat-resistant, ideal for mechanical parts',
+    cost: '$$ (Mid-Range)'
   },
   {
-    title: "Resin",
-    description: "Liquid that cures into solid, gives smoothest finish, provides high detail.",
-    cost: "$$$ (Premium)"
+    title: 'TPU',
+    description: 'Flexible material, great for parts that need to bend',
+    cost: '$$$ (Premium)'
   },
   {
-    title: "Aluminum",
-    description: "High-quality metal that provides an elegant look.",
-    cost: "$$$$ (Premium)"
+    title: 'Resin',
+    description: 'High detail and smooth finish, perfect for miniatures',
+    cost: '$$$ (Premium)'
   }
 ];
 
@@ -57,13 +62,25 @@ const DELIVERY_ESTIMATES = {
 } as const;
 
 const getPriceAndDelivery = (size: string, material: string) => {
-  const materialKey = material.replace(' PLA', '') as keyof typeof PRICING.Mini;
-  const sizeKey = size as keyof typeof PRICING;
-  
-  const price = PRICING[sizeKey]?.[materialKey];
-  const delivery = DELIVERY_ESTIMATES[sizeKey]?.[materialKey];
-  
-  return { price, delivery };
+  const basePrice = {
+    'Small (up to 5cm)': 20,
+    'Medium (5-15cm)': 35,
+    'Large (15-25cm)': 50,
+    'Extra Large (25cm+)': 75
+  }[size] || 0;
+
+  const materialMultiplier = {
+    'PLA': 1,
+    'PETG': 1.2,
+    'ABS': 1.3,
+    'TPU': 1.5,
+    'Resin': 1.8
+  }[material] || 1;
+
+  return {
+    price: `$${(basePrice * materialMultiplier).toFixed(2)}`,
+    delivery: '3-5 business days'
+  };
 };
 
 export default function GetItMade() {
@@ -81,6 +98,8 @@ export default function GetItMade() {
   const [quantity, setQuantity] = useState(1);
   const [designComments, setDesignComments] = useState('');
   const [processing3D, setProcessing3D] = useState(false);
+  const [selectedProcess, setSelectedProcess] = useState('3d-printing');
+  const [filesUnlocked, setFilesUnlocked] = useState(false);
 
   const design = designs.find(d => d.id === designId);
   const selectedDesign = design?.images[0];
@@ -252,284 +271,301 @@ export default function GetItMade() {
   }
 
   return (
-    <div className="container max-w-7xl mx-auto px-4 py-8">
-      <div className="mb-8 bg-white rounded-xl shadow-lg p-6">
-        <h2 className="text-2xl font-bold text-gray-900 mb-4">Your Design</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          {/* Design Preview */}
-          <div className="aspect-square relative rounded-lg overflow-hidden">
-            <img
-              src={design.images[0]}
-              alt="Design Preview"
-              className="object-contain w-full h-full"
-            />
-          </div>
+    <div className="min-h-screen bg-gradient-to-br from-white via-gray-50 to-rose-100">
+      <div className="max-w-6xl mx-auto px-6 pt-8 pb-6">
+        <h1 className="text-2xl font-medium">
+          Ready to bring your design to life? Let's make it happen.
+        </h1>
+      </div>
 
-          {/* 3D Preview if available */}
-          {design?.threeDData?.videoUrl && design?.threeDData?.timestamp && !processing3D && (
-            <div>
-              <h4 className="text-sm font-medium text-gray-700 mb-2">3D Preview</h4>
-              <div className="aspect-video">
-                <video 
-                  src={design.threeDData.videoUrl}
-                  controls
-                  className="w-full h-full rounded-lg"
-                  preload="metadata"
-                >
-                  Your browser does not support the video tag.
-                </video>
-              </div>
-              <p className="text-sm text-gray-500 mt-2 italic">
-                Note: This is an AI-generated preview. The actual 3D model will be professionally optimized for manufacturing.
-              </p>
-            </div>
-          )}
-
-          {/* Show 3D Generation Button if no video exists */}
-          {(!design?.threeDData?.videoUrl || !design?.threeDData?.timestamp) && (
-            <div>
-              <button
-                onClick={handle3DProcessing}
-                disabled={processing3D}
-                className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 
-                  disabled:bg-gray-400 flex items-center justify-center gap-2"
-              >
-                {processing3D ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Processing...
-                  </>
-                ) : (
-                  <>
-                    <Package className="w-4 h-4" />
-                    Generate 3D Preview
-                  </>
-                )}
-              </button>
-            </div>
-          )}
-        </div>
-
-
-        {/* Creative Guidelines Section */}
-        <div className="mt-8 bg-gray-50 rounded-lg p-6">
-          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-            <InfoIcon className="w-5 h-5 text-blue-500" />
-            Creative Guidelines
-          </h3>
-          
-          <ul className="space-y-2 text-gray-600">
-            <li className="flex items-start gap-2">
-              • This is great for artistic and decorative items!
-            </li>
-            <li className="flex items-start gap-2">
-              • Best for items where exact measurements aren't crucial
-            </li>
-            <li className="flex items-start gap-2">
-              • Sizes are approximate and may vary slightly
-            </li>
-          </ul>
-        </div>
-
-        {/* Action Buttons */}
-        <div className="mt-4 grid grid-cols-2 gap-4">
-          <button
-            onClick={async () => {
-              try {
-                const response = await fetch('/api/analyze-material', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ 
-                    imageUrl: design.images[0]
-                  }),
-                });
-
-                if (!response.ok) {
-                  throw new Error('Failed to get recommendation');
-                }
-
-                const data = await response.json();
-                
-                if (data.recommendedMaterial) {
-                  setSelectedMaterial(data.recommendedMaterial);
-                  setRecommendationInfo({
-                    material: data.recommendedMaterial,
-                    reason: data.reason
-                  });
-
-                  // Save recommendation to design
-                  updateDesign(design.id, {
-                    recommendedMaterial: data.recommendedMaterial,
-                    recommendationReason: data.reason
-                  });
-
-                  // Scroll to material section
-                  const materialElement = document.getElementById(data.recommendedMaterial);
-                  if (materialElement) {
-                    materialElement.scrollIntoView({ behavior: 'smooth' });
-                    materialElement.classList.add('border-blue-500', 'border-2');
-                  }
-
-                  toast({
-                    title: "Recommendation Ready",
-                    description: `We recommend using ${data.recommendedMaterial}`,
-                    duration: 5000
-                  });
-                }
-              } catch (error) {
-                console.error('Error:', error);
-                toast({
-                  variant: "destructive",
-                  title: "Error",
-                  description: "Failed to get material recommendation"
-                });
-              }
-            }}
-            disabled={design.recommendedMaterial !== undefined}
-            className={`flex items-center justify-center px-4 py-2 rounded-lg transition-colors
-              ${design.recommendedMaterial 
-                ? 'bg-gray-300 cursor-not-allowed' 
-                : 'bg-blue-600 hover:bg-blue-700 text-white'}`}
-          >
-            <Sparkles className="w-4 h-4 mr-2" />
-            {design.recommendedMaterial ? 'Recommendation Made' : 'What material should I choose?'}
-          </button>
-          <Link 
-            href={`/get-files?designId=${design.id}`}
-            className="flex items-center justify-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-          >
-            <Download className="w-4 h-4 mr-2" />
-            Get Files
-          </Link>
-        </div>
-
-        {/* Manufacturing Analysis Section */}
-        <div className="mt-8">
-          <ManufacturingAnalysis
-            imageUrl={design.images[0]}
-            existingAnalysis={design.analysis}
-            onAnalysisComplete={(analysis) => {
-              updateDesign(design.id, { analysis });
-            }}
-            quantity={quantity}
-            onQuantityChange={setQuantity}
-            dimensions={dimensions}
-            onDimensionsChange={setDimensions}
-            designComments={designComments}
-            onCommentsChange={setDesignComments}
-          />
-        </div>
-
-        {/* Material Selection Section */}
-        <div className="mt-8">
-          <h3 className="text-xl font-semibold mb-4">Select Material</h3>
-
-          {/* Recommendation Info Display */}
-          {recommendationInfo && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
-              <div className="flex items-start gap-2">
-                <Sparkles className="w-5 h-5 text-blue-500 mt-0.5" />
-                <div>
-                  <p className="font-medium text-gray-900">
-                    Recommended: {recommendationInfo.material}
-                  </p>
-                  <p className="text-gray-600 mt-1">
-                    {recommendationInfo.reason}
-                  </p>
+      <div className="max-w-6xl mx-auto px-6 pb-12">
+        <div className="flex gap-6">
+          {/* Left Side - Preview and Files */}
+          <div className="w-[400px] space-y-6 font-inter">
+            <Card className="bg-white rounded-xl shadow-sm border">
+              <CardHeader>
+                <CardTitle className="font-dm-sans font-medium text-lg">Design Preview</CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <div className="aspect-square bg-gray-100 rounded-xl flex items-center justify-center overflow-hidden">
+                  {selectedDesign ? (
+                    <img src={selectedDesign} alt="Design preview" className="w-full h-full object-contain" />
+                  ) : (
+                    <div className="flex items-center justify-center">
+                      <Loader2 className="h-8 w-8 animate-spin" />
+                    </div>
+                  )}
                 </div>
-              </div>
-            </div>
-          )}
+                <Show3DButton
+                  design={design}
+                  processing3D={processing3D}
+                  setProcessing3D={setProcessing3D}
+                  className="w-full mt-4 font-dm-sans font-medium text-sm rounded-xl"
+                />
 
-          <div className="space-y-4">
-            {MATERIAL_OPTIONS.map((material) => (
-              <div
-                key={material.title}
-                className={`flex items-center justify-between p-4 bg-white rounded-lg border hover:border-blue-500 cursor-pointer ${
-                  selectedMaterial === material.title ? 'border-blue-500 bg-blue-50' : 'border-gray-200'
-                }`}
-                onClick={() => setSelectedMaterial(material.title)}
-              >
-                <div>
-                  <h4 className="font-medium">{material.title}</h4>
-                  <p className="text-sm text-gray-600">{material.description}</p>
+                {/* Download Files Section */}
+                <div className="mt-4">
+                  <Card className="bg-white rounded-xl shadow-sm border">
+                    <CardContent className="p-4">
+                      <div className="text-center space-y-2">
+                        <div className="text-sm text-gray-600">Get STL for 3D printing and STEP for CAD editing</div>
+                        {!filesUnlocked ? (
+                          <Button 
+                            variant="default" 
+                            className="w-full bg-black text-white hover:bg-gray-800 font-dm-sans font-medium text-sm rounded-xl"
+                            onClick={() => setFilesUnlocked(true)}
+                          >
+                            <Lock className="mr-2 h-4 w-4" />
+                            Unlock Files
+                          </Button>
+                        ) : (
+                          <div className="space-y-2">
+                            <Button variant="outline" className="w-full font-dm-sans font-medium text-sm rounded-xl" asChild>
+                              <a href="#" download>
+                                <FileDown className="mr-2 h-4 w-4" />
+                                Download STL File
+                              </a>
+                            </Button>
+                            <Button variant="outline" className="w-full font-dm-sans font-medium text-sm rounded-xl" asChild>
+                              <a href="#" download>
+                                <FileDown className="mr-2 h-4 w-4" />
+                                Download STEP File
+                              </a>
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
                 </div>
-                <span className="text-gray-500">{material.cost}</span>
-              </div>
-            ))}
-          </div>
-        </div>
+              </CardContent>
+            </Card>
 
-        {/* Price and Delivery Estimate */}
-        <div className="bg-gray-50 rounded-lg p-4 mt-8">
-          <h4 className="text-lg font-semibold text-gray-900 mb-4">Price Estimate</h4>
-          <div className="space-y-2">
-            <div className="flex justify-between items-center">
-              <span className="text-gray-600">Base Price:</span>
-              <span className="font-medium text-gray-900">
-                {dimensions.size && selectedMaterial 
-                  ? (typeof getPriceAndDelivery(dimensions.size, selectedMaterial).price === 'number'
-                    ? `$${getPriceAndDelivery(dimensions.size, selectedMaterial).price}`
-                    : 'Contact us for quote')
-                  : '(Select size and material)'}
-              </span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-gray-600">Quantity:</span>
-              <span className="font-medium text-gray-900">{quantity || 1}</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-gray-600">Estimated Delivery:</span>
-              <span className="font-medium text-gray-900">
-                {dimensions.size && selectedMaterial
-                  ? (getPriceAndDelivery(dimensions.size, selectedMaterial).delivery || 'Contact us')
-                  : '(Select size and material)'}
-              </span>
-            </div>
-            {quantity > 1 && dimensions.size && selectedMaterial && typeof getPriceAndDelivery(dimensions.size, selectedMaterial).price === 'number' && (
-              <div className="flex justify-between items-center text-blue-600">
-                <span>Bulk Discount (10% off):</span>
-                <span>-${(Number(getPriceAndDelivery(dimensions.size, selectedMaterial).price) * quantity * 0.1).toFixed(2)}</span>
-              </div>
+            {design?.threeDData && (
+              <Card>
+                <CardContent className="py-4">
+                  <div className="space-y-2">
+                    {design.threeDData.glbUrls?.map((url, index) => (
+                      <Button key={index} variant="outline" className="w-full" asChild>
+                        <a href={url} download>
+                          <FileDown className="mr-2 h-4 w-4" />
+                          Download GLB File {index + 1}
+                        </a>
+                      </Button>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
             )}
-            <div className="border-t pt-2 mt-2">
-              <div className="flex justify-between items-center font-semibold text-lg mb-4">
-                <span>Total:</span>
-                <span>
-                  {dimensions.size && selectedMaterial
-                    ? (typeof getPriceAndDelivery(dimensions.size, selectedMaterial).price === 'number'
-                      ? `$${(Number(getPriceAndDelivery(dimensions.size, selectedMaterial).price) * quantity * (quantity > 1 ? 0.9 : 1)).toFixed(2)}`
-                      : 'Contact us for quote')
-                    : '(Complete selections above)'}
-                </span>
-              </div>
-              
-              {/* Add Checkout/Quote Button */}
-              <button
-                onClick={handleProceed}
-                disabled={!dimensions.size || !selectedMaterial}
-                className={`w-full py-4 rounded-lg transition-all transform hover:scale-[1.02] 
-                  shadow-lg hover:shadow-xl flex items-center justify-center gap-3 font-semibold text-lg
-                  ${(!dimensions.size || !selectedMaterial)
-                    ? 'bg-gray-300 cursor-not-allowed'
-                    : typeof getPriceAndDelivery(dimensions.size, selectedMaterial).price === 'number'
-                      ? 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white'
-                      : 'bg-gradient-to-r from-green-600 to-teal-600 hover:from-green-700 hover:to-teal-700 text-white'
-                  }`}
-              >
-                <DollarSign className="w-5 h-5" />
-                {!dimensions.size || !selectedMaterial
-                  ? 'Complete Selections Above'
-                  : typeof getPriceAndDelivery(dimensions.size, selectedMaterial).price === 'number'
-                    ? 'Proceed to Checkout'
-                    : 'Get Custom Quote'}
-                <ArrowRight className="w-5 h-5" />
-              </button>
-              
-              <p className="text-center text-sm text-gray-500 mt-3">
-                Secure payment powered by Stripe
-              </p>
-            </div>
+          </div>
+
+          {/* Right Side - Manufacturing Details */}
+          <div className="flex-1 space-y-6 font-inter">
+            {/* Manufacturing Analysis Card */}
+            <Card className="bg-white rounded-xl shadow-sm border">
+              <CardContent className="py-6 space-y-6">
+                <div>
+                  <label className="block text-sm mb-2">Quantity</label>
+                  <Input 
+                    type="number"
+                    min="1"
+                    value={quantity}
+                    onChange={(e) => setQuantity(parseInt(e.target.value) || 1)}
+                    className="bg-white max-w-[200px]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm mb-2">Size Selection</label>
+                  <Select 
+                    value={dimensions}
+                    onValueChange={setDimensions}
+                  >
+                    <SelectTrigger className="bg-white w-full">
+                      <SelectValue placeholder="Select size..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {['Small (up to 5cm)', 'Medium (5-15cm)', 'Large (15-25cm)', 'Extra Large (25cm+)'].map((size) => (
+                        <SelectItem key={size} value={size}>
+                          {size}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div>
+                  <label className="block text-sm mb-2">Additional Comments</label>
+                  <Textarea 
+                    value={designComments}
+                    onChange={(e) => setDesignComments(e.target.value)}
+                    placeholder="Add any specific requirements or notes..."
+                    className="bg-white min-h-[100px]"
+                  />
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Material Selection Card */}
+            <Card className="bg-white rounded-xl shadow-sm border">
+              <CardHeader>
+                <CardTitle className="font-dm-sans font-medium text-lg">Select Manufacturing Process</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {/* 3D Printing Section */}
+                  <div className="bg-white border rounded-xl overflow-hidden shadow-sm">
+                    <button
+                      className={`w-full p-4 text-left hover:bg-gray-50 transition-colors rounded-xl ${
+                        selectedProcess === '3d-printing' ? 'bg-blue-50' : ''
+                      }`}
+                      onClick={() => setSelectedProcess(selectedProcess === '3d-printing' ? '' : '3d-printing')}
+                    >
+                      <div className="flex justify-between items-center">
+                        <div>
+                          <div className="font-dm-sans font-medium text-base">3D Printing</div>
+                          <div className="text-sm text-gray-600 font-inter mt-0.5">Layer by layer manufacturing, great for prototypes and small runs</div>
+                        </div>
+                        <ChevronDown 
+                          className={`h-5 w-5 text-gray-500 transition-transform duration-200 ${
+                            selectedProcess === '3d-printing' ? 'transform rotate-180' : ''
+                          }`}
+                        />
+                      </div>
+                    </button>
+
+                    <div className={`transition-all duration-200 ease-in-out ${
+                      selectedProcess === '3d-printing' 
+                        ? 'max-h-[1000px] opacity-100' 
+                        : 'max-h-0 opacity-0 overflow-hidden'
+                    }`}>
+                      <div className="divide-y border-t">
+                        {MATERIAL_OPTIONS.map((material) => (
+                          <button
+                            key={material.title}
+                            onClick={() => setSelectedMaterial(material.title)}
+                            className={`w-full p-4 text-left hover:bg-gray-50 transition-colors ${
+                              selectedMaterial === material.title ? 'bg-blue-50' : ''
+                            }`}
+                          >
+                            <div className="flex justify-between items-start">
+                              <div>
+                                <div className="font-dm-sans font-medium text-base">{material.title}</div>
+                                <div className="text-sm text-gray-600 font-inter mt-0.5">{material.description}</div>
+                              </div>
+                              <div className="text-sm text-gray-600 font-inter whitespace-nowrap">{material.cost}</div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Advanced Manufacturing Section */}
+                  <div className="bg-white border rounded-xl overflow-hidden shadow-sm">
+                    <button
+                      className={`w-full p-4 text-left hover:bg-gray-50 transition-colors rounded-xl ${
+                        selectedProcess === 'advanced' ? 'bg-blue-50' : ''
+                      }`}
+                      onClick={() => setSelectedProcess(selectedProcess === 'advanced' ? '' : 'advanced')}
+                    >
+                      <div className="flex justify-between items-center">
+                        <div>
+                          <div className="font-dm-sans font-medium text-base">Advanced Manufacturing</div>
+                          <div className="text-sm text-gray-600 font-inter mt-0.5">Industrial manufacturing processes for production runs</div>
+                        </div>
+                        <ChevronDown 
+                          className={`h-5 w-5 text-gray-500 transition-transform duration-200 ${
+                            selectedProcess === 'advanced' ? 'transform rotate-180' : ''
+                          }`}
+                        />
+                      </div>
+                    </button>
+
+                    <div className={`transition-all duration-200 ease-in-out ${
+                      selectedProcess === 'advanced' 
+                        ? 'max-h-[1000px] opacity-100' 
+                        : 'max-h-0 opacity-0 overflow-hidden'
+                    }`}>
+                      <div className="divide-y border-t">
+                        {[
+                          {
+                            title: 'CNC Machining',
+                            description: 'Precision-cut from solid material blocks',
+                            materials: 'Materials: Aluminum, Steel, Plastic',
+                            cost: '$$$ (Premium)'
+                          },
+                          {
+                            title: 'Injection Molding',
+                            description: 'High-volume plastic production',
+                            materials: 'Materials: Various Plastics',
+                            cost: '$$$$ (Production)'
+                          },
+                          {
+                            title: 'Sheet Metal',
+                            description: 'Formed and bent metal parts',
+                            materials: 'Materials: Steel, Aluminum',
+                            cost: '$$$ (Premium)'
+                          }
+                        ].map((process) => (
+                          <button
+                            key={process.title}
+                            onClick={() => setSelectedMaterial(process.title)}
+                            className={`w-full p-4 text-left hover:bg-gray-50 transition-colors ${
+                              selectedMaterial === process.title ? 'bg-blue-50' : ''
+                            }`}
+                          >
+                            <div className="flex justify-between items-start">
+                              <div>
+                                <div className="font-dm-sans font-medium text-base">{process.title}</div>
+                                <div className="text-sm text-gray-600 font-inter mt-0.5">{process.description}</div>
+                                <div className="text-sm text-gray-600 font-inter mt-1">{process.materials}</div>
+                              </div>
+                              <div className="text-sm text-gray-600 font-inter whitespace-nowrap">{process.cost}</div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Price Estimate Card */}
+            <Card className="bg-white rounded-xl shadow-sm border">
+              <CardContent className="py-4">
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-500">Base Price:</span>
+                    <span>{dimensions && selectedMaterial ? getPriceAndDelivery(dimensions.size, selectedMaterial).price : '(Select size and material)'}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-500">Quantity:</span>
+                    <span>{quantity}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-500">Estimated Delivery:</span>
+                    <span>{dimensions && selectedMaterial ? getPriceAndDelivery(dimensions.size, selectedMaterial).delivery : '(Select size and material)'}</span>
+                  </div>
+                  <div className="flex justify-between font-medium text-lg">
+                    <span>Total:</span>
+                    <span>{dimensions && selectedMaterial ? 
+                      `$${(Number(getPriceAndDelivery(dimensions.size, selectedMaterial).price) * quantity * (quantity > 1 ? 0.9 : 1)).toFixed(2)}` 
+                      : '(Complete selections above)'}</span>
+                  </div>
+                  <Button 
+                    className="w-full mt-4"
+                    onClick={handleProceed}
+                    disabled={!dimensions || !selectedMaterial}
+                  >
+                    <DollarSign className="w-5 h-5 mr-2" />
+                    {!dimensions || !selectedMaterial ? 'Complete Selections Above' : 'Proceed to Checkout'}
+                    <ArrowRight className="w-5 h-5 ml-2" />
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
           </div>
         </div>
       </div>

@@ -4,6 +4,7 @@ import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import { NextAuthProvider } from '@/components/providers/NextAuthProvider';
 import { auth } from "@/lib/auth";
+import { DM_Sans, Inter } from 'next/font/google';
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -13,6 +14,18 @@ const geistSans = Geist({
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
+});
+
+const dmSans = DM_Sans({
+  subsets: ['latin'],
+  weight: ['500'], // medium
+  variable: '--font-dm-sans',
+});
+
+const inter = Inter({
+  subsets: ['latin'],
+  weight: ['400'], // normal
+  variable: '--font-inter',
 });
 
 export const metadata: Metadata = {
@@ -29,7 +42,7 @@ export default async function RootLayout({
 
   return (
     <html lang="en">
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+      <body className={`${geistSans.variable} ${geistMono.variable} ${dmSans.variable} ${inter.variable} antialiased`}>
         <NextAuthProvider session={session}>
           {children}
         </NextAuthProvider>

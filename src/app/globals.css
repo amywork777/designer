@@ -2,6 +2,48 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  body {
+    @apply text-black;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply text-black font-medium;
+  }
+
+  p, span, div {
+    @apply text-black;
+  }
+
+  label {
+    @apply text-black;
+  }
+
+  .text-gray-400 {
+    @apply text-black/70;
+  }
+
+  .text-gray-500 {
+    @apply text-black/80;
+  }
+
+  .text-gray-600 {
+    @apply text-black/90;
+  }
+
+  .text-gray-700 {
+    @apply text-black;
+  }
+
+  .text-gray-800 {
+    @apply text-black;
+  }
+
+  .text-gray-900 {
+    @apply text-black;
+  }
+}
+
 :root {
   --background: #ffffff;
   --foreground: #171717;
