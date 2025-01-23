@@ -11,74 +11,155 @@ interface SignInPopupProps {
   onClose: () => void;
 }
 
+interface AuthError {
+  code: string;
+  message: string;
+  suggestion?: 'signup' | 'retry';
+}
+
+interface AuthResult {
+  user: any;
+  error: AuthError | null;
+}
+
+// Add this helper function to get user-friendly error messages
+function getAuthErrorMessage(error: any): string {
+  // Firebase error codes
+  if (typeof error.code === 'string') {
+    switch (error.code) {
+      case 'auth/invalid-credential':
+        return 'Invalid email or password. Please check your credentials and try again.';
+      case 'auth/invalid-email':
+        return 'Please enter a valid email address';
+      case 'auth/user-disabled':
+        return 'This account has been disabled';
+      case 'auth/user-not-found':
+        return 'No account found with this email. Please sign up first.';
+      case 'auth/wrong-password':
+        return 'Incorrect password';
+      case 'auth/email-already-in-use':
+        return 'An account already exists with this email';
+      case 'auth/weak-password':
+        return 'Password should be at least 6 characters';
+      case 'auth/network-request-failed':
+        return 'Network error - please check your connection';
+      case 'auth/too-many-requests':
+        return 'Too many attempts - please try again later';
+      default:
+        console.error('Unhandled auth error code:', error.code);
+        return 'An error occurred during authentication. Please try again.';
+    }
+  }
+  
+  // NextAuth or other errors
+  console.error('Non-Firebase auth error:', error);
+  return error.message || 'An unexpected error occurred';
+}
+
 export default function SignInPopup({ isOpen, onClose }: SignInPopupProps) {
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [authResult, setAuthResult] = useState<AuthResult | null>(null);
   const { toast } = useToast();
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    
+    setErrorMessage(null);
+    setAuthResult(null);
+
     try {
-      let result;
+      const result = isSignUp 
+        ? await signUpWithEmail(email, password)
+        : await signInWithEmail(email, password);
       
-      if (isSignUp) {
-        // Handle sign up
-        result = await signUpWithEmail(email, password);
-      } else {
-        // Handle sign in
-        result = await signInWithEmail(email, password);
-      }
-      
+      setAuthResult(result);
+
       if (result.error) {
-        toast({
-          variant: "destructive",
-          title: "Authentication Error",
-          description: result.error.message
-        });
+        setErrorMessage(result.error.message);
+        setIsLoading(false);
         return;
       }
 
-      // If Firebase auth successful, also sign in with NextAuth
+      // If Firebase succeeds, do NextAuth
       const nextAuthResult = await signIn('credentials', {
         email,
         password,
         redirect: false,
       });
-      
+
       if (nextAuthResult?.error) {
-        toast({
-          variant: "destructive",
-          title: "Authentication Error",
-          description: nextAuthResult.error
-        });
-      } else {
-        toast({
-          title: "Success",
-          description: isSignUp ? "Account created successfully!" : "Signed in successfully!"
-        });
-        onClose();
+        setErrorMessage("Failed to complete authentication");
+        setIsLoading(false);
+        return;
       }
-    } catch (error) {
-      console.error('Auth error:', error);
+
       toast({
-        variant: "destructive",
-        title: "Error",
-        description: "An unexpected error occurred"
+        title: "Success!",
+        description: isSignUp 
+          ? "Account created successfully!" 
+          : "Signed in successfully!"
       });
+      onClose();
+    } catch (error) {
+      setErrorMessage("An unexpected error occurred");
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // Add password validation for sign up
+  const validatePassword = (password: string): string | null => {
+    if (password.length < 6) {
+      return 'Password must be at least 6 characters';
+    }
+    return null;
+  };
+
+  // Add email validation
+  const validateEmail = (email: string): string | null => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return 'Please enter a valid email address';
+    }
+    return null;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    // Validate inputs before submission
+    const emailError = validateEmail(email);
+    if (emailError) {
+      toast({
+        variant: "destructive",
+        title: "Invalid Email",
+        description: emailError
+      });
+      return;
+    }
+
+    const passwordError = validatePassword(password);
+    if (passwordError) {
+      toast({
+        variant: "destructive",
+        title: "Invalid Password",
+        description: passwordError
+      });
+      return;
+    }
+
+    await handleAuth(e);
   };
 
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-      <div className="max-w-md w-full space-y-8 p-8 bg-white rounded-2xl shadow-lg relative">
+      <div className="max-w-md w-full bg-white rounded-2xl shadow-lg p-8 relative">
         <button
           onClick={onClose}
           className="absolute top-4 right-4 text-gray-500 hover:text-gray-700"
@@ -86,16 +167,34 @@ export default function SignInPopup({ isOpen, onClose }: SignInPopupProps) {
           <X className="w-5 h-5" />
         </button>
 
-        <div className="text-center">
-          <h2 className="text-3xl font-dm-sans font-medium text-gray-900">
+        <div className="text-center mb-6">
+          <h2 className="text-2xl font-bold">
             {isSignUp ? "Create Account" : "Welcome Back"}
           </h2>
-          <p className="mt-2 text-gray-600 font-inter">
-            {isSignUp ? "Sign up to get started" : "Sign in to access your designs"}
+          <p className="text-gray-600 mt-1">
+            {isSignUp 
+              ? "Sign up to start creating designs" 
+              : "Sign in to your account"}
           </p>
         </div>
 
-        <form onSubmit={handleAuth} className="mt-8 space-y-6">
+        {errorMessage && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-300 rounded-lg">
+            <p className="text-red-600 text-center text-sm font-medium">
+              {errorMessage}
+            </p>
+            {authResult?.error?.suggestion === 'signup' && (
+              <button
+                onClick={() => setIsSignUp(true)}
+                className="mt-2 text-blue-600 hover:text-blue-800 text-sm font-medium underline block w-full text-center"
+              >
+                Create an account
+              </button>
+            )}
+          </div>
+        )}
+
+        <form onSubmit={handleAuth} className="space-y-4">
           <div className="space-y-4">
             <input
               type="email"
@@ -117,6 +216,13 @@ export default function SignInPopup({ isOpen, onClose }: SignInPopupProps) {
                 font-inter placeholder:text-gray-400"
             />
           </div>
+
+          {/* Add password requirements hint for sign up */}
+          {isSignUp && (
+            <p className="text-sm text-gray-500 mt-2">
+              Password must be at least 6 characters long
+            </p>
+          )}
 
           <button
             type="submit"
