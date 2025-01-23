@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Sparkles, Wand, Upload, PenTool, Type, Download, Cog, Clock, ChevronRight, Edit, Loader2, History, X, FileText, Info, Package, Palette, RefreshCw, ChevronDown, ChevronUp, Check, Lock } from 'lucide-react';
+import { Sparkles, Wand, Upload, PenTool, Type, Download, Cog, Clock, ChevronRight, Edit, Loader2, History, X, FileText, Info, Package, Palette, RefreshCw, ChevronDown, ChevronUp, Check, Lock, Hammer, Box, Fish } from 'lucide-react';
 import { useToast } from "@/components/ui/use-toast";
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
@@ -494,7 +494,7 @@ const analyzeImageForEdit = async (imageUrl: string) => {
 // Add this component near the top of your file
 const LoadingSkeleton = () => (
   <div className="animate-pulse">
-    <div className="aspect-square bg-gray-200 rounded-lg mb-4" />
+    <div className="aspect-square bg-gray-200 rounded-xl mb-4" />
     <div className="h-4 bg-gray-200 rounded w-3/4 mb-2" />
     <div className="h-4 bg-gray-200 rounded w-1/2" />
   </div>
@@ -1758,8 +1758,8 @@ export default function LandingPage() {
     setProcessing3D(true);
     let attempts = 0;
     
-    while (attempts < MAX_RETRIES) {
-      try {
+    try {
+      while (attempts < MAX_RETRIES) {
         const response = await fetch('https://us-central1-taiyaki-test1.cloudfunctions.net/process_3d', {
           method: 'POST',
           headers: {
@@ -1771,7 +1771,6 @@ export default function LandingPage() {
           })
         });
 
-        // Get the raw response text first for debugging
         const rawText = await response.text();
         console.log('Raw response:', rawText);
 
@@ -1807,24 +1806,24 @@ export default function LandingPage() {
           return; // Success - exit the retry loop
         }
         
-      } catch (error) {
-        console.error(`Attempt ${attempts + 1} failed:`, error);
         attempts++;
-        
-        if (attempts === MAX_RETRIES) {
-          toast({
-            variant: "destructive",
-            title: "Error",
-            description: `Failed after ${MAX_RETRIES} attempts. Please try again later.`
-          });
-        } else {
-          // Wait before retrying
+        if (attempts < MAX_RETRIES) {
           await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
         }
       }
+      
+      throw new Error('Failed to generate 3D model after multiple attempts');
+      
+    } catch (error) {
+      console.error('3D processing error:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to generate 3D model"
+      });
+    } finally {
+      setProcessing3D(false); // Always reset the processing state
     }
-    
-    setProcessing3D(false);
   };
 
   const handleReferenceImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1896,15 +1895,54 @@ export default function LandingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-100 via-purple-100 to-blue-50">
-      <div className="container mx-auto px-4 py-12">
+    <div className="min-h-screen relative bg-white">
+      {/* Fixed Background Layer - Move to lowest z-index */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none -z-9">
+        {/* Light Blue Gradient */}
+        <div 
+          className="absolute w-[800px] h-[800px] rounded-full opacity-20"
+          style={{
+            top: '-200px',
+            left: '-100px',
+            background: 'radial-gradient(circle, #73D2DE 0%, transparent 70%)',
+            filter: 'blur(40px)',
+          }}
+        />
+        
+        {/* Orange Gradient */}
+        <div 
+          className="absolute w-[800px] h-[800px] rounded-full opacity-20"
+          style={{
+            top: '20%',
+            right: '-100px',
+            background: 'radial-gradient(circle, #F57C00 0%, transparent 70%)',
+            filter: 'blur(40px)',
+          }}
+        />
+        
+        {/* Yellow Gradient */}
+        <div 
+          className="absolute w-[800px] h-[800px] rounded-full opacity-20"
+          style={{
+            bottom: '-200px',
+            left: '30%',
+            background: 'radial-gradient(circle, #FDB827 0%, transparent 70%)',
+            filter: 'blur(40px)',
+          }}
+        />
+      </div>
+
+      {/* Main Content Layer - Keep at normal z-index */}
+      <div className="relative container mx-auto px-4 py-12">
+        {/* Replace the existing container background classes */}
         <div className="mb-12">
           <div className="flex items-center justify-between">
-            <h1 className={headingStyles.h1}>
+            {/* Main Title */}
+            <h1 className="font-dm-sans font-medium text-2xl">
               Manufacturing AI Assistant
             </h1>
             
-            {/* Auth Section */}
+            {/* Update auth section background to be more transparent */}
             <div className="flex items-center gap-2">
               {status === "loading" ? (
                 <div className="flex items-center gap-2">
@@ -1912,7 +1950,7 @@ export default function LandingPage() {
                   <div className="h-4 w-20 bg-gray-200 animate-pulse rounded" />
                 </div>
               ) : session ? (
-                <div className="flex items-center gap-4 bg-white/80 backdrop-blur-sm px-4 py-2 rounded-lg shadow-sm">
+                <div className="flex items-center gap-4 bg-white/60 backdrop-blur-sm px-4 py-2 rounded-2xl shadow-sm">
                   <div className="flex items-center gap-2">
                     {session.user?.image ? (
                       <Image
@@ -1941,7 +1979,7 @@ export default function LandingPage() {
               ) : (
                 <Link
                   href="/login"
-                  className="flex items-center gap-2 px-4 py-2 bg-white rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors"
+                  className="flex items-center gap-2 px-4 py-2 bg-white/60 backdrop-blur-sm rounded-2xl border border-gray-200/50 hover:bg-white/80 transition-colors"
                 >
                   <span className="text-black">Sign In</span>
                 </Link>
@@ -1950,105 +1988,39 @@ export default function LandingPage() {
           </div>
         </div>
 
-        {/* How it Works Section */}
-        <div className="mb-12 bg-white rounded-xl shadow-sm overflow-hidden">
-          <h2 className="text-2xl font-bold text-gray-900 p-6 border-b">
-            How it Works
-          </h2>
-          
-          <div className="steps-container p-6">
-            {/* Step 1 */}
-            <div className="step flex items-start gap-4 pb-8 relative">
-              <div className="flex-none">
-                <span className="number flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 text-blue-600 font-semibold">
-                  1
-                </span>
-              </div>
-              <div className="flex-1">
-                <h3 className="text-lg font-semibold text-gray-900 mb-1">
-                  Generate Design
-                </h3>
-                <p className="text-gray-600">
-                  Type a description or upload a reference image to create your design with AI
-                </p>
-              </div>
-              {/* Connector Line */}
-              <div className="absolute left-4 top-12 bottom-0 w-[2px] bg-gray-200" />
-            </div>
-
-            {/* Step 2 */}
-            <div className="step flex items-start gap-4 pb-8 relative">
-              <div className="flex-none">
-                <span className="number flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 text-blue-600 font-semibold">
-                  2
-                </span>
-              </div>
-              <div className="flex-1">
-                <h3 className="text-lg font-semibold text-gray-900 mb-1">
-                  Choose Production
-                </h3>
-                <p className="text-gray-600">
-                  Select your materials and manufacturing method
-                </p>
-              </div>
-              {/* Connector Line */}
-              <div className="absolute left-4 top-12 bottom-0 w-[2px] bg-gray-200" />
-            </div>
-
-            {/* Step 3 */}
-            <div className="step flex items-start gap-4">
-              <div className="flex-none">
-                <span className="number flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 text-blue-600 font-semibold">
-                  3
-                </span>
-              </div>
-              <div className="flex-1">
-                <h3 className="text-lg font-semibold text-gray-900 mb-1">
-                  Complete Order
-                </h3>
-                <p className="text-gray-600">
-                  Review specifications and confirm your order
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-
+        {/* Update card backgrounds to be more transparent */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Left Column: Generation Form */}
           <div>
-            {/* Input Method Selection */}
-            <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-lg overflow-hidden">
-              {/* Tab Selection - Made more prominent */}
-              <div className="grid grid-cols-2 gap-0.5 p-1 bg-gray-100 rounded-lg m-4">
+            {/* Input Method Selection Card */}
+            <div className="bg-white border border-gray-200 hover:border-gray-300 backdrop-blur-sm rounded-2xl shadow-sm overflow-hidden p-3 transition-all">
+              {/* Tab Selection */}
+              <div className="grid grid-cols-2 gap-0.5 p-1 bg-gray-100 rounded-xl m-4">
                 <button
                   onClick={() => setInputMethod('text')}
                   className={`
-                    py-4 px-6 rounded-lg flex flex-col items-center gap-2 transition-all
+                    py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition-all
                     ${inputMethod === 'text'
-                      ? 'bg-white shadow-sm text-blue-600'
+                      ? 'bg-white shadow-sm text-black'
                       : 'bg-transparent text-gray-600 hover:bg-white/50'
                     }
                   `}
                 >
-                  <Wand className={`w-6 h-6 ${inputMethod === 'text' ? 'text-blue-600' : 'text-gray-400'}`} />
+                  <Wand className={`w-5 h-5 ${inputMethod === 'text' ? 'text-black' : 'text-gray-400'}`} />
                   <span className="font-medium">Generate New Idea</span>
-                  <span className="text-xs text-gray-500">Create from text description</span>
                 </button>
 
                 <button
                   onClick={() => setInputMethod('upload')}
                   className={`
-                    py-4 px-6 rounded-lg flex flex-col items-center gap-2 transition-all
+                    py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition-all
                     ${inputMethod === 'upload'
-                      ? 'bg-white shadow-sm text-blue-600'
+                      ? 'bg-white shadow-sm text-black'
                       : 'bg-transparent text-gray-600 hover:bg-white/50'
                     }
                   `}
                 >
-                  <Upload className={`w-6 h-6 ${inputMethod === 'upload' ? 'text-blue-600' : 'text-gray-400'}`} />
+                  <Upload className={`w-5 h-5 ${inputMethod === 'upload' ? 'text-black' : 'text-gray-400'}`} />
                   <span className="font-medium">Upload Existing Idea</span>
-                  <span className="text-xs text-gray-500">Use your own image</span>
                 </button>
               </div>
 
@@ -2067,7 +2039,7 @@ export default function LandingPage() {
                           value={textPrompt}
                           onChange={(e) => setTextPrompt(e.target.value)}
                           placeholder="Describe what you'd like to create..."
-                          className="w-full h-32 px-4 py-3 border rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 placeholder:text-gray-400"
+                          className="w-full h-32 px-4 py-3 border rounded-xl resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 placeholder:text-gray-400"
                         />
                       </div>
 
@@ -2106,7 +2078,7 @@ export default function LandingPage() {
                           {inspirationImages.length < MAX_INSPIRATION_IMAGES && (
                             <div
                               onClick={() => fileInputRef.current?.click()}
-                              className="border-2 border-dashed border-gray-200 rounded-lg p-8 cursor-pointer hover:border-blue-500 transition-colors text-center"
+                              className="border-2 border-dashed border-gray-200 rounded-xl p-8 cursor-pointer hover:border-blue-500 transition-colors text-center"
                             >
                               <Upload className="w-6 h-6 text-gray-400 mx-auto mb-2" />
                               <p className="text-gray-600">Drop a reference image, or click to browse</p>
@@ -2159,19 +2131,19 @@ export default function LandingPage() {
                       <button
                         onClick={handleGenerateClick}
                         disabled={generating || (!textPrompt && !uploadedFile)}
-                        className="w-full mt-6 py-3 px-4 bg-blue-500 text-white rounded-lg 
-                          hover:bg-blue-600 disabled:bg-blue-300 disabled:cursor-not-allowed
-                          transition-colors duration-200 flex items-center justify-center gap-2"
+                        className="w-full py-3 px-4 bg-black text-white rounded-xl 
+                          hover:opacity-90 disabled:bg-gray-300 disabled:cursor-not-allowed
+                          transition-all duration-200 flex items-center justify-center gap-2"
                       >
                         {generating ? (
                           <>
-                            <Loader2 className="w-5 h-5 animate-spin" />
-                            <span>Generating...</span>
+                            <Loader2 className="w-5 h-5 animate-spin text-white" />
+                            <span className="text-white">Generating...</span>
                           </>
                         ) : (
                           <>
-                            <Wand className="w-5 h-5" />
-                            <span>Generate Design</span>
+                            <Wand className="w-5 h-5 text-white" />
+                            <span className="text-white">Generate Design</span>
                           </>
                         )}
                       </button>
@@ -2180,7 +2152,7 @@ export default function LandingPage() {
                     // Upload Section - Simplified
                     <div
                       onClick={() => fileInputRef.current?.click()}
-                      className="border-2 border-dashed border-gray-200 rounded-lg p-12 cursor-pointer hover:border-blue-500 transition-colors"
+                      className="border-2 border-dashed border-gray-200 rounded-xl p-12 cursor-pointer hover:border-blue-500 transition-colors"
                     >
                       <div className="flex flex-col items-center gap-4">
                         <Upload className="w-8 h-8 text-gray-400" />
@@ -2203,23 +2175,23 @@ export default function LandingPage() {
             </div>
 
             {/* Design History */}
-            <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-lg p-6 mt-12">
+            <div className="bg-white border border-gray-200 hover:border-gray-300 rounded-2xl shadow-sm p-3 mt-12 transition-all">
               {/* Recent Designs Section */}
-              <div className="bg-white rounded-lg shadow-sm">
-                {/* Compact Header */}
+              <div className="bg-white rounded-lg">
+                {/* Header */}
                 <div className="flex items-center justify-between px-4 py-3 border-b">
-                  <h3 className="text-lg font-semibold text-gray-900">Recent Designs</h3>
+                  <h3 className="text-lg font-dm-sans font-medium text-gray-900">Recent Designs</h3>
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => clearDesigns()}
-                      className="text-sm text-gray-500 hover:text-gray-700"
+                      className="text-sm text-gray-500 hover:text-gray-700 font-dm-sans font-medium"
                     >
                       Clear All
                     </button>
                     {userDesigns.length > 4 && (
                       <button
                         onClick={() => setIsHistoryCollapsed(!isHistoryCollapsed)}
-                        className="text-sm text-blue-500 hover:text-blue-700 flex items-center gap-1"
+                        className="text-sm text-blue-500 hover:text-blue-700 flex items-center gap-1 font-dm-sans font-medium"
                       >
                         {isHistoryCollapsed ? (
                           <>Show All <ChevronDown className="w-4 h-4" /></>
@@ -2231,40 +2203,38 @@ export default function LandingPage() {
                   </div>
                 </div>
 
-                {/* Dense Grid Layout */}
-                <div className="p-2">
+                {/* Design Thumbnails */}
+                <div className="p-3">
                   {userDesigns.length > 0 ? (
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                      {(isHistoryCollapsed ? userDesigns.slice(0, 4) : userDesigns).map((design, index) => (
-                        <div
-                          key={index}
-                          className="relative aspect-square group cursor-pointer"
+                      {userDesigns.map((design, index) => (
+                        <div 
+                          key={index} 
+                          className="relative aspect-square group cursor-pointer bg-white border border-gray-200 hover:border-gray-300 rounded-xl transition-all"
                           onClick={() => {
                             setSelectedDesign(design.images[0]);
                             setShowAnalysis(true);
-                            setScrollToAnalysis(true); // Set this to trigger the scroll effect
+                            setScrollToAnalysis(true);
                           }}
                         >
                           {/* Design Thumbnail */}
                           <img
                             src={design.images[0]}
                             alt={`Design ${index + 1}`}
-                            className={`w-full h-full object-cover rounded-md transition-opacity duration-200 ${
+                            className={`w-full h-full object-cover rounded-xl transition-opacity duration-200 ${
                               selectedDesign === design.images[0] ? 'ring-2 ring-blue-500' : ''
                             }`}
-                            onError={handleImageError(design.images[0])}
-                            onLoad={handleImageLoad(design.images[0])}
                           />
 
                           {/* Hover Overlay */}
-                          <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity rounded-md">
+                          <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl">
                             <div className="absolute inset-0 flex flex-col justify-between p-2 text-white">
                               {/* Top Info */}
                               <div className="text-xs">
-                                <p className="font-medium truncate">
+                                <p className="font-dm-sans font-medium truncate">
                                   {design.title || `Design ${index + 1}`}
                                 </p>
-                                <p className="text-gray-300">
+                                <p className="text-gray-300 font-inter">
                                   {new Date(design.createdAt).toLocaleDateString()}
                                 </p>
                               </div>
@@ -2276,60 +2246,53 @@ export default function LandingPage() {
                                     e.stopPropagation();
                                     handleDownload(design.images[0]);
                                   }}
-                                  className="p-1.5 rounded bg-white/20 hover:bg-white/30"
-                                  title="Download"
+                                  className="p-2 bg-white border border-gray-200 hover:border-gray-300 
+                                    rounded-xl text-gray-700 transition-all duration-200"
+                                  aria-label="Download design"
                                 >
-                                  <Download className="w-3.5 h-3.5" />
+                                  <Download className="w-5 h-5" />
                                 </button>
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setShowEditDialog(true);
                                   }}
-                                  className="p-1.5 rounded bg-white/20 hover:bg-white/30"
-                                  title="Edit"
+                                  className="p-2 bg-white border border-gray-200 hover:border-gray-300 
+                                    rounded-xl text-gray-700 transition-all duration-200"
+                                  aria-label="Edit design"
                                 >
-                                  <Edit className="w-3.5 h-3.5" />
+                                  <Edit className="w-5 h-5" />
                                 </button>
                               </div>
                             </div>
                           </div>
-
-                          {/* Loading State */}
-                          {imageStates[design.images[0]]?.loading && (
-                            <div className="absolute inset-0 flex items-center justify-center bg-gray-100 rounded-md">
-                              <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
-                            </div>
-                          )}
                         </div>
                       ))}
                     </div>
                   ) : (
-                    <div className="text-center py-6 text-gray-500 text-sm">
+                    <div className="text-center py-6 text-gray-500 text-sm font-dm-sans font-medium">
                       No designs yet. Start by creating your first design above!
                     </div>
                   )}
                 </div>
               </div>
             </div>
-
-
           </div>
 
-          {/* Right Column: Design Preview */}
+          {/* Right Column Card */}
           <div className="lg:sticky lg:top-6 self-start w-full" ref={analysisRef}>
-            <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-lg">
+            <div className="bg-white border border-gray-200 hover:border-gray-300 backdrop-blur-sm rounded-2xl shadow-sm p-3 transition-all">
               {/* Header Section */}
               <div className="p-6 border-b border-gray-100">
-                <h2 className="text-2xl font-bold text-gray-900">
-                  Bring Your Idea to Life
+                <h2 className="text-2xl font-dm-sans font-medium text-gray-900">
+                  Make With Taiyaki
                 </h2>
                 {selectedDesign && (
                   <div className="mt-2 flex items-center justify-between text-sm">
-                    <span className="text-gray-600">
+                    <span className="text-gray-600 font-dm-sans font-medium">
                       {designs.find(d => d.images.includes(selectedDesign))?.title || 'Untitled Design'}
                     </span>
-                    <span className="text-gray-500">
+                    <span className="text-gray-500 font-inter">
                       {new Date(designs.find(d => d.images.includes(selectedDesign))?.createdAt || '').toLocaleDateString()}
                     </span>
                   </div>
@@ -2342,37 +2305,25 @@ export default function LandingPage() {
                   <div className="space-y-8">
                     {/* Edit Button and Image Preview */}
                     <div className="space-y-3">
+                      {/* Action buttons above the image */}
                       <div className="flex justify-end gap-2">
                         <button
                           onClick={() => handleDownload(selectedDesign)}
-                          className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-700 font-medium flex items-center gap-1.5 text-sm transition-colors"
+                          className="py-2 px-4 bg-white border border-gray-200 hover:border-gray-300 
+                            rounded-xl text-gray-700 transition-all duration-200 flex items-center gap-2 font-dm-sans font-medium"
+                          aria-label="Download design"
                         >
-                          <Download className="w-4 h-4" />
-                          Download
+                          <Download className="w-5 h-5" />
+                          <span>Download</span>
                         </button>
                         <button
                           onClick={() => setShowEditDialog(true)}
-                          className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-700 font-medium flex items-center gap-1.5 text-sm transition-colors"
+                          className="py-2 px-4 bg-white border border-gray-200 hover:border-gray-300 
+                            rounded-xl text-gray-700 transition-all duration-200 flex items-center gap-2 font-dm-sans font-medium"
+                          aria-label="Edit design"
                         >
-                          <Edit className="w-4 h-4" />
-                          Edit Design
-                        </button>
-                        <button
-                          onClick={handle3DProcessing}
-                          disabled={processing3D}
-                          className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-700 font-medium flex items-center gap-1.5 text-sm transition-colors"
-                        >
-                          {processing3D ? (
-                            <>
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                              Processing...
-                            </>
-                          ) : (
-                            <>
-                              <Package className="w-4 h-4" />
-                              Show in 3D
-                            </>
-                          )}
+                          <Edit className="w-5 h-5" />
+                          <span>Edit</span>
                         </button>
                       </div>
 
@@ -2390,40 +2341,73 @@ export default function LandingPage() {
                     </div>
 
                     {/* Action Buttons */}
-                    <div className="mt-4 grid grid-cols-2 gap-4">
+                    <div className="flex gap-4 mt-6">
+                      {/* Primary "Get it Made" button */}
                       <Link 
                         href={`/get-it-made?designId=${designs.find(d => d.images.includes(selectedDesign))?.id}`}
-                        className="flex items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                        className="flex-1 py-3 px-4 bg-black text-white rounded-xl hover:opacity-90 
+                          transition-all duration-200 flex items-center justify-center gap-2"
                       >
-                        <Package className="w-4 h-4 mr-2" />
-                        Get it Made
+                        <Hammer className="w-5 h-5 text-white" />
+                        <span className="text-white">Get it Made</span>
                       </Link>
-                      <Link 
-                        href={`/get-files?designId=${designs.find(d => d.images.includes(selectedDesign))?.id}`}
-                        className="flex items-center justify-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-                      >
-                        <Download className="w-4 h-4 mr-2" />
-                        Get Files
-                      </Link>
+
+                      {/* 3D Preview Button/Status */}
+                      {selectedDesign && designs.find(d => d.images.includes(selectedDesign))?.threeDData?.videoUrl ? (
+                        <div
+                          className="flex-1 py-3 px-4 bg-gray-100 text-gray-600
+                            rounded-xl font-medium flex items-center justify-center gap-2"
+                        >
+                          <Box className="w-5 h-5" />
+                          <span>3D Preview Generated</span>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={handle3DProcessing}
+                          disabled={processing3D}
+                          className="flex-1 py-3 px-4 bg-white border border-gray-200 hover:border-gray-300 
+                            rounded-xl text-gray-700 font-medium flex items-center justify-center gap-2 
+                            transition-all duration-200 disabled:opacity-50"
+                        >
+                          {processing3D ? (
+                            <>
+                              <Loader2 className="w-5 h-5 animate-spin" />
+                              <span>Processing...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Box className="w-5 h-5" />
+                              <span>Show in 3D</span>
+                            </>
+                          )}
+                        </button>
+                      )}
                     </div>
 
                     {/* 3D Preview - Shown when available */}
                     {selectedDesign && designs.find(d => d.images.includes(selectedDesign))?.threeDData?.videoUrl && (
-                      <div className="mt-4">
-                        <h4 className="text-sm font-medium text-gray-700 mb-2">3D Preview</h4>
-                        <video 
-                          width="100%" 
-                          height="auto" 
-                          controls 
-                          className="rounded-lg"
-                          key={designs.find(d => d.images.includes(selectedDesign))?.threeDData?.videoUrl}
-                        >
-                          <source 
-                            src={designs.find(d => d.images.includes(selectedDesign))?.threeDData?.videoUrl} 
-                            type="video/mp4" 
-                          />
-                          Your browser does not support the video tag.
-                        </video>
+                      <div className="mt-6">
+                        {/* Find the current design and its corresponding 3D data */}
+                        {(() => {
+                          const currentDesign = designs.find(d => d.images.includes(selectedDesign));
+                          const threeDVideo = currentDesign?.threeDData?.videoUrl;
+                          
+                          return threeDVideo ? (
+                            <div className="overflow-hidden rounded-xl border border-gray-200">
+                              <video
+                                key={threeDVideo} // Add key to force video reload when source changes
+                                autoPlay
+                                loop
+                                muted
+                                playsInline
+                                className="w-full h-full object-cover"
+                              >
+                                <source src={threeDVideo} type="video/mp4" />
+                                Your browser does not support the video tag.
+                              </video>
+                            </div>
+                          ) : null;
+                        })()}
                         <p className="text-sm text-gray-500 mt-2 italic">
                           Note: This is an AI-generated preview. The actual 3D model will be professionally optimized for manufacturing with cleaner geometry and proper dimensions.
                         </p>
@@ -2432,12 +2416,12 @@ export default function LandingPage() {
                   </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center py-12 text-center">
-                    <Package className="w-12 h-12 text-gray-400 mb-4" />
-                    <p className={`${textStyles.primary} mb-2`}>
+                    <Fish className="w-12 h-12 text-gray-400 mb-4" />
+                    <p className="font-dm-sans font-medium text-gray-900 mb-2">
                       Upload a design or generate one to get started
                     </p>
-                    <p className={textStyles.secondary}>
-                      Your manufacturing options will appear here
+                    <p className="font-inter font-normal text-gray-600">
+                      Let's make your dreams a reality
                     </p>
                   </div>
                 )}
@@ -2449,7 +2433,7 @@ export default function LandingPage() {
 
       {showEditDialog && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full">
+          <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-3 max-w-md w-full">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-semibold text-gray-900">Edit Design</h3>
               <button
@@ -2465,7 +2449,7 @@ export default function LandingPage() {
               <img
                 src={selectedDesign || ''}
                 alt="Current Design"
-                className="w-full h-48 object-contain rounded-lg bg-gray-50"
+                className="w-full h-48 object-contain rounded-xl bg-gray-50"
               />
             </div>
 
@@ -2478,31 +2462,34 @@ export default function LandingPage() {
                 value={editPrompt}
                 onChange={(e) => setEditPrompt(e.target.value)}
                 placeholder="Describe how you want to modify this design..."
-                className="w-full p-3 border rounded-lg h-32 text-gray-900 placeholder:text-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full p-3 border rounded-xl h-32 text-gray-900 placeholder:text-gray-500 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
 
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setShowEditDialog(false)}
-                className="px-4 py-2 text-gray-700 hover:text-gray-900 font-medium"
+                className="py-3 px-4 bg-white border border-gray-200 hover:border-gray-300 
+                  rounded-xl text-gray-700 font-medium flex items-center gap-2 
+                  transition-all duration-200"
               >
-                Cancel
+                <span>Cancel</span>
               </button>
               <button
                 onClick={handleEditDesign}
                 disabled={isEditing || !editPrompt}
-                className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 flex items-center gap-2"
+                className="py-3 px-4 bg-black text-white rounded-xl hover:opacity-90 
+                  disabled:opacity-50 flex items-center gap-2 transition-all duration-200"
               >
                 {isEditing ? (
                   <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>Updating...</span>
+                    <RefreshCw className="w-5 h-5 text-white animate-spin" />
+                    <span className="text-white">Updating...</span>
                   </>
                 ) : (
                   <>
-                    <PenTool className="w-4 h-4" />
-                    <span>Update Design</span>
+                    <PenTool className="w-5 h-5 text-white" />
+                    <span className="text-white">Update Design</span>
                   </>
                 )}
               </button>

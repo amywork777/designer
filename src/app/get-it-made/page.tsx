@@ -216,27 +216,47 @@ export default function GetItMade() {
     
     setProcessing3D(true);
     try {
-      const response = await fetch('/api/ai/generate3d', {
+      const response = await fetch('/api/ai/process3d', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           designId: design.id,
-          imageUrl: design.imageUrl
+          imageUrl: design.imageUrl,
+          prompt: design.prompt
         })
       });
       
       if (!response.ok) throw new Error('Failed to process 3D preview');
       
       const data = await response.json();
-      setDesign(prev => ({
-        ...prev,
-        threeDData: data
-      }));
       
-      setShow3DPreview(true);
+      const updatedDesign = {
+        ...design,
+        threeDData: {
+          ...design.threeDData,
+          ...data,
+          timestamp: new Date().toISOString()
+        }
+      };
+      
+      updateDesign(design.id, {
+        analysis: updatedDesign.analysis
+      });
+
+      await fetch(`/api/designs/${design.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updatedDesign)
+      });
+
+      setDesign(updatedDesign);
+
     } catch (error) {
+      console.error('3D processing error:', error);
       toast({
         title: "Processing Failed",
         description: "Failed to generate 3D preview. Please try again.",
@@ -318,7 +338,7 @@ export default function GetItMade() {
                 {design?.threeDData?.videoUrl ? (
                   <div className="mt-4 space-y-2">
                     <div className="relative w-full rounded-[10px] overflow-hidden shadow-sm">
-                      <div className="aspect-video relative">
+                      <div className="aspect-video md:aspect-video sm:aspect-square relative">
                         <div className="absolute inset-0 border border-gray-200 rounded-[10px] pointer-events-none z-10" />
                         <video
                           src={design.threeDData.videoUrl}
@@ -327,10 +347,12 @@ export default function GetItMade() {
                           loop
                           muted
                           playsInline
+                          controls={false}
+                          controlsList="nodownload nofullscreen noremoteplayback"
                         />
                       </div>
                     </div>
-                    <div className="text-sm text-gray-500 font-inter italic px-1">
+                    <div className="text-sm text-gray-500 font-inter italic px-1 sm:text-xs md:text-sm">
                       Note: This is an AI-generated preview. The actual 3D model will be professionally optimized for manufacturing with cleaner geometry and proper dimensions.
                     </div>
                   </div>
@@ -339,7 +361,7 @@ export default function GetItMade() {
                     onClick={handle3DProcessing}
                     disabled={processing3D}
                     className="w-full mt-4 font-dm-sans font-medium text-sm rounded-[10px] bg-black text-white hover:bg-gray-800 
-                      disabled:bg-gray-400 flex items-center justify-center gap-2"
+                      disabled:bg-gray-400 flex items-center justify-center gap-2 px-4 py-2 sm:py-3"
                   >
                     {processing3D ? (
                       <>
