@@ -5,10 +5,12 @@ import Image from 'next/image';
 import { useSession, signIn, signOut } from 'next-auth/react';
 import { useState } from 'react';
 import SignInPopup from './SignInPopup';
+import { usePricing } from '@/contexts/PricingContext';
 
 export default function Header() {
   const { data: session } = useSession();
   const [showSignInPopup, setShowSignInPopup] = useState(false);
+  const { openPricing } = usePricing();
 
   return (
     <>
@@ -44,12 +46,12 @@ export default function Header() {
 
             {/* Right section */}
             <div className="flex items-center gap-4">
-              <Link 
-                href="/pricing" 
-                className="font-dm-sans font-medium text-gray-700 hover:text-gray-900 transition-colors"
+              <button
+                onClick={openPricing}
+                className="text-gray-600 hover:text-gray-900"
               >
                 Pricing
-              </Link>
+              </button>
               
               {session ? (
                 <div className="flex items-center gap-4">

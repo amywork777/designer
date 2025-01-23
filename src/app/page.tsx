@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Sparkles, Wand, Upload, PenTool, Type, Download, Cog, Clock, ChevronRight, Edit, Loader2, History, X, FileText, Info, Package, Palette, RefreshCw, ChevronDown, ChevronUp, Check, Lock, Hammer, Box, Fish } from 'lucide-react';
 import { useToast } from "@/components/ui/use-toast";
 import Image from 'next/image';
@@ -2158,10 +2158,10 @@ export default function LandingPage() {
                 {/* Design Thumbnails */}
                 <div className="p-3">
                   {userDesigns.length > 0 ? (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 transition-all duration-200">
                       {(isHistoryCollapsed ? userDesigns.slice(0, 4) : userDesigns).map((design, index) => (
-                        <div 
-                          key={index} 
+                        <div
+                          key={design.id || index}
                           className="relative aspect-square group cursor-pointer bg-white border border-gray-200 hover:border-gray-300 rounded-xl transition-all"
                           onClick={() => {
                             setSelectedDesign(design.images[0]);
@@ -2169,7 +2169,6 @@ export default function LandingPage() {
                             setScrollToAnalysis(true);
                           }}
                         >
-                          {/* Design Thumbnail */}
                           <img
                             src={design.images[0]}
                             alt={`Design ${index + 1}`}
@@ -2177,11 +2176,9 @@ export default function LandingPage() {
                               selectedDesign === design.images[0] ? 'ring-2 ring-blue-500' : ''
                             }`}
                           />
-
-                          {/* Hover Overlay */}
-                          <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl">
+                          
+                          <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-xl">
                             <div className="absolute inset-0 flex flex-col justify-between p-2 text-white">
-                              {/* Top Info */}
                               <div className="text-xs">
                                 <p className="font-dm-sans font-medium truncate">
                                   {design.title || `Design ${index + 1}`}
@@ -2191,7 +2188,6 @@ export default function LandingPage() {
                                 </p>
                               </div>
 
-                              {/* Bottom Actions */}
                               <div className="flex justify-end gap-1">
                                 <button
                                   onClick={(e) => {
