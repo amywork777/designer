@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { ManufacturingAnalysis } from '@/components/ManufacturingAnalysis';
-import { Package, Lock, Check, Sparkles, Download, Info as InfoIcon, DollarSign, ArrowRight, Loader2, FileDown, ChevronDown } from 'lucide-react';
+import { Package, Lock, Check, Sparkles, Download, Info as InfoIcon, DollarSign, ArrowRight, Loader2, FileDown, ChevronDown, ChevronRight, X } from 'lucide-react';
 import { useDesignStore } from '@/lib/store/designs';
 import { useToast } from "@/components/ui/use-toast";
 import { getMaterialRecommendation } from '@/lib/utils/materials';
@@ -100,9 +100,16 @@ export default function GetItMade() {
   const [processing3D, setProcessing3D] = useState(false);
   const [selectedProcess, setSelectedProcess] = useState('3d-printing');
   const [filesUnlocked, setFilesUnlocked] = useState(false);
+  const [show3DPreview, setShow3DPreview] = useState(false);
 
   const design = designs.find(d => d.id === designId);
   const selectedDesign = design?.images[0];
+
+  useEffect(() => {
+    if (design?.threeDData?.videoUrl) {
+      setShow3DPreview(true);
+    }
+  }, [design?.threeDData?.videoUrl]);
 
   const handleFinalizeDesign = async () => {
     if (!design?.images[0]) return;
@@ -205,57 +212,69 @@ export default function GetItMade() {
   const MAX_RETRIES = 3;
 
   const handle3DProcessing = async () => {
-    if (!design?.images[0] || !session?.user?.id) return;
+    if (!design?.id) return;
     
     setProcessing3D(true);
-    let attempts = 0;
-    
-    while (attempts < MAX_RETRIES) {
-      try {
-        const response = await fetch('https://us-central1-taiyaki-test1.cloudfunctions.net/process_3d', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            image_url: design.images[0],
-            userId: session.user.id
-          })
-        });
-
-        const data = await response.json();
-
-        if (data.success && data.video_url) {
-          const threeDData = {
-            videoUrl: data.video_url,
-            glbUrls: data.glb_urls || [],
-            preprocessedUrl: data.preprocessed_url,
-            timestamp: data.timestamp
-          };
-
-          // Update in Firebase
-          await updateDoc(doc(db, 'designs', design.id), {
-            threeDData
-          });
-
-          // Update local store
-          updateDesign(design.id, { threeDData });
-
-          toast({
-            title: "Success",
-            description: "3D preview generated and saved"
-          });
-          return;
-        }
-        
-        attempts++;
-        await new Promise(resolve => setTimeout(resolve, 2000));
-      } catch (error) {
-        console.error('3D processing error:', error);
-        break;
-      }
+    try {
+      const response = await fetch('/api/ai/generate3d', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          designId: design.id,
+          imageUrl: design.imageUrl
+        })
+      });
+      
+      if (!response.ok) throw new Error('Failed to process 3D preview');
+      
+      const data = await response.json();
+      setDesign(prev => ({
+        ...prev,
+        threeDData: data
+      }));
+      
+      setShow3DPreview(true);
+    } catch (error) {
+      toast({
+        title: "Processing Failed",
+        description: "Failed to generate 3D preview. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setProcessing3D(false);
     }
-    setProcessing3D(false);
+  };
+
+  const handleDownload = async (type: 'stl' | 'step') => {
+    if (!design?.threeDData?.videoUrl) {
+      toast({
+        title: "Generate 3D Preview First",
+        description: "Please generate a 3D preview before downloading files",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/designs/${design.id}/download?type=${type}`);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `design.${type}`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      toast({
+        title: "Download Failed",
+        description: "There was an error downloading your file. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   if (!design) {
@@ -282,12 +301,12 @@ export default function GetItMade() {
         <div className="flex gap-6">
           {/* Left Side - Preview and Files */}
           <div className="w-[400px] space-y-6 font-inter">
-            <Card className="bg-white rounded-xl shadow-sm border">
+            <Card className="bg-white rounded-[10px] shadow-sm border">
               <CardHeader>
                 <CardTitle className="font-dm-sans font-medium text-lg">Design Preview</CardTitle>
               </CardHeader>
               <CardContent className="pt-0">
-                <div className="aspect-square bg-gray-100 rounded-xl flex items-center justify-center overflow-hidden">
+                <div className="aspect-square bg-gray-100 rounded-[10px] flex items-center justify-center overflow-hidden">
                   {selectedDesign ? (
                     <img src={selectedDesign} alt="Design preview" className="w-full h-full object-contain" />
                   ) : (
@@ -296,23 +315,56 @@ export default function GetItMade() {
                     </div>
                   )}
                 </div>
-                <Show3DButton
-                  design={design}
-                  processing3D={processing3D}
-                  setProcessing3D={setProcessing3D}
-                  className="w-full mt-4 font-dm-sans font-medium text-sm rounded-xl"
-                />
+                {design?.threeDData?.videoUrl ? (
+                  <div className="mt-4 space-y-2">
+                    <div className="relative w-full rounded-[10px] overflow-hidden shadow-sm">
+                      <div className="aspect-video relative">
+                        <div className="absolute inset-0 border border-gray-200 rounded-[10px] pointer-events-none z-10" />
+                        <video
+                          src={design.threeDData.videoUrl}
+                          className="w-full h-full object-cover"
+                          autoPlay
+                          loop
+                          muted
+                          playsInline
+                        />
+                      </div>
+                    </div>
+                    <div className="text-sm text-gray-500 font-inter italic px-1">
+                      Note: This is an AI-generated preview. The actual 3D model will be professionally optimized for manufacturing with cleaner geometry and proper dimensions.
+                    </div>
+                  </div>
+                ) : (
+                  <Button
+                    onClick={handle3DProcessing}
+                    disabled={processing3D}
+                    className="w-full mt-4 font-dm-sans font-medium text-sm rounded-[10px] bg-black text-white hover:bg-gray-800 
+                      disabled:bg-gray-400 flex items-center justify-center gap-2"
+                  >
+                    {processing3D ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Processing...
+                      </>
+                    ) : (
+                      <>
+                        <Package className="w-4 h-4" />
+                        Generate 3D Preview
+                      </>
+                    )}
+                  </Button>
+                )}
 
                 {/* Download Files Section */}
                 <div className="mt-4">
-                  <Card className="bg-white rounded-xl shadow-sm border">
+                  <Card className="bg-white rounded-[10px] shadow-sm border">
                     <CardContent className="p-4">
                       <div className="text-center space-y-2">
                         <div className="text-sm text-gray-600">Get STL for 3D printing and STEP for CAD editing</div>
                         {!filesUnlocked ? (
                           <Button 
                             variant="default" 
-                            className="w-full bg-black text-white hover:bg-gray-800 font-dm-sans font-medium text-sm rounded-xl"
+                            className="w-full bg-black text-white hover:bg-gray-800 font-dm-sans font-medium text-sm rounded-[10px]"
                             onClick={() => setFilesUnlocked(true)}
                           >
                             <Lock className="mr-2 h-4 w-4" />
@@ -320,17 +372,23 @@ export default function GetItMade() {
                           </Button>
                         ) : (
                           <div className="space-y-2">
-                            <Button variant="outline" className="w-full font-dm-sans font-medium text-sm rounded-xl" asChild>
-                              <a href="#" download>
-                                <FileDown className="mr-2 h-4 w-4" />
-                                Download STL File
-                              </a>
+                            <Button 
+                              variant="outline" 
+                              className="w-full font-dm-sans font-medium text-sm rounded-[10px]" 
+                              onClick={() => handleDownload('stl')}
+                              disabled={!design?.threeDData?.videoUrl}
+                            >
+                              <FileDown className="mr-2 h-4 w-4" />
+                              {!design?.threeDData?.videoUrl ? 'Generate 3D Preview First' : 'Download STL File'}
                             </Button>
-                            <Button variant="outline" className="w-full font-dm-sans font-medium text-sm rounded-xl" asChild>
-                              <a href="#" download>
-                                <FileDown className="mr-2 h-4 w-4" />
-                                Download STEP File
-                              </a>
+                            <Button 
+                              variant="outline" 
+                              className="w-full font-dm-sans font-medium text-sm rounded-[10px]" 
+                              onClick={() => handleDownload('step')}
+                              disabled={!design?.threeDData?.videoUrl}
+                            >
+                              <FileDown className="mr-2 h-4 w-4" />
+                              {!design?.threeDData?.videoUrl ? 'Generate 3D Preview First' : 'Download STEP File'}
                             </Button>
                           </div>
                         )}
@@ -340,83 +398,71 @@ export default function GetItMade() {
                 </div>
               </CardContent>
             </Card>
-
-            {design?.threeDData && (
-              <Card>
-                <CardContent className="py-4">
-                  <div className="space-y-2">
-                    {design.threeDData.glbUrls?.map((url, index) => (
-                      <Button key={index} variant="outline" className="w-full" asChild>
-                        <a href={url} download>
-                          <FileDown className="mr-2 h-4 w-4" />
-                          Download GLB File {index + 1}
-                        </a>
-                      </Button>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
           </div>
 
           {/* Right Side - Manufacturing Details */}
           <div className="flex-1 space-y-6 font-inter">
             {/* Manufacturing Analysis Card */}
-            <Card className="bg-white rounded-xl shadow-sm border">
-              <CardContent className="py-6 space-y-6">
-                <div>
-                  <label className="block text-sm mb-2">Quantity</label>
-                  <Input 
-                    type="number"
-                    min="1"
-                    value={quantity}
-                    onChange={(e) => setQuantity(parseInt(e.target.value) || 1)}
-                    className="bg-white max-w-[200px]"
-                  />
-                </div>
+            <Card className="bg-white rounded-[10px] shadow-sm border">
+              <CardHeader>
+                <CardTitle className="font-dm-sans font-medium text-lg">Design Details</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {/* Quantity Input */}
+                  <div className="space-y-2">
+                    <label className="text-sm font-dm-sans font-medium">Quantity</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={quantity}
+                      onChange={(e) => setQuantity(Number(e.target.value))}
+                      className="w-full px-3 py-2 border rounded-[10px] focus:outline-none focus:ring-2 focus:ring-blue-500 font-inter"
+                    />
+                  </div>
 
-                <div>
-                  <label className="block text-sm mb-2">Size Selection</label>
-                  <Select 
-                    value={dimensions}
-                    onValueChange={setDimensions}
-                  >
-                    <SelectTrigger className="bg-white w-full">
-                      <SelectValue placeholder="Select size..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {['Small (up to 5cm)', 'Medium (5-15cm)', 'Large (15-25cm)', 'Extra Large (25cm+)'].map((size) => (
-                        <SelectItem key={size} value={size}>
-                          {size}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                  {/* Size Selection */}
+                  <div className="space-y-2">
+                    <label className="text-sm font-dm-sans font-medium">Size Selection</label>
+                    <select
+                      value={dimensions}
+                      onChange={(e) => setDimensions(e.target.value)}
+                      className="w-full px-3 py-2 border rounded-[10px] bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-inter appearance-none"
+                    >
+                      <option value="">Select size...</option>
+                      <option value="Small (up to 5cm)">Small (up to 5cm)</option>
+                      <option value="Medium (5-15cm)">Medium (5-15cm)</option>
+                      <option value="Large (15-25cm)">Large (15-25cm)</option>
+                      <option value="Extra Large (25cm+)">Extra Large (25cm+)</option>
+                    </select>
+                  </div>
 
-                <div>
-                  <label className="block text-sm mb-2">Additional Comments</label>
-                  <Textarea 
-                    value={designComments}
-                    onChange={(e) => setDesignComments(e.target.value)}
-                    placeholder="Add any specific requirements or notes..."
-                    className="bg-white min-h-[100px]"
-                  />
+                  {/* Additional Comments */}
+                  <div className="space-y-2">
+                    <label className="text-sm font-dm-sans font-medium">Additional Comments</label>
+                    <textarea
+                      value={designComments}
+                      onChange={(e) => setDesignComments(e.target.value)}
+                      placeholder="Add any specific requirements or notes..."
+                      rows={4}
+                      className="w-full px-3 py-2 border rounded-[10px] focus:outline-none focus:ring-2 focus:ring-blue-500 font-inter resize-none"
+                    />
+                  </div>
                 </div>
               </CardContent>
             </Card>
 
             {/* Material Selection Card */}
-            <Card className="bg-white rounded-xl shadow-sm border">
+            <Card className="bg-white rounded-[10px] shadow-sm border">
               <CardHeader>
                 <CardTitle className="font-dm-sans font-medium text-lg">Select Manufacturing Process</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
                   {/* 3D Printing Section */}
-                  <div className="bg-white border rounded-xl overflow-hidden shadow-sm">
+                  <div className="bg-white border rounded-[10px] overflow-hidden shadow-sm">
                     <button
-                      className={`w-full p-4 text-left hover:bg-gray-50 transition-colors rounded-xl ${
+                      className={`w-full p-4 text-left hover:bg-gray-50 transition-colors rounded-[10px] ${
                         selectedProcess === '3d-printing' ? 'bg-blue-50' : ''
                       }`}
                       onClick={() => setSelectedProcess(selectedProcess === '3d-printing' ? '' : '3d-printing')}
@@ -462,9 +508,9 @@ export default function GetItMade() {
                   </div>
 
                   {/* Advanced Manufacturing Section */}
-                  <div className="bg-white border rounded-xl overflow-hidden shadow-sm">
+                  <div className="bg-white border rounded-[10px] overflow-hidden shadow-sm">
                     <button
-                      className={`w-full p-4 text-left hover:bg-gray-50 transition-colors rounded-xl ${
+                      className={`w-full p-4 text-left hover:bg-gray-50 transition-colors rounded-[10px] ${
                         selectedProcess === 'advanced' ? 'bg-blue-50' : ''
                       }`}
                       onClick={() => setSelectedProcess(selectedProcess === 'advanced' ? '' : 'advanced')}
@@ -532,36 +578,55 @@ export default function GetItMade() {
               </CardContent>
             </Card>
 
-            {/* Price Estimate Card */}
-            <Card className="bg-white rounded-xl shadow-sm border">
-              <CardContent className="py-4">
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-500">Base Price:</span>
-                    <span>{dimensions && selectedMaterial ? getPriceAndDelivery(dimensions.size, selectedMaterial).price : '(Select size and material)'}</span>
+            {/* Price Summary Card */}
+            <Card className="bg-white rounded-[10px] shadow-sm border">
+              <CardContent className="p-4">
+                <div className="space-y-3">
+                  {/* Price Breakdown */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-gray-600 font-inter">Base Price:</span>
+                      <span className="font-dm-sans font-medium">
+                        {selectedMaterial && dimensions ? getPriceAndDelivery(dimensions.size, selectedMaterial).price : '(Select size and material)'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-gray-600 font-inter">Quantity:</span>
+                      <span className="font-dm-sans font-medium">
+                        {quantity || 1}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-gray-600 font-inter">Estimated Delivery:</span>
+                      <span className="font-dm-sans font-medium">
+                        {selectedMaterial && dimensions ? getPriceAndDelivery(dimensions.size, selectedMaterial).delivery : '(Select size and material)'}
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-500">Quantity:</span>
-                    <span>{quantity}</span>
+
+                  {/* Divider */}
+                  <div className="border-t border-gray-200"></div>
+
+                  {/* Total */}
+                  <div className="flex justify-between items-center">
+                    <span className="font-dm-sans font-medium text-base">Total:</span>
+                    <span className="font-dm-sans font-medium text-base">
+                      {selectedMaterial && dimensions ? 
+                        `$${(Number(getPriceAndDelivery(dimensions.size, selectedMaterial).price) * quantity * (quantity > 1 ? 0.9 : 1)).toFixed(2)}` 
+                        : '(Complete selections above)'}
+                    </span>
                   </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-500">Estimated Delivery:</span>
-                    <span>{dimensions && selectedMaterial ? getPriceAndDelivery(dimensions.size, selectedMaterial).delivery : '(Select size and material)'}</span>
-                  </div>
-                  <div className="flex justify-between font-medium text-lg">
-                    <span>Total:</span>
-                    <span>{dimensions && selectedMaterial ? 
-                      `$${(Number(getPriceAndDelivery(dimensions.size, selectedMaterial).price) * quantity * (quantity > 1 ? 0.9 : 1)).toFixed(2)}` 
-                      : '(Complete selections above)'}</span>
-                  </div>
+
+                  {/* Action Button */}
                   <Button 
-                    className="w-full mt-4"
+                    variant="default" 
+                    className="w-full bg-black text-white hover:bg-gray-800 font-dm-sans font-medium text-sm rounded-[10px] mt-3"
+                    disabled={!selectedMaterial || !dimensions}
                     onClick={handleProceed}
-                    disabled={!dimensions || !selectedMaterial}
                   >
-                    <DollarSign className="w-5 h-5 mr-2" />
-                    {!dimensions || !selectedMaterial ? 'Complete Selections Above' : 'Proceed to Checkout'}
-                    <ArrowRight className="w-5 h-5 ml-2" />
+                    <span className="mr-2">$</span>
+                    Complete Selections Above
+                    <ChevronRight className="ml-2 h-4 w-4" />
                   </Button>
                 </div>
               </CardContent>
