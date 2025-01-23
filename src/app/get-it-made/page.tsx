@@ -18,34 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-
-const MATERIAL_OPTIONS = [
-  {
-    title: 'PLA',
-    description: 'Standard 3D printing material, good for prototypes and decorative items',
-    cost: '$ (Most Affordable)'
-  },
-  {
-    title: 'PETG',
-    description: 'Stronger than PLA, good for functional parts',
-    cost: '$$ (Mid-Range)'
-  },
-  {
-    title: 'ABS',
-    description: 'Durable and heat-resistant, ideal for mechanical parts',
-    cost: '$$ (Mid-Range)'
-  },
-  {
-    title: 'TPU',
-    description: 'Flexible material, great for parts that need to bend',
-    cost: '$$$ (Premium)'
-  },
-  {
-    title: 'Resin',
-    description: 'High detail and smooth finish, perfect for miniatures',
-    cost: '$$$ (Premium)'
-  }
-];
+import { MATERIAL_OPTIONS } from '@/lib/constants/materials';
 
 const PRICING = {
   Mini: { PLA: 20, Wood: 40, TPU: 45, Resin: 60, Aluminum: 200 },
@@ -210,58 +183,78 @@ export default function GetItMade() {
   };
 
   const MAX_RETRIES = 3;
+  const RETRY_DELAY = 1000; // 1 second delay between attempts
 
   const handle3DProcessing = async () => {
-    if (!design?.id) return;
+    if (!selectedDesign) return;
     
     setProcessing3D(true);
+    let attempts = 0;
+    
     try {
-      const response = await fetch('/api/ai/process3d', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          designId: design.id,
-          imageUrl: design.imageUrl,
-          prompt: design.prompt
-        })
-      });
-      
-      if (!response.ok) throw new Error('Failed to process 3D preview');
-      
-      const data = await response.json();
-      
-      const updatedDesign = {
-        ...design,
-        threeDData: {
-          ...design.threeDData,
-          ...data,
-          timestamp: new Date().toISOString()
+      while (attempts < MAX_RETRIES) {
+        try {
+          const response = await fetch('https://us-central1-taiyaki-test1.cloudfunctions.net/process_3d', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              image_url: selectedDesign,
+              userId: session?.user?.id || 'default'
+            })
+          });
+
+          const rawText = await response.text();
+          console.log('Raw response:', rawText);
+
+          let data;
+          try {
+            data = JSON.parse(rawText);
+          } catch (e) {
+            console.error('Failed to parse response:', e);
+            throw new Error('Invalid response from server');
+          }
+
+          if (!response.ok) {
+            throw new Error(data.error || 'Server error');
+          }
+
+          if (data.success && data.video_url) {
+            const currentDesign = designs.find(d => d.images.includes(selectedDesign));
+            if (currentDesign) {
+              updateDesign(currentDesign.id, {
+                threeDData: {
+                  videoUrl: data.video_url,
+                  glbUrls: data.glb_urls || [],
+                  preprocessedUrl: data.preprocessed_url,
+                  timestamp: data.timestamp
+                }
+              });
+            }
+
+            toast({
+              title: "Success",
+              description: "3D model generated successfully"
+            });
+            return; // Success - exit the retry loop
+          }
+          
+        } catch (error) {
+          console.error(`Attempt ${attempts + 1} failed:`, error);
+          attempts++;
+          
+          if (attempts === MAX_RETRIES) {
+            toast({
+              variant: "destructive",
+              title: "Error",
+              description: `Failed after ${MAX_RETRIES} attempts. Please try again later.`
+            });
+          } else {
+            await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+          }
         }
-      };
-      
-      updateDesign(design.id, {
-        analysis: updatedDesign.analysis
-      });
-
-      await fetch(`/api/designs/${design.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(updatedDesign)
-      });
-
-      setDesign(updatedDesign);
-
-    } catch (error) {
-      console.error('3D processing error:', error);
-      toast({
-        title: "Processing Failed",
-        description: "Failed to generate 3D preview. Please try again.",
-        variant: "destructive",
-      });
+      }
     } finally {
       setProcessing3D(false);
     }
