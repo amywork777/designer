@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { ManufacturingAnalysis } from '@/components/ManufacturingAnalysis';
 import { Package, Lock, Check, Sparkles, Download, Info as InfoIcon, DollarSign, ArrowRight, Loader2, FileDown, ChevronDown, ChevronRight, X, Upload } from 'lucide-react';
@@ -24,12 +24,73 @@ import { canDownloadFile } from '@/lib/utils/download-limits';
 import { recordDownload } from '@/lib/utils/download-limits';
 import { motion } from 'framer-motion';
 
-const PRICING = {
-  Mini: { PLA: 20, Wood: 40, TPU: 45, Resin: 60, Aluminum: 200 },
-  Small: { PLA: 35, Wood: 55, TPU: 60, Resin: 80, Aluminum: 'contact us' },
-  Medium: { PLA: 60, Wood: 125, TPU: 150, Resin: 200, Aluminum: 'contact us' },
-  Large: { PLA: 'contact us', Wood: 'contact us', TPU: 'contact us', Resin: 'contact us', Aluminum: 'contact us' }
+interface MaterialOption {
+  title: string;
+  description: string;
+  cost: Record<string, string>;
+  delivery: Record<string, string>;
+}
+
+interface SizeOption {
+  name: string;
+  dimensions: string;
+}
+
+type PricingData = {
+  price: string;
+  delivery: string;
+};
+
+// 3D Printing pricing data
+const PRICES = {
+  'Mini': {
+    'PLA': { price: '$15', delivery: '1-2 weeks' },
+    'Wood-PLA': { price: '$25', delivery: '2-3 weeks' },
+    'TPU': { price: '$25', delivery: '2-3 weeks' },
+    'Resin': { price: '$35', delivery: '1-2 weeks' },
+    'Aluminum': { price: '$120', delivery: '3-4 weeks' }
+  },
+  'Small': {
+    'PLA': { price: '$25', delivery: '1-2 weeks' },
+    'Wood-PLA': { price: '$35', delivery: '2-3 weeks' },
+    'TPU': { price: '$40', delivery: '2-3 weeks' },
+    'Resin': { price: '$60', delivery: '1-2 weeks' },
+    'Aluminum': { price: 'Contact', delivery: '3-5 weeks' }
+  },
+  'Medium': {
+    'PLA': { price: '$40', delivery: '2-3 weeks' },
+    'Wood-PLA': { price: '$65', delivery: '2-4 weeks' },
+    'TPU': { price: '$85', delivery: '2-4 weeks' },
+    'Resin': { price: '$120', delivery: '2-3 weeks' },
+    'Aluminum': { price: 'Contact', delivery: '4-6 weeks' }
+  },
+  'Large': {
+    'PLA': { price: 'Contact', delivery: '3-4 weeks' },
+    'Wood-PLA': { price: 'Contact', delivery: '3-5 weeks' },
+    'TPU': { price: 'Contact', delivery: '3-5 weeks' },
+    'Resin': { price: 'Contact', delivery: '3-4 weeks' },
+    'Aluminum': { price: 'Contact', delivery: '6-8 weeks' }
+  }
+};
+
+const SIZE_OPTIONS = {
+  'Mini': 'Up to 2 x 2 x 2"',
+  'Small': 'Up to 3.5 x 3.5 x 3.5"',
+  'Medium': 'Up to 5 x 5 x 5"',
+  'Large': 'Up to 10 x 10 x 10"'
 } as const;
+
+type SizeType = keyof typeof SIZE_OPTIONS;
+
+const MATERIALS = ['PLA', 'Wood-PLA', 'TPU', 'Resin', 'Aluminum'];
+
+const MATERIAL_DESCRIPTIONS = {
+  'PLA': 'Basic plastic filament, easy to print, most common and cost-effective.',
+  'Wood-PLA': 'Regular PLA mixed with wood particles for natural look.',
+  'TPU': 'Flexible, squishy rubber-like material.',
+  'Resin': 'Liquid that cures into solid. High detail but requires special handling.',
+  'Aluminum': 'High-quality metal requiring advanced manufacturing processes.'
+};
 
 const DELIVERY_ESTIMATES = {
   Mini: { PLA: '< 2 weeks', Wood: '< 2 weeks', TPU: '< 2 weeks', Resin: '< 2 weeks' },
@@ -38,27 +99,31 @@ const DELIVERY_ESTIMATES = {
   Large: { PLA: '< 1 month', Wood: '< 1 month', TPU: '< 3 weeks', Resin: '< 2 weeks' }
 } as const;
 
-const getPriceAndDelivery = (size: string, material: string) => {
-  const basePrice = {
-    'Small (up to 5cm)': 20,
-    'Medium (5-15cm)': 35,
-    'Large (15-25cm)': 50,
-    'Extra Large (25cm+)': 75
-  }[size] || 0;
+const SIZE_OPTIONS_LIST: SizeOption[] = [
+  {
+    name: 'Mini',
+    dimensions: 'Up to 2 x 2 x 2"'
+  },
+  {
+    name: 'Small',
+    dimensions: 'Up to 3.5 x 3.5 x 3.5"'
+  },
+  {
+    name: 'Medium',
+    dimensions: 'Up to 5 x 5 x 5"'
+  },
+  {
+    name: 'Large',
+    dimensions: 'Up to 10 x 10 x 10"'
+  }
+];
 
-  const materialMultiplier = {
-    'PLA': 1,
-    'PETG': 1.2,
-    'ABS': 1.3,
-    'TPU': 1.5,
-    'Resin': 1.8
-  }[material] || 1;
-
-  return {
-    price: `$${(basePrice * materialMultiplier).toFixed(2)}`,
-    delivery: '3-5 business days'
-  };
-};
+// Advanced manufacturing types (separate from 3D printing)
+const ADVANCED_MANUFACTURING_TYPES = {
+  'CNC': 'CNC Machining',
+  'INJECTION': 'Injection Molding',
+  'SHEET_METAL': 'Sheet Metal'
+} as const;
 
 export default function GetItMade() {
   const { designs, loadDesign, updateDesign } = useDesignStore();
@@ -69,9 +134,8 @@ export default function GetItMade() {
   const { data: session } = useSession();
   
   const [isDesignFinalized, setIsDesignFinalized] = useState(false);
-  const [selectedMaterial, setSelectedMaterial] = useState('');
-  const [recommendationInfo, setRecommendationInfo] = useState<{ material: string; reason: string } | null>(null);
-  const [dimensions, setDimensions] = useState('');
+  const [selectedSize, setSelectedSize] = useState<SizeType>('Mini');
+  const [selectedMaterial, setSelectedMaterial] = useState('PLA');
   const [quantity, setQuantity] = useState(1);
   const [designComments, setDesignComments] = useState('');
   const [processing3D, setProcessing3D] = useState(false);
@@ -79,6 +143,7 @@ export default function GetItMade() {
   const [filesUnlocked, setFilesUnlocked] = useState(false);
   const [show3DPreview, setShow3DPreview] = useState(false);
   const [showSignInPopup, setShowSignInPopup] = useState(false);
+  const [manufacturingType, setManufacturingType] = useState<keyof typeof ADVANCED_MANUFACTURING_TYPES | null>(null);
 
   const design = designs.find(d => d.id === designId);
   const selectedDesign = design?.images[0];
@@ -122,7 +187,7 @@ export default function GetItMade() {
 
       const updatedAnalysis = {
         productDescription: data.description,
-        dimensions: dimensions,
+        dimensions: SIZE_OPTIONS[selectedSize],
         manufacturingOptions: [],
         status: 'analyzed' as const,
         features: data.features,
@@ -166,20 +231,20 @@ export default function GetItMade() {
       return;
     }
 
-    if (!dimensions.size || !selectedMaterial) {
+    if (!selectedSize || !selectedMaterial) {
       return;
     }
 
-    const isCustomQuote = typeof getPriceAndDelivery(dimensions.size, selectedMaterial).price !== 'number';
+    const isCustomQuote = typeof getPriceAndDelivery().price !== 'number';
 
     if (isCustomQuote) {
       // Handle custom quote request
-      router.push(`/request-quote?designId=${design.id}&size=${dimensions.size}&material=${selectedMaterial}&quantity=${quantity}`);
+      router.push(`/request-quote?designId=${design.id}&size=${selectedSize}&material=${selectedMaterial}&quantity=${quantity}`);
     } else {
       // Handle direct checkout
       try {
         // You can add your checkout logic here
-        router.push(`/checkout?designId=${design.id}&size=${dimensions.size}&material=${selectedMaterial}&quantity=${quantity}`);
+        router.push(`/checkout?designId=${design.id}&size=${selectedSize}&material=${selectedMaterial}&quantity=${quantity}`);
       } catch (error) {
         console.error('Checkout error:', error);
         // Handle error appropriately
@@ -339,6 +404,77 @@ export default function GetItMade() {
     });
   };
 
+  const isAdvancedManufacturing = useCallback(() => {
+    return manufacturingType !== null;
+  }, [manufacturingType]);
+
+  const getPriceAndDelivery = useCallback(() => {
+    if (isAdvancedManufacturing()) {
+      return {
+        price: 'Contact',
+        delivery: 'Variable'
+      };
+    }
+
+    if (!selectedSize || !selectedMaterial) {
+      return {
+        price: '(Select options)',
+        delivery: '(Select options)'
+      };
+    }
+
+    try {
+      const pricing = PRICES[selectedSize]?.[selectedMaterial];
+      return pricing || {
+        price: '(Select options)',
+        delivery: '(Select options)'
+      };
+    } catch (error) {
+      console.error('Error calculating price and delivery:', error);
+      return {
+        price: '(Select options)',
+        delivery: '(Select options)'
+      };
+    }
+  }, [selectedSize, selectedMaterial, isAdvancedManufacturing]);
+
+  const calculateTotal = useCallback(() => {
+    const pricing = getPriceAndDelivery();
+    if (pricing.price === 'Contact' || pricing.price === '(Select options)') {
+      return 'N/A';
+    }
+    
+    const basePrice = Number(pricing.price.replace('$', ''));
+    if (isNaN(basePrice)) return 'N/A';
+    
+    return `$${(basePrice * quantity).toFixed(2)}`;
+  }, [getPriceAndDelivery, quantity]);
+
+  const getButtonText = useCallback(() => {
+    const pricing = getPriceAndDelivery();
+    
+    // If advanced manufacturing is selected, show quote button
+    if (isAdvancedManufacturing()) {
+      return 'Submit for a Quote';
+    }
+
+    // If price is Contact or total is N/A, show quote button
+    if (pricing.price === 'Contact' || calculateTotal() === 'N/A') {
+      return 'Submit for a Quote';
+    }
+
+    // If any required selections are missing, show complete selections
+    if (!selectedSize || !selectedMaterial || pricing.price === '(Select options)') {
+      return 'Complete Selections Above';
+    }
+
+    // If we have a valid price, show checkout button
+    return 'Proceed to Checkout';
+  }, [getPriceAndDelivery, isAdvancedManufacturing, selectedSize, selectedMaterial, calculateTotal]);
+
+  // Debugging log
+  console.log('Current selections:', { selectedSize, selectedMaterial });
+
   if (!design) {
     return (
       <div className="min-h-screen bg-white">
@@ -426,19 +562,17 @@ export default function GetItMade() {
                 {design?.threeDData?.videoUrl ? (
                   <div className="mt-4 space-y-2">
                     <div className="relative w-full rounded-[10px] overflow-hidden shadow-sm">
-                      <div className="aspect-video md:aspect-video sm:aspect-square relative">
-                        <div className="absolute inset-0 border border-gray-200 rounded-[10px] pointer-events-none z-10" />
-                        <video
-                          src={design.threeDData.videoUrl}
-                          className="w-full h-full object-cover"
-                          autoPlay
-                          loop
-                          muted
-                          playsInline
-                          controls={false}
-                          controlsList="nodownload nofullscreen noremoteplayback"
-                        />
-                      </div>
+                      <div className="absolute inset-0 border border-gray-200 rounded-[10px] pointer-events-none z-10" />
+                      <video
+                        src={design.threeDData.videoUrl}
+                        className="w-full h-full object-cover"
+                        autoPlay
+                        loop
+                        muted
+                        playsInline
+                        controls={false}
+                        controlsList="nodownload nofullscreen noremoteplayback"
+                      />
                     </div>
                     <div className="text-sm text-gray-500 font-inter italic px-1 sm:text-xs md:text-sm">
                       Note: This is an AI-generated preview. The actual 3D model will be professionally optimized for manufacturing with cleaner geometry and proper dimensions.
@@ -531,19 +665,28 @@ export default function GetItMade() {
                     />
                   </div>
 
-                  {/* Size Selection */}
-                  <div className="space-y-2">
-                    <label className="text-sm font-dm-sans font-medium">Size Selection</label>
+                  {/* Size Selection Dropdown */}
+                  <div className="bg-white border border-gray-200 rounded-2xl p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="font-medium">Size</h3>
+                    </div>
                     <select
-                      value={dimensions}
-                      onChange={(e) => setDimensions(e.target.value)}
-                      className="w-full px-3 py-2 border rounded-[10px] bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-inter appearance-none"
+                      value={selectedSize}
+                      onChange={(e) => setSelectedSize(e.target.value as SizeType)}
+                      className="w-full p-4 rounded-xl border border-gray-200 bg-white appearance-none cursor-pointer focus:outline-none focus:border-black transition-colors"
+                      style={{
+                        backgroundImage: `url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e")`,
+                        backgroundRepeat: 'no-repeat',
+                        backgroundPosition: 'right 1rem center',
+                        backgroundSize: '1.5em 1.5em'
+                      }}
                     >
-                      <option value="">Select size...</option>
-                      <option value="Small (up to 5cm)">Small (up to 5cm)</option>
-                      <option value="Medium (5-15cm)">Medium (5-15cm)</option>
-                      <option value="Large (15-25cm)">Large (15-25cm)</option>
-                      <option value="Extra Large (25cm+)">Extra Large (25cm+)</option>
+                      <option value="" disabled>Select size</option>
+                      {Object.entries(SIZE_OPTIONS).map(([size, dimensions]) => (
+                        <option key={size} value={size}>
+                          {size} - {dimensions}
+                        </option>
+                      ))}
                     </select>
                   </div>
 
@@ -596,20 +739,19 @@ export default function GetItMade() {
                         : 'max-h-0 opacity-0 overflow-hidden'
                     }`}>
                       <div className="divide-y border-t">
-                        {MATERIAL_OPTIONS.map((material) => (
+                        {MATERIALS.map((material) => (
                           <button
-                            key={material.title}
-                            onClick={() => setSelectedMaterial(material.title)}
+                            key={material}
+                            onClick={() => setSelectedMaterial(material)}
                             className={`w-full p-4 text-left hover:bg-gray-50 transition-colors ${
-                              selectedMaterial === material.title ? 'bg-blue-50' : ''
+                              selectedMaterial === material ? 'bg-blue-50' : ''
                             }`}
                           >
                             <div className="flex justify-between items-start">
                               <div>
-                                <div className="font-dm-sans font-medium text-base">{material.title}</div>
-                                <div className="text-sm text-gray-600 font-inter mt-0.5">{material.description}</div>
+                                <div className="font-dm-sans font-medium text-base">{material}</div>
+                                <div className="text-sm text-gray-600 font-inter mt-0.5">{MATERIAL_DESCRIPTIONS[material]}</div>
                               </div>
-                              <div className="text-sm text-gray-600 font-inter whitespace-nowrap">{material.cost}</div>
                             </div>
                           </button>
                         ))}
@@ -644,40 +786,38 @@ export default function GetItMade() {
                         : 'max-h-0 opacity-0 overflow-hidden'
                     }`}>
                       <div className="divide-y border-t">
-                        {[
-                          {
-                            title: 'CNC Machining',
-                            description: 'Precision-cut from solid material blocks',
-                            materials: 'Materials: Aluminum, Steel, Plastic',
-                            cost: '$$$ (Premium)'
-                          },
-                          {
-                            title: 'Injection Molding',
-                            description: 'High-volume plastic production',
-                            materials: 'Materials: Various Plastics',
-                            cost: '$$$$ (Production)'
-                          },
-                          {
-                            title: 'Sheet Metal',
-                            description: 'Formed and bent metal parts',
-                            materials: 'Materials: Steel, Aluminum',
-                            cost: '$$$ (Premium)'
-                          }
-                        ].map((process) => (
+                        {Object.entries(ADVANCED_MANUFACTURING_TYPES).map(([key, label]) => (
                           <button
-                            key={process.title}
-                            onClick={() => setSelectedMaterial(process.title)}
+                            key={key}
+                            onClick={() => setManufacturingType(key as keyof typeof ADVANCED_MANUFACTURING_TYPES)}
                             className={`w-full p-4 text-left hover:bg-gray-50 transition-colors ${
-                              selectedMaterial === process.title ? 'bg-blue-50' : ''
+                              manufacturingType === key ? 'bg-blue-50' : ''
                             }`}
                           >
                             <div className="flex justify-between items-start">
                               <div>
-                                <div className="font-dm-sans font-medium text-base">{process.title}</div>
-                                <div className="text-sm text-gray-600 font-inter mt-0.5">{process.description}</div>
-                                <div className="text-sm text-gray-600 font-inter mt-1">{process.materials}</div>
+                                <div className="font-dm-sans font-medium text-base">{label}</div>
+                                <div className="text-sm text-gray-600 font-inter mt-0.5">
+                                  {key === 'CNC' && (
+                                    <>
+                                      Precision-cut from solid material blocks
+                                      <div className="text-sm text-gray-500">Materials: Aluminum, Steel, Plastic</div>
+                                    </>
+                                  )}
+                                  {key === 'INJECTION' && (
+                                    <>
+                                      High-volume plastic production
+                                      <div className="text-sm text-gray-500">Materials: Various Plastics</div>
+                                    </>
+                                  )}
+                                  {key === 'SHEET_METAL' && (
+                                    <>
+                                      Formed and bent metal parts
+                                      <div className="text-sm text-gray-500">Materials: Steel, Aluminum</div>
+                                    </>
+                                  )}
+                                </div>
                               </div>
-                              <div className="text-sm text-gray-600 font-inter whitespace-nowrap">{process.cost}</div>
                             </div>
                           </button>
                         ))}
@@ -697,7 +837,7 @@ export default function GetItMade() {
                     <div className="flex justify-between items-center text-sm">
                       <span className="text-gray-600 font-inter">Base Price:</span>
                       <span className="font-dm-sans font-medium">
-                        {selectedMaterial && dimensions ? getPriceAndDelivery(dimensions.size, selectedMaterial).price : '(Select size and material)'}
+                        {isAdvancedManufacturing() ? 'Contact' : getPriceAndDelivery().price}
                       </span>
                     </div>
                     <div className="flex justify-between items-center text-sm">
@@ -709,7 +849,7 @@ export default function GetItMade() {
                     <div className="flex justify-between items-center text-sm">
                       <span className="text-gray-600 font-inter">Estimated Delivery:</span>
                       <span className="font-dm-sans font-medium">
-                        {selectedMaterial && dimensions ? getPriceAndDelivery(dimensions.size, selectedMaterial).delivery : '(Select size and material)'}
+                        {isAdvancedManufacturing() ? 'Variable' : getPriceAndDelivery().delivery}
                       </span>
                     </div>
                   </div>
@@ -721,23 +861,22 @@ export default function GetItMade() {
                   <div className="flex justify-between items-center">
                     <span className="font-dm-sans font-medium text-base">Total:</span>
                     <span className="font-dm-sans font-medium text-base">
-                      {selectedMaterial && dimensions ? 
-                        `$${(Number(getPriceAndDelivery(dimensions.size, selectedMaterial).price) * quantity * (quantity > 1 ? 0.9 : 1)).toFixed(2)}` 
-                        : '(Complete selections above)'}
+                      {calculateTotal()}
                     </span>
                   </div>
 
                   {/* Action Button */}
-                  <Button 
-                    variant="default" 
-                    className="w-full bg-black text-white hover:bg-gray-800 font-dm-sans font-medium text-sm rounded-[10px] mt-3"
-                    disabled={!selectedMaterial || !dimensions}
+                  <button
+                    className={`w-full mt-4 py-3.5 px-4 rounded-xl font-medium flex items-center justify-center space-x-2 transition-all
+                      ${getButtonText() === 'Proceed to Checkout' 
+                        ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 active:translate-y-0' 
+                        : 'bg-black hover:bg-gray-900 text-white'}`}
                     onClick={handleProceed}
                   >
-                    <span className="mr-2">$</span>
-                    Complete Selections Above
-                    <ChevronRight className="ml-2 h-4 w-4" />
-                  </Button>
+                    <span>$</span>
+                    <span className={`${getButtonText() === 'Proceed to Checkout' ? 'text-lg' : ''}`}>{getButtonText()}</span>
+                    <span className="text-lg">›</span>
+                  </button>
                 </div>
               </CardContent>
             </Card>
