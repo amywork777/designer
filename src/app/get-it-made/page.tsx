@@ -20,8 +20,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { MATERIAL_OPTIONS } from '@/lib/constants/materials';
 import SignInPopup from '@/components/SignInPopup';
-import { canDownloadFile } from '@/lib/utils/download-limits';
-import { recordDownload } from '@/lib/utils/download-limits';
+import { canDownloadFile, recordDownload } from '@/lib/firebase/subscriptions';
 import { motion } from 'framer-motion';
 import Image from 'next/image';
 
@@ -334,8 +333,19 @@ export default function GetItMade() {
     setIsDownloading(true);
     
     try {
-      console.log('Starting conversion for GLB:', design.threeDData.glbUrls[0]);
+      // Check download limits first
+      const { allowed, remaining } = await canDownloadFile(session.user.id, type);
       
+      if (!allowed) {
+        toast({
+          title: "Download limit reached",
+          description: `You've reached your ${type.toUpperCase()} download limit for this month.`,
+          variant: "destructive"
+        });
+        return;
+      }
+
+      // Start the download process
       const response = await fetch('/api/convert-glb', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -351,8 +361,11 @@ export default function GetItMade() {
       }
 
       const blob = await response.blob();
-      console.log('Received converted file:', blob.size);
 
+      // Record the successful download in Firebase
+      await recordDownload(session.user.id, design.id, type);
+
+      // Create download
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -364,7 +377,9 @@ export default function GetItMade() {
 
       toast({
         title: "Success",
-        description: `${type.toUpperCase()} file downloaded successfully`
+        description: `${type.toUpperCase()} file downloaded successfully${
+          remaining === Infinity ? '' : `. ${remaining - 1} downloads remaining this month`
+        }`
       });
 
     } catch (error: any) {

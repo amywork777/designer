@@ -4,91 +4,144 @@ import {
   query, 
   where, 
   getDocs, 
-  addDoc, 
-  Timestamp,
-  serverTimestamp 
+  addDoc,
+  updateDoc,
+  doc,
+  serverTimestamp,
+  increment,
+  arrayUnion 
 } from 'firebase/firestore';
-import type { PlanType, UserSubscription, DownloadRecord } from '@/types/subscription';
+import { PLAN_LIMITS, PlanType, UserSubscription } from '@/types/subscription';
 
-// Collection references
 const SUBSCRIPTIONS_COLLECTION = 'subscriptions';
-const DOWNLOADS_COLLECTION = 'downloads';
 
-// Create or update user subscription
-export async function upsertSubscription(
-  userId: string, 
-  planType: PlanType
-): Promise<void> {
-  const subscriptionsRef = collection(db, SUBSCRIPTIONS_COLLECTION);
-  const now = new Date();
+// Get user's subscription
+export async function getUserSubscription(userId: string): Promise<UserSubscription | null> {
+  const subscriptionRef = collection(db, SUBSCRIPTIONS_COLLECTION);
+  const q = query(subscriptionRef, where('userId', '==', userId));
+  const snapshot = await getDocs(q);
   
-  // Set period to start now and end in 30 days
-  const subscription: UserSubscription = {
-    userId,
-    planType,
-    currentPeriodStart: now,
-    currentPeriodEnd: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp()
-  };
-
-  await addDoc(subscriptionsRef, subscription);
+  if (snapshot.empty) {
+    // Create a free tier subscription if none exists
+    const newSubscription: UserSubscription = {
+      userId,
+      planType: 'free',
+      currentPeriodStart: new Date(),
+      currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      downloads: [],
+      downloadCounts: {
+        stl: 0,
+        step: 0
+      },
+      quotesUsed: 0
+    };
+    
+    await addDoc(subscriptionRef, {
+      ...newSubscription,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    });
+    
+    return newSubscription;
+  }
+  
+  const data = snapshot.docs[0].data();
+  
+  // Ensure downloadCounts exists even for existing subscriptions
+  if (!data.downloadCounts) {
+    data.downloadCounts = {
+      stl: 0,
+      step: 0
+    };
+    // Update the document with default counts
+    await updateDoc(snapshot.docs[0].ref, {
+      downloadCounts: data.downloadCounts,
+      updatedAt: serverTimestamp()
+    });
+  }
+  
+  return data as UserSubscription;
 }
 
-// Record a new download
-export async function createDownloadRecord(
+// Record a new download and increment counter
+export async function recordDownload(
   userId: string,
   designId: string,
   fileType: 'stl' | 'step'
 ): Promise<void> {
-  const downloadsRef = collection(db, DOWNLOADS_COLLECTION);
-  
-  // Get user's current subscription period
   const subscriptionRef = collection(db, SUBSCRIPTIONS_COLLECTION);
-  const subscriptionQuery = query(subscriptionRef, where('userId', '==', userId));
-  const subscriptionSnap = await getDocs(subscriptionQuery);
-  const subscription = subscriptionSnap.docs[0]?.data() as UserSubscription;
+  const q = query(subscriptionRef, where('userId', '==', userId));
+  const snapshot = await getDocs(q);
+  
+  if (!snapshot.empty) {
+    const docRef = doc(db, SUBSCRIPTIONS_COLLECTION, snapshot.docs[0].id);
+    const downloadRecord = {
+      designId,
+      fileType,
+      downloadedAt: new Date(),
+    };
 
-  if (!subscription) {
-    throw new Error('No active subscription found');
+    await updateDoc(docRef, {
+      downloads: arrayUnion(downloadRecord),
+      [`downloadCounts.${fileType}`]: increment(1),
+      updatedAt: serverTimestamp()
+    });
   }
-
-  const downloadRecord: DownloadRecord = {
-    userId,
-    designId,
-    fileType,
-    downloadedAt: new Date(),
-    periodStart: subscription.currentPeriodStart,
-    periodEnd: subscription.currentPeriodEnd,
-    createdAt: serverTimestamp()
-  };
-
-  await addDoc(downloadsRef, downloadRecord);
 }
 
-// Get download count for current period
-export async function getCurrentPeriodDownloads(
-  userId: string,
+// Check if user can download file type
+export async function canDownloadFile(
+  userId: string, 
   fileType: 'stl' | 'step'
-): Promise<number> {
+): Promise<{ allowed: boolean; remaining: number }> {
+  const subscription = await getUserSubscription(userId);
+  if (!subscription) return { allowed: false, remaining: 0 };
+
+  const limits = PLAN_LIMITS[subscription.planType];
+  const currentCount = subscription.downloadCounts?.[fileType] || 0;
+  const limit = fileType === 'stl' ? limits.stlDownloads : limits.stepDownloads;
+  
+  return {
+    allowed: currentCount < limit || limit === Infinity,
+    remaining: limit === Infinity ? Infinity : limit - currentCount
+  };
+}
+
+// Update user's subscription plan
+export async function updateSubscriptionPlan(
+  userId: string,
+  newPlanType: PlanType
+): Promise<void> {
   const subscriptionRef = collection(db, SUBSCRIPTIONS_COLLECTION);
-  const subscriptionQuery = query(subscriptionRef, where('userId', '==', userId));
-  const subscriptionSnap = await getDocs(subscriptionQuery);
-  const subscription = subscriptionSnap.docs[0]?.data() as UserSubscription;
-
-  if (!subscription) {
-    return 0;
+  const q = query(subscriptionRef, where('userId', '==', userId));
+  const snapshot = await getDocs(q);
+  
+  if (!snapshot.empty) {
+    const docRef = doc(db, SUBSCRIPTIONS_COLLECTION, snapshot.docs[0].id);
+    await updateDoc(docRef, {
+      planType: newPlanType,
+      currentPeriodStart: new Date(),
+      currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      updatedAt: serverTimestamp()
+    });
   }
+}
 
-  const downloadsRef = collection(db, DOWNLOADS_COLLECTION);
-  const downloadsQuery = query(
-    downloadsRef,
-    where('userId', '==', userId),
-    where('fileType', '==', fileType),
-    where('downloadedAt', '>=', subscription.currentPeriodStart),
-    where('downloadedAt', '<=', subscription.currentPeriodEnd)
-  );
-
-  const downloadsSnap = await getDocs(downloadsQuery);
-  return downloadsSnap.size;
+// Reset monthly counters
+export async function resetMonthlyCounters(userId: string): Promise<void> {
+  const subscriptionRef = collection(db, SUBSCRIPTIONS_COLLECTION);
+  const q = query(subscriptionRef, where('userId', '==', userId));
+  const snapshot = await getDocs(q);
+  
+  if (!snapshot.empty) {
+    const docRef = doc(db, SUBSCRIPTIONS_COLLECTION, snapshot.docs[0].id);
+    await updateDoc(docRef, {
+      'downloadCounts.stl': 0,
+      'downloadCounts.step': 0,
+      quotesUsed: 0,
+      currentPeriodStart: new Date(),
+      currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      updatedAt: serverTimestamp()
+    });
+  }
 } 
