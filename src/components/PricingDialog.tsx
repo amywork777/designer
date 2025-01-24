@@ -9,28 +9,31 @@ export function PricingDialog({ isOpen, onClose }: PricingDialogProps) {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-2xl max-w-6xl w-full p-8 relative">
+    <div className="fixed inset-0 bg-black/50 flex items-start sm:items-center justify-center p-0 sm:p-4 z-50 overflow-y-auto">
+      <div className="bg-white w-full sm:rounded-2xl sm:max-w-6xl sm:w-full p-4 sm:p-8 relative min-h-screen sm:min-h-0">
         <button
           onClick={onClose}
-          className="absolute -right-3 -top-3 bg-white rounded-full p-1.5 shadow-md hover:bg-gray-50 transition-colors"
+          className="absolute right-4 top-4 sm:-right-3 sm:-top-3 bg-white rounded-full p-1.5 shadow-md hover:bg-gray-50 transition-colors"
         >
           <X className="w-5 h-5 text-gray-600" />
         </button>
 
-        <div className="text-center mb-6">
-          <h2 className="text-3xl font-bold">Pricing</h2>
-          <p className="text-gray-600 mt-2">Choose the plan that works for you</p>
+        <div className="text-center mb-4 sm:mb-6 pt-4 sm:pt-0">
+          <h2 className="text-2xl sm:text-3xl font-bold">Pricing</h2>
+          <p className="text-gray-600 mt-2 text-sm sm:text-base">Choose the plan that works for you</p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mt-8">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-8 mt-4 sm:mt-8">
           {/* Hobbyist Plan */}
-          <div className="border border-gray-200 rounded-2xl p-6 hover:border-gray-300 transition-all">
-            <h3 className="text-xl font-semibold">Hobbyist</h3>
-            <p className="text-gray-600 text-sm mt-1">Perfect for getting started with 3D design and printing</p>
-            
-            <div className="mt-6">
-              <span className="text-5xl font-bold">Free</span>
+          <div className="border border-gray-200 rounded-xl sm:rounded-2xl p-4 sm:p-6 hover:border-gray-300 transition-all">
+            <div className="flex justify-between items-start md:block mb-6 md:mb-0">
+              <div>
+                <h3 className="text-xl font-semibold">Hobbyist</h3>
+                <p className="text-gray-600 text-sm mt-1">Perfect for getting started with 3D design and printing</p>
+              </div>
+              <div className="text-right md:text-left md:mt-6">
+                <span className="text-4xl sm:text-5xl font-bold">Free</span>
+              </div>
             </div>
 
             <div className="mt-6 space-y-4">
@@ -56,19 +59,22 @@ export function PricingDialog({ isOpen, onClose }: PricingDialogProps) {
               </div>
             </div>
 
-            <button className="w-full mt-8 bg-black text-white rounded-xl py-3 hover:opacity-90 transition-opacity">
+            <button className="w-full mt-6 sm:mt-8 bg-black text-white rounded-xl py-3 hover:opacity-90 transition-opacity">
               Get Started
             </button>
           </div>
 
           {/* Pro Plan */}
-          <div className="border border-gray-200 rounded-2xl p-6 bg-gradient-to-br from-teal-50 via-lime-50 to-amber-50">
-            <h3 className="text-xl font-semibold">Pro</h3>
-            <p className="text-gray-600 text-sm mt-1">Perfect for makers and designers who want more flexibility and manufacturing options</p>
-            
-            <div className="mt-6 flex items-baseline">
-              <span className="text-5xl font-bold">$20</span>
-              <span className="text-gray-600 ml-2">/month</span>
+          <div className="border border-gray-200 rounded-xl sm:rounded-2xl p-4 sm:p-6 bg-gradient-to-br from-teal-50 via-lime-50 to-amber-50">
+            <div className="flex justify-between items-start md:block mb-6 md:mb-0">
+              <div>
+                <h3 className="text-xl font-semibold">Pro</h3>
+                <p className="text-gray-600 text-sm mt-1">Perfect for makers and designers who want more flexibility</p>
+              </div>
+              <div className="text-right md:text-left md:mt-6">
+                <span className="text-4xl sm:text-5xl font-bold">$20</span>
+                <span className="text-gray-600 text-sm ml-1">/month</span>
+              </div>
             </div>
 
             <div className="mt-6 space-y-4">
@@ -94,19 +100,22 @@ export function PricingDialog({ isOpen, onClose }: PricingDialogProps) {
               </div>
             </div>
 
-            <button className="w-full mt-8 bg-white text-black border border-gray-200 rounded-xl py-3 hover:bg-black hover:text-white hover:border-black transition-all">
+            <button className="w-full mt-6 sm:mt-8 bg-white text-black border border-gray-200 rounded-xl py-3 hover:bg-black hover:text-white hover:border-black transition-all">
               Get Started
             </button>
           </div>
 
           {/* Business Plan */}
-          <div className="border border-gray-200 rounded-2xl p-6 hover:border-gray-300 transition-all">
-            <h3 className="text-xl font-semibold">Business</h3>
-            <p className="text-gray-600 text-sm mt-1">Ideal for professionals who need full design and manufacturing capabilities</p>
-            
-            <div className="mt-6 flex items-baseline">
-              <span className="text-5xl font-bold">$99</span>
-              <span className="text-gray-600 ml-2">/month/user</span>
+          <div className="border border-gray-200 rounded-xl sm:rounded-2xl p-4 sm:p-6 hover:border-gray-300 transition-all">
+            <div className="flex justify-between items-start md:block mb-6 md:mb-0">
+              <div>
+                <h3 className="text-xl font-semibold">Business</h3>
+                <p className="text-gray-600 text-sm mt-1">Ideal for professionals who need full capabilities</p>
+              </div>
+              <div className="text-right md:text-left md:mt-6">
+                <span className="text-4xl sm:text-5xl font-bold">$99</span>
+                <span className="text-gray-600 text-sm ml-1">/month/user</span>
+              </div>
             </div>
 
             <div className="mt-6 space-y-4">
@@ -132,7 +141,7 @@ export function PricingDialog({ isOpen, onClose }: PricingDialogProps) {
               </div>
             </div>
 
-            <button className="w-full mt-8 bg-black text-white rounded-xl py-3 hover:opacity-90 transition-opacity">
+            <button className="w-full mt-6 sm:mt-8 bg-black text-white rounded-xl py-3 hover:opacity-90 transition-opacity">
               Get Started
             </button>
           </div>

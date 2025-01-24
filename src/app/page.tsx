@@ -41,6 +41,7 @@ const PROGRESS_STEPS = [
   }
 ];
 
+
 const scaleToLog = (value: number): number => {
   // Convert linear 0-100 to logarithmic 1-10000
   return Math.round(Math.exp(Math.log(10000) * (value / 100)));
@@ -1941,10 +1942,17 @@ export default function LandingPage() {
         </div>
 
         {/* Update card backgrounds to be more transparent */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 -mt-12">
           <div>
             {/* Input Method Selection Card */}
-            <div className="bg-white border border-gray-200 hover:border-gray-300 backdrop-blur-sm rounded-2xl shadow-sm overflow-hidden p-3 transition-all">
+            <div className="bg-white border border-gray-200 hover:border-gray-300 backdrop-blur-sm rounded-2xl shadow-sm p-3 transition-all">
+              {/* Header Section */}
+              <div className="p-6 border-b border-gray-100">
+                <h2 className="text-2xl font-dm-sans font-medium text-gray-900">
+                  Text-to-Product. Image-to-Product.
+                </h2>
+              </div>
+
               {/* Tab Selection */}
               <div className="grid grid-cols-2 gap-0.5 p-1 bg-gray-100 rounded-xl m-4">
                 <button
@@ -2233,7 +2241,7 @@ export default function LandingPage() {
               {/* Header Section */}
               <div className="p-6 border-b border-gray-100">
                 <h2 className="text-2xl font-dm-sans font-medium text-gray-900">
-                  Make With Taiyaki
+                  Make With Taiyaki. 
                 </h2>
                 {selectedDesign && (
                   <div className="mt-2 flex items-center justify-between text-sm">
@@ -2275,7 +2283,7 @@ export default function LandingPage() {
                         </button>
                       </div>
 
-                      <div className="aspect-square rounded-lg overflow-hidden relative">
+                      <div className="aspect-square rounded-2xl overflow-hidden relative">
                         <img
                           src={selectedDesign}
                           alt="Selected Design"
