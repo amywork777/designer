@@ -17,7 +17,9 @@ const FILE_PATHS = {
   model_1: (userId: string, designId: string) =>
     `users/${userId}/designs/${designId}/3d/model_1.glb`,
   preprocessed: (userId: string, designId: string) =>
-    `users/${userId}/designs/${designId}/3d/preprocessed.png`
+    `users/${userId}/designs/${designId}/3d/preprocessed.png`,
+  stl: (userId: string, designId: string) =>
+    `users/${userId}/designs/${designId}/3d/model.stl`
 } as const;
 
 const CONTENT_TYPES = {
@@ -25,7 +27,8 @@ const CONTENT_TYPES = {
   preview: 'video/mp4',
   model: 'model/gltf-binary',
   model_1: 'model/gltf-binary',
-  preprocessed: 'image/png'
+  preprocessed: 'image/png',
+  stl: 'application/octet-stream'
 } as const;
 
 type FileType = keyof typeof FILE_PATHS;
