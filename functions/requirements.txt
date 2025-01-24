@@ -4,7 +4,3 @@ functions-framework
 gradio-client
 requests
 google-cloud-storage
-flask
-gunicorn
-httpx
-
