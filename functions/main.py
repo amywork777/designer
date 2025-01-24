@@ -9,6 +9,34 @@ import tempfile
 import os
 import traceback
 from functools import wraps
+from convert_glb import convert_glb
+import subprocess
+
+# Define the Blender script template
+BLENDER_SCRIPT = '''
+import bpy
+import os
+
+# Delete default cube
+bpy.ops.object.select_all(action='SELECT')
+bpy.ops.object.delete()
+
+# Import GLB
+bpy.ops.import_scene.gltf(filepath="{input_path}")
+
+# Select all objects
+bpy.ops.object.select_all(action='SELECT')
+
+# Export as STL
+bpy.ops.export_mesh.stl(
+    filepath="{output_path}",
+    use_selection=True,
+    global_scale=1.0,
+    use_scene_unit=False,
+    ascii=False,
+    use_mesh_modifiers=True
+)
+'''
 
 # Increase timeout to 540 seconds (9 minutes) and memory to 4GB
 options.set_global_options(
@@ -156,6 +184,41 @@ def upload_to_firebase(local_path, destination_path):
         print(f"Error traceback: {traceback.format_exc()}")
         raise
 
+def convert_glb_to_stl(glb_path: str, stl_path: str):
+    print("Current working directory:", os.getcwd())
+    print("Directory contents:", os.listdir())
+    print("PATH environment:", os.environ.get('PATH'))
+    
+    # Update the Blender path to match the downloaded version
+    blender_path = '/usr/local/blender-3.6.0-linux-x64/blender'
+    print(f"Attempting to use Blender at: {blender_path}")
+    
+    try:
+        process = subprocess.run(
+            [
+                blender_path,  # Use full path instead of just 'blender'
+                '--background',
+                '--python-expr',
+                BLENDER_SCRIPT.format(
+                    input_path=glb_path,
+                    output_path=stl_path
+                )
+            ],
+            capture_output=True,
+            text=True
+        )
+        
+        print("Blender stdout:", process.stdout)
+        print("Blender stderr:", process.stderr)
+        
+        if process.returncode != 0:
+            raise Exception(f"Blender conversion failed: {process.stderr}")
+            
+    except Exception as e:
+        print(f"Error running Blender: {e}")
+        print("System PATH:", os.environ.get('PATH'))
+        raise
+
 @https_fn.on_request()
 def process_3d(request: https_fn.Request) -> https_fn.Response:
     """Process 3D endpoint with improved error handling and retries"""
@@ -299,6 +362,107 @@ def process_3d(request: https_fn.Request) -> https_fn.Response:
                     headers=headers,
                     status=200
                 )
+        
+        return https_fn.Response(
+            json.dumps({
+                "error": str(e),
+                "error_type": str(type(e)),
+                "traceback": traceback.format_exc()
+            }),
+            headers=headers,
+            status=500
+        )
+        
+    finally:
+        # Clean up temp files
+        for temp_file in temp_files:
+            if temp_file and os.path.exists(temp_file):
+                try:
+                    os.remove(temp_file)
+                    print(f"Cleaned up: {temp_file}")
+                except Exception as e:
+                    print(f"Error cleaning up file: {e}")
+
+@https_fn.on_request()
+def convert_glb_http(request: https_fn.Request) -> https_fn.Response:
+    """HTTP Function wrapper for convert_glb"""
+    if request.method == 'OPTIONS':
+        headers = {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST',
+            'Access-Control-Allow-Headers': 'Content-Type',
+        }
+        return https_fn.Response('', status=204, headers=headers)
+
+    headers = {
+        'Access-Control-Allow-Origin': '*',
+        'Content-Type': 'application/json'
+    }
+
+    temp_files = []
+    start_time = time.time()
+
+    try:
+        # Get request data
+        request_json = request.get_json()
+        print(f"Request data: {json.dumps(request_json, indent=2)}")
+        
+        glb_url = request_json.get('glbUrl')
+        design_id = request_json.get('designId')
+        
+        if not glb_url or not design_id:
+            return https_fn.Response(
+                json.dumps({"error": "Missing required parameters"}),
+                headers=headers,
+                status=400
+            )
+
+        print(f"Starting GLB conversion at {time.time()}")
+        print(f"GLB URL: {glb_url}")
+        print(f"Design ID: {design_id}")
+
+        # Create temp directory for processing
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Setup file paths
+            glb_path = os.path.join(temp_dir, f"{design_id}.glb")
+            stl_path = os.path.join(temp_dir, f"{design_id}.stl")
+            temp_files.extend([glb_path, stl_path])
+
+            # Download GLB file
+            print(f"{time.time() - start_time:.2f}s: Downloading GLB...")
+            download_image(glb_url, glb_path)  # Reusing your existing download function
+            print(f"{time.time() - start_time:.2f}s: GLB downloaded")
+
+            # Convert GLB to STL
+            print(f"{time.time() - start_time:.2f}s: Starting conversion...")
+            convert_glb_to_stl(glb_path, stl_path)  # Your conversion function
+            print(f"{time.time() - start_time:.2f}s: Conversion complete")
+
+            # Upload STL to Firebase
+            print(f"{time.time() - start_time:.2f}s: Uploading STL...")
+            stl_url = upload_to_firebase(
+                stl_path,
+                f"conversions/{design_id}/{design_id}.stl"
+            )
+            print(f"{time.time() - start_time:.2f}s: Upload complete")
+
+            total_time = time.time() - start_time
+            return https_fn.Response(
+                json.dumps({
+                    "success": True,
+                    "stlUrl": stl_url,
+                    "designId": design_id,
+                    "processing_time": total_time
+                }),
+                headers=headers,
+                status=200
+            )
+
+    except Exception as e:
+        error_time = time.time() - start_time
+        print(f"Error in convert_glb_http at {error_time:.2f}s: {str(e)}")
+        print(f"Error type: {type(e)}")
+        print(f"Error traceback: {traceback.format_exc()}")
         
         return https_fn.Response(
             json.dumps({

@@ -20,8 +20,6 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { MATERIAL_OPTIONS } from '@/lib/constants/materials';
 import SignInPopup from '@/components/SignInPopup';
-import { canDownloadFile } from '@/lib/utils/download-limits';
-import { recordDownload } from '@/lib/utils/download-limits';
 
 const PRICING = {
   Mini: { PLA: 20, Wood: 40, TPU: 45, Resin: 60, Aluminum: 200 },
@@ -270,55 +268,57 @@ export default function GetItMade() {
       return;
     }
 
-    if (!design?.threeDData?.videoUrl) {
+    if (!design?.threeDData?.glbUrls?.[0]) {
       toast({
-        title: "Generate 3D Preview First",
-        description: "Please generate a 3D preview before downloading files",
+        title: "Error",
+        description: "No 3D model available for download",
         variant: "destructive",
       });
       return;
     }
 
     try {
-      // Check download limits
-      const { allowed, remaining } = await canDownloadFile(session.user.id, type);
+      console.log('Starting conversion for GLB:', design.threeDData.glbUrls[0]);
       
-      if (!allowed) {
-        toast({
-          title: "Download Limit Reached",
-          description: `You've reached your ${type.toUpperCase()} download limit for this period. Consider upgrading your plan for more downloads.`,
-          variant: "destructive",
-        });
-        return;
+      const response = await fetch('/api/convert-glb', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          glbUrl: design.threeDData.glbUrls[0],
+          designId: design.id
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.details || errorData.error || 'Failed to convert file');
       }
 
-      // Proceed with download
-      const response = await fetch(`/api/designs/${design.id}/download?type=${type}`);
       const blob = await response.blob();
-      
-      // Record the download
-      await recordDownload(session.user.id, design.id, type);
-      
-      // Create download link
+      console.log('Received converted file:', blob.size);
+
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `design.${type}`;
+      a.download = `${design.id}.${type}`;
       document.body.appendChild(a);
       a.click();
+      
+      // Cleanup
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
 
-      // Show remaining downloads
       toast({
-        title: "Download Successful",
-        description: `You have ${remaining - 1} ${type.toUpperCase()} downloads remaining this period.`,
+        title: "Success",
+        description: `${type.toUpperCase()} file downloaded successfully`
       });
+
     } catch (error) {
+      console.error(`Error downloading ${type}:`, error);
       toast({
-        title: "Download Failed",
-        description: "There was an error downloading your file. Please try again.",
         variant: "destructive",
+        title: "Error",
+        description: error.message || `Failed to download ${type} file`
       });
     }
   };

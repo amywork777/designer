@@ -82,36 +82,39 @@ export async function updateDesignWithThreeDData(
     videoUrl?: string;
     glbUrls?: string[];
     preprocessedUrl?: string;
+    stlUrl?: string;
   }
 ) {
   try {
     const uploadTasks = [];
 
+    // Add existing upload tasks
     if (threeDData.videoUrl) {
       uploadTasks.push(uploadFile(threeDData.videoUrl, userId, designId, 'preview'));
     }
-
     if (threeDData.glbUrls?.[0]) {
       uploadTasks.push(uploadFile(threeDData.glbUrls[0], userId, designId, 'model'));
     }
-
     if (threeDData.glbUrls?.[1]) {
       uploadTasks.push(uploadFile(threeDData.glbUrls[1], userId, designId, 'model_1'));
     }
-
     if (threeDData.preprocessedUrl) {
       uploadTasks.push(uploadFile(threeDData.preprocessedUrl, userId, designId, 'preprocessed'));
+    }
+    // Add STL upload task
+    if (threeDData.stlUrl) {
+      uploadTasks.push(uploadFile(threeDData.stlUrl, userId, designId, 'stl'));
     }
 
     const results = await Promise.all(uploadTasks);
     
-    // Map the results to their respective types
     const updatedData: any = {};
     results.forEach(({ url }, index) => {
       if (index === 0 && threeDData.videoUrl) updatedData.videoUrl = url;
       if (index === 1 && threeDData.glbUrls?.[0]) updatedData.glbUrls = [url];
       if (index === 2 && threeDData.glbUrls?.[1]) updatedData.glbUrls = [...(updatedData.glbUrls || []), url];
       if (index === 3 && threeDData.preprocessedUrl) updatedData.preprocessedUrl = url;
+      if (index === 4 && threeDData.stlUrl) updatedData.stlUrl = url;
     });
 
     await updateDoc(doc(db, 'designs', designId), {

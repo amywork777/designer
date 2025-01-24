@@ -6,6 +6,7 @@ import { Download, Crown, Info as InfoIcon, Package, AlertTriangle, Loader2, Fac
 import { useDesignStore } from '@/lib/store/designs';
 import Link from 'next/link';
 import { useToast } from "@/components/ui/use-toast";
+import { useSession } from 'next-auth/react';
 
 export default function GetFiles() {
   const searchParams = useSearchParams();
@@ -14,6 +15,9 @@ export default function GetFiles() {
   const design = designs.find(d => d.id === designId);
   const [processing3D, setProcessing3D] = useState(false);
   const { toast } = useToast();
+  const session = useSession();
+  const [showSignInPopup, setShowSignInPopup] = useState(false);
+  const [filesUnlocked, setFilesUnlocked] = useState(false);
 
   const MAX_RETRIES = 3;
 
@@ -92,6 +96,73 @@ export default function GetFiles() {
     setProcessing3D(false);
   };
 
+  const handleUnlockFiles = async () => {
+    if (!session) {
+      setShowSignInPopup(true);
+      return;
+    }
+
+    try {
+      if (!design?.threeDData?.glbUrls?.[0]) {
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "No 3D model available for conversion"
+        });
+        return;
+      }
+
+      // Start conversion
+      const response = await fetch('/api/convert-glb', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          glbUrl: design.threeDData.glbUrls[0],
+          designId: design.id
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.details || errorData.error || 'Conversion failed');
+      }
+
+      // Get the STL data
+      const stlBuffer = await response.arrayBuffer();
+      
+      // Upload to Firebase
+      const stlBlob = new Blob([stlBuffer], { type: 'application/octet-stream' });
+      const userId = session.user.id;
+      
+      // Update design with STL data
+      const updatedData = await updateDesignWithThreeDData(design.id, userId, {
+        stlUrl: URL.createObjectURL(stlBlob)
+      });
+
+      // Update local state
+      updateDesign(design.id, {
+        threeDData: {
+          ...design.threeDData,
+          stlUrl: updatedData.stlUrl
+        }
+      });
+
+      setFilesUnlocked(true);
+      toast({
+        title: "Success",
+        description: "Files converted and unlocked successfully"
+      });
+
+    } catch (error) {
+      console.error('Error unlocking files:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.message || "Failed to unlock files"
+      });
+    }
+  };
+
   const handleDownload = async (type: 'stl' | 'step') => {
     if (!design?.threeDData?.glbUrls?.[0]) {
       toast({
@@ -119,27 +190,11 @@ export default function GetFiles() {
         throw new Error(errorData.details || errorData.error || 'Failed to convert file');
       }
 
-      // Log response details
-      console.log('Response headers:', Object.fromEntries(response.headers.entries()));
-      console.log('Response type:', response.type);
-      
-      // Get the blob and log its details
       const blob = await response.blob();
-      console.log('Blob details:', {
-        size: blob.size,
-        type: blob.type
-      });
-      
-      // Create and trigger download
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${design.id}.stl`;
-      
-      // Log download details
-      console.log('Download URL:', url);
-      console.log('Filename:', a.download);
-      
+      a.download = `${design.id}.${type}`;
       document.body.appendChild(a);
       a.click();
       
@@ -149,15 +204,15 @@ export default function GetFiles() {
 
       toast({
         title: "Success",
-        description: "STL file downloaded successfully"
+        description: `${type.toUpperCase()} file downloaded successfully`
       });
 
     } catch (error) {
-      console.error('Error downloading STL:', error);
+      console.error(`Error downloading ${type}:`, error);
       toast({
         variant: "destructive",
         title: "Error",
-        description: error.message || "Failed to download STL file"
+        description: error.message || `Failed to download ${type} file`
       });
     }
   };
@@ -297,16 +352,16 @@ export default function GetFiles() {
           )}
 
           <button 
-            onClick={() => handleDownload('stl')}
-            disabled={!design?.threeDData?.videoUrl}
+            onClick={handleUnlockFiles}
+            disabled={!design?.threeDData?.videoUrl || filesUnlocked}
             className={`w-full py-4 rounded-lg transition-all transform hover:scale-[1.02] 
               shadow-lg hover:shadow-xl flex items-center justify-center gap-3 font-semibold text-lg
-              ${!design?.threeDData?.videoUrl 
+              ${!design?.threeDData?.videoUrl || filesUnlocked 
                 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
                 : 'bg-purple-600 hover:bg-purple-700 text-white'}`}
           >
             <Download className="w-5 h-5" />
-            Get Files
+            Unlock Files
           </button>
 
           <div className="mt-6 bg-purple-50 rounded-lg p-4">
