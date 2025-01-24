@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { ManufacturingAnalysis } from '@/components/ManufacturingAnalysis';
-import { Package, Lock, Check, Sparkles, Download, Info as InfoIcon, DollarSign, ArrowRight, Loader2, FileDown, ChevronDown, ChevronRight, X, Upload } from 'lucide-react';
+import { Package, Lock, Check, Sparkles, Download, Info as InfoIcon, DollarSign, ArrowRight, Loader2, FileDown, ChevronDown, ChevronRight, X, Upload, ArrowLeft } from 'lucide-react';
 import { useDesignStore } from '@/lib/store/designs';
 import { useToast } from "@/components/ui/use-toast";
 import { getMaterialRecommendation } from '@/lib/utils/materials';
@@ -97,8 +97,13 @@ const MANUFACTURING_GROUPS = {
 type ManufacturingType = keyof (typeof MANUFACTURING_GROUPS['3D_PRINTING']['options'] & 
                               typeof MANUFACTURING_GROUPS['ADVANCED']['options']);
 
+// Add this type definition
+type PricingType = {
+  price: string;
+};
+
 export default function GetItMade() {
-  const { designs, loadDesign, updateDesign } = useDesignStore();
+  const { designs, updateDesign } = useDesignStore();
   const { toast } = useToast();
   const searchParams = useSearchParams();
   const designId = searchParams.get('designId');
@@ -115,6 +120,8 @@ export default function GetItMade() {
   const [filesUnlocked, setFilesUnlocked] = useState(false);
   const [show3DPreview, setShow3DPreview] = useState(false);
   const [showSignInPopup, setShowSignInPopup] = useState(false);
+  const [pricing, setPricing] = useState<PricingType>({ price: 'Contact us' });
+  const [isLoading, setIsLoading] = useState(true);
 
   const design = designs.find(d => d.id === designId);
   const selectedDesign = design?.images[0];
@@ -124,6 +131,24 @@ export default function GetItMade() {
       setShow3DPreview(true);
     }
   }, [design?.threeDData?.videoUrl]);
+
+  useEffect(() => {
+    if (selectedSize && selectedType) {
+      const priceValue = PRICING[selectedSize]?.[selectedType];
+      setPricing({ 
+        price: typeof priceValue === 'number' ? `$${priceValue}` : 'Contact us'
+      });
+    }
+  }, [selectedSize, selectedType]);
+
+  useEffect(() => {
+    // Simple loading effect
+    const timer = setTimeout(() => {
+      setIsLoading(false);
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, []);
 
   const handleFinalizeDesign = async () => {
     if (!design?.images[0]) return;
@@ -227,77 +252,66 @@ export default function GetItMade() {
   const RETRY_DELAY = 1000; // 1 second delay between attempts
 
   const handle3DProcessing = async () => {
-    if (!selectedDesign) return;
+    if (!design) return;
     
     setProcessing3D(true);
     let attempts = 0;
     
-    try {
-      while (attempts < MAX_RETRIES) {
+    while (attempts < MAX_RETRIES) {
+      try {
+        const response = await fetch('https://us-central1-taiyaki-test1.cloudfunctions.net/process_3d', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            image_url: design.images[0],
+            userId: session?.user?.id || 'default'
+          })
+        });
+
+        const rawText = await response.text();
+        console.log('Raw response:', rawText);
+
+        let data;
         try {
-          const response = await fetch('https://us-central1-taiyaki-test1.cloudfunctions.net/process_3d', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              image_url: selectedDesign,
-              userId: session?.user?.id || 'default'
-            })
+          data = JSON.parse(rawText);
+        } catch (e) {
+          console.error('Failed to parse response:', e);
+          throw new Error('Invalid response from server');
+        }
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Server error');
+        }
+
+        if (data.success && data.video_url) {
+          updateDesign(design.id, {
+            threeDData: {
+              videoUrl: data.video_url,
+              glbUrls: data.glb_urls || [],
+              preprocessedUrl: data.preprocessed_url,
+              timestamp: data.timestamp
+            }
           });
 
-          const rawText = await response.text();
-          console.log('Raw response:', rawText);
-
-          let data;
-          try {
-            data = JSON.parse(rawText);
-          } catch (e) {
-            console.error('Failed to parse response:', e);
-            throw new Error('Invalid response from server');
-          }
-
-          if (!response.ok) {
-            throw new Error(data.error || 'Server error');
-          }
-
-          if (data.success && data.video_url) {
-            const currentDesign = designs.find(d => d.images.includes(selectedDesign));
-            if (currentDesign) {
-              updateDesign(currentDesign.id, {
-                threeDData: {
-                  videoUrl: data.video_url,
-                  glbUrls: data.glb_urls || [],
-                  preprocessedUrl: data.preprocessed_url,
-                  timestamp: data.timestamp
-                }
-              });
-            }
-
-            toast({
-              title: "Success",
-              description: "3D model generated successfully"
-            });
-            return; // Success - exit the retry loop
-          }
-          
-        } catch (error) {
-          console.error(`Attempt ${attempts + 1} failed:`, error);
-          attempts++;
-          
-          if (attempts === MAX_RETRIES) {
-            toast({
-              variant: "destructive",
-              title: "Error",
-              description: `Failed after ${MAX_RETRIES} attempts. Please try again later.`
-            });
-          } else {
-            await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
-          }
+          toast({
+            title: "Success",
+            description: "3D model generated successfully"
+          });
+          return;
         }
+        
+        attempts++;
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+        
+      } catch (error) {
+        console.error(`Attempt ${attempts + 1} failed:`, error);
+        if (attempts >= MAX_RETRIES - 1) {
+          throw error;
+        }
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
       }
-    } finally {
-      setProcessing3D(false);
     }
   };
 
@@ -428,17 +442,22 @@ export default function GetItMade() {
     };
   }, [selectedType, selectedSize, is3DPrinting]);
 
-  const calculateTotal = useCallback(() => {
-    const pricing = getPriceAndDelivery();
-    if (pricing.price === 'Contact' || pricing.price === '(Select options)') {
-      return 'N/A';
+  const calculateTotal = () => {
+    // Add a check for pricing
+    if (!pricing || !pricing.price) {
+      return 'Contact us';
+    }
+    
+    // Check if it's a "contact us" price
+    if (pricing.price === 'contact us' || typeof pricing.price !== 'string') {
+      return 'Contact us';
     }
     
     const basePrice = Number(pricing.price.replace('$', ''));
     if (isNaN(basePrice)) return 'N/A';
     
     return `$${(basePrice * quantity).toFixed(2)}`;
-  }, [getPriceAndDelivery, quantity]);
+  };
 
   const getButtonText = useCallback(() => {
     const pricing = getPriceAndDelivery();
@@ -469,58 +488,54 @@ export default function GetItMade() {
   // Debugging log
   console.log('Current selections:', { selectedType, selectedSize });
 
-  if (!design) {
+  if (isLoading) {
     return (
-      <div className="min-h-screen bg-white">
-        <div className="container mx-auto px-4 py-12">
-          <div className="max-w-6xl mx-auto">
-            {/* Header */}
-            <div className="mb-8">
-              <h1 className="text-3xl font-bold mb-2">Get It Made</h1>
-              <p className="text-gray-600">Upload your design or create one to get started</p>
-            </div>
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="w-8 h-8 animate-spin" />
+      </div>
+    );
+  }
 
-            {/* Upload Section */}
-            <div className="bg-white border border-gray-200 rounded-2xl p-8">
-              <div className="flex flex-col items-center justify-center text-center">
-                <img 
-                  src="/images/taiyaki.svg"
-                  alt="Taiyaki Logo"
-                  className="w-16 h-16 text-gray-400 mb-4 [filter:grayscale(100%)_opacity(40%)]"
-                />
-                <h3 className="text-xl font-medium text-gray-900 mb-2">
-                  Ready to make your design?
-                </h3>
-                <p className="text-gray-600 mb-6 max-w-md">
-                  Upload your design file or create a new one to get started with manufacturing
-                </p>
-                
-                <div className="flex gap-4">
-                  <button
-                    onClick={() => window.location.href = '/design'}
-                    className="px-4 py-2 bg-black text-white rounded-xl hover:opacity-90 transition-opacity"
-                  >
-                    Create Design
-                  </button>
-                  <label className="px-4 py-2 bg-white border border-gray-200 rounded-xl hover:border-gray-300 
-                    cursor-pointer transition-colors flex items-center gap-2">
-                    <Upload className="w-5 h-5" />
-                    <span>Upload Design</span>
-                    <input
-                      type="file"
-                      className="hidden"
-                      accept=".stl,.obj,.fbx"
-                      onChange={(e) => {
-                        // Handle file upload
-                        if (e.target.files?.[0]) {
-                          // Add file handling logic here
-                        }
-                      }}
-                    />
-                  </label>
-                </div>
-              </div>
-            </div>
+  if (!designId || !design) {
+    return (
+      <div className="container max-w-7xl mx-auto px-4 py-8">
+        <div className="mb-6">
+          <Button
+            variant="ghost"
+            className="flex items-center gap-2 text-gray-600 hover:text-gray-900"
+            asChild
+          >
+            <Link href="/">
+              <ArrowLeft className="w-4 h-4" />
+              Back to Home
+            </Link>
+          </Button>
+        </div>
+
+        <h1 className="text-3xl font-bold mb-4">Get It Made</h1>
+        <p className="text-gray-600 mb-8">Upload your design or create one to get started</p>
+        
+        <div className="bg-white rounded-2xl p-12 text-center">
+          <div className="mb-6">
+            <Image
+              src="/taiyaki-logo.svg"
+              alt="Taiyaki Logo"
+              width={60}
+              height={60}
+              className="mx-auto"
+            />
+          </div>
+          <h2 className="text-2xl font-bold mb-4">Ready to make your design?</h2>
+          <p className="text-gray-600 mb-8">
+            Upload your design file or create a new one to get started with manufacturing
+          </p>
+          <div className="flex justify-center gap-4">
+            <Button variant="default" asChild>
+              <Link href="/create">Create Design</Link>
+            </Button>
+            <Button variant="outline" asChild>
+              <Link href="/upload">Upload Design</Link>
+            </Button>
           </div>
         </div>
       </div>
@@ -529,7 +544,20 @@ export default function GetItMade() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-white via-gray-50 to-rose-100">
-      <div className="max-w-6xl mx-auto px-6 pt-8 pb-6">
+      <div className="max-w-6xl mx-auto px-6 pt-6">
+        <Button
+          variant="ghost"
+          className="flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-4"
+          asChild
+        >
+          <Link href="/">
+            <ArrowLeft className="w-4 h-4" />
+            Back to Home
+          </Link>
+        </Button>
+      </div>
+
+      <div className="max-w-6xl mx-auto px-6 pt-2 pb-6">
         <h1 className="text-2xl font-dm-sans font-medium text-gray-900 pb-6">
           Ready to bring your design to life? Let's make it happen.
         </h1>
