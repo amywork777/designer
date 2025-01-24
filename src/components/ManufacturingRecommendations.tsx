@@ -1,113 +1,57 @@
+'use client';
+
+import { useState } from 'react';
 import { Package, Info } from 'lucide-react';
 
-interface RecommendationProps {
-  onMethodSelect: (method: string) => void;
-  productDimensions: {
-    length: number;
-    width: number;
-    height: number;
-    unit: 'mm' | 'inches';
-  };
-  productDescription?: string;
+interface Process {
+  name: string;
+  unit: string;
+  minSize: number;
+  maxSize: number;
+  materials: string[];
 }
 
-export function ManufacturingRecommendations({ 
-  onMethodSelect, 
-  productDimensions,
-  productDescription 
-}: RecommendationProps) {
-  const MANUFACTURING_METHODS = [
-    {
-      title: "FDM 3D Printing",
-      description: "Fused Deposition Modeling - Layer by layer plastic printing",
-      idealFor: [
-        "Functional prototypes",
-        "Durable parts",
-        "Cost-effective production"
-      ],
-      maxDimensions: {
-        mm: { length: 250, width: 250, height: 300 },
-        inches: { length: 9.8, width: 9.8, height: 11.8 }
-      },
-      materials: ["PLA", "ABS", "PETG", "TPU"],
-      leadTime: "2-5 days",
-      advantages: [
-        "Most cost-effective option",
-        "Wide range of materials",
-        "Easy to post-process",
-        "Good structural properties",
-        "Fast turnaround time"
-      ],
-      surfaceFinish: "Layer lines visible, can be smoothed",
-      accuracy: "± 0.2mm",
-      strengthRating: 4,
-      detailRating: 3,
-      costRating: 1
-    },
-    {
-      title: "Resin 3D Printing",
-      description: "High-detail resin curing for smooth finish",
-      idealFor: [
-        "Detailed models",
-        "Smooth surfaces",
-        "Fine features"
-      ],
-      maxDimensions: {
-        mm: { length: 200, width: 200, height: 250 },
-        inches: { length: 7.9, width: 7.9, height: 9.8 }
-      },
-      materials: ["Standard Resin", "Tough Resin", "Clear Resin", "Flexible Resin"],
-      leadTime: "2-4 days",
-      advantages: [
-        "Excellent detail resolution",
-        "Smooth surface finish",
-        "Good for small features",
-        "Clear material options",
-        "Professional appearance"
-      ],
-      surfaceFinish: "Very smooth, minimal layer lines",
-      accuracy: "± 0.05mm",
-      strengthRating: 3,
-      detailRating: 5,
-      costRating: 3
-    },
-    {
-      title: "SLS 3D Printing",
-      description: "Selective Laser Sintering for strong parts",
-      idealFor: [
-        "Complex geometries",
-        "Strong parts",
-        "No support needed"
-      ],
-      maxDimensions: {
-        mm: { length: 300, width: 300, height: 300 },
-        inches: { length: 11.8, width: 11.8, height: 11.8 }
-      },
-      materials: ["Nylon", "TPU", "PEEK", "Carbon Fiber Nylon"],
-      leadTime: "3-7 days",
-      advantages: [
-        "No support structures needed",
-        "Strong mechanical properties",
-        "Complex geometries possible",
-        "Professional finish",
-        "Good for functional parts"
-      ],
-      surfaceFinish: "Slightly grainy, uniform texture",
-      accuracy: "± 0.1mm",
-      strengthRating: 5,
-      detailRating: 4,
-      costRating: 3
-    }
-  ];
-  
-  // Filter methods based on dimensions
-  const compatibleMethods = MANUFACTURING_METHODS.filter(method => {
-    const maxDims = method.maxDimensions[productDimensions.unit];
-    return (
-      productDimensions.length <= maxDims.length &&
-      productDimensions.width <= maxDims.width &&
-      productDimensions.height <= maxDims.height
-    );
+interface ManufacturingRecommendationsProps {
+  selectedProcess: Process;
+  setSelectedProcess: (process: Process) => void;
+  dimensions: { size: string; unit: string };
+}
+
+const MANUFACTURING_PROCESSES: Process[] = [
+  {
+    name: '3D Printing',
+    unit: 'inches',
+    minSize: 0.1,
+    maxSize: 12,
+    materials: ['PLA', 'PETG', 'ABS']
+  },
+  {
+    name: 'CNC Machining',
+    unit: 'inches',
+    minSize: 0.5,
+    maxSize: 24,
+    materials: ['Aluminum', 'Steel', 'Plastic']
+  },
+  {
+    name: 'Injection Molding',
+    unit: 'inches',
+    minSize: 1,
+    maxSize: 36,
+    materials: ['ABS', 'PP', 'PE']
+  }
+];
+
+export function ManufacturingRecommendations({
+  selectedProcess,
+  setSelectedProcess,
+  dimensions
+}: ManufacturingRecommendationsProps) {
+  const [selectedMaterial, setSelectedMaterial] = useState(selectedProcess.materials[0]);
+
+  // Filter processes based on dimensions
+  const compatibleProcesses = MANUFACTURING_PROCESSES.filter(process => {
+    const size = parseFloat(dimensions.size || '0');
+    return size >= process.minSize && size <= process.maxSize;
   });
 
   const renderRating = (rating: number, label: string) => (
@@ -137,49 +81,55 @@ export function ManufacturingRecommendations({
         </div>
 
         <div className="space-y-4">
-          {compatibleMethods.map((method, index) => (
+          {compatibleProcesses.map((process, index) => (
             <div key={index} className="bg-white rounded-lg p-6 shadow-sm hover:shadow-md transition-shadow">
               <h4 className="text-lg font-bold text-gray-700 mb-2">
-                {method.title}
+                {process.name}
               </h4>
-              <p className="text-gray-600 mb-3">{method.description}</p>
+              <p className="text-gray-600 mb-3">{process.name} process</p>
               
               <div className="grid grid-cols-2 gap-4 mb-4">
                 <div>
                   <p className="text-sm font-medium text-gray-500">Lead Time</p>
-                  <p className="text-gray-700">{method.leadTime}</p>
+                  <p className="text-gray-700">{process.name} lead time</p>
                 </div>
                 <div>
                   <p className="text-sm font-medium text-gray-500">Accuracy</p>
-                  <p className="text-gray-700">{method.accuracy}</p>
+                  <p className="text-gray-700">{process.name} accuracy</p>
                 </div>
               </div>
 
               <div className="mb-4">
                 <p className="text-sm font-medium text-gray-500 mb-2">Surface Finish</p>
-                <p className="text-gray-700">{method.surfaceFinish}</p>
+                <p className="text-gray-700">{process.name} surface finish</p>
               </div>
 
               <div className="mb-4 space-y-2">
                 <p className="text-sm font-medium text-gray-500">Ratings</p>
-                {renderRating(method.strengthRating, 'Strength')}
-                {renderRating(method.detailRating, 'Detail')}
-                {renderRating(6 - method.costRating, 'Cost-effectiveness')}
+                {renderRating(5, 'Strength')}
+                {renderRating(5, 'Detail')}
+                {renderRating(5, 'Cost-effectiveness')}
               </div>
 
               <div className="mb-4">
                 <p className="text-sm font-medium text-gray-500 mb-2">Key Advantages</p>
                 <ul className="list-disc list-inside text-gray-700">
-                  {method.advantages.map((item, i) => (
+                  {process.name === '3D Printing' ? [
+                    'Most cost-effective option',
+                    'Wide range of materials',
+                    'Easy to post-process',
+                    'Good structural properties',
+                    'Fast turnaround time'
+                  ].map((item, i) => (
                     <li key={i}>{item}</li>
-                  ))}
+                  )) : []}
                 </ul>
               </div>
 
               <div className="mb-4">
                 <p className="text-sm font-medium text-gray-500 mb-2">Available Materials</p>
                 <div className="flex flex-wrap gap-2">
-                  {method.materials.map((material, i) => (
+                  {process.materials.map((material, i) => (
                     <span key={i} className="px-2 py-1 bg-gray-100 rounded-full text-sm text-gray-700">
                       {material}
                     </span>
@@ -188,14 +138,33 @@ export function ManufacturingRecommendations({
               </div>
 
               <button
-                onClick={() => onMethodSelect(method.title)}
+                onClick={() => {
+                  setSelectedProcess(process);
+                  setSelectedMaterial(process.materials[0]);
+                }}
                 className="w-full mt-4 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
               >
-                Select {method.title}
+                Select {process.name}
               </button>
             </div>
           ))}
         </div>
+      </div>
+
+      {/* Material Selection */}
+      <div>
+        <h4 className="font-medium mb-2">Material</h4>
+        <select
+          value={selectedMaterial}
+          onChange={(e) => setSelectedMaterial(e.target.value)}
+          className="w-full p-3 border border-gray-200 rounded-xl"
+        >
+          {selectedProcess.materials.map((material) => (
+            <option key={material} value={material}>
+              {material}
+            </option>
+          ))}
+        </select>
       </div>
     </div>
   );

@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { ManufacturingAnalysis } from '@/components/ManufacturingAnalysis';
-import { Package, Lock, Check, Sparkles, Download, Info as InfoIcon, DollarSign, ArrowRight, Loader2, FileDown, ChevronDown, ChevronRight, X } from 'lucide-react';
+import { Package, Lock, Check, Sparkles, Download, Info as InfoIcon, DollarSign, ArrowRight, Loader2, FileDown, ChevronDown, ChevronRight, X, Upload } from 'lucide-react';
 import { useDesignStore } from '@/lib/store/designs';
 import { useToast } from "@/components/ui/use-toast";
 import { getMaterialRecommendation } from '@/lib/utils/materials';
@@ -22,6 +22,7 @@ import { MATERIAL_OPTIONS } from '@/lib/constants/materials';
 import SignInPopup from '@/components/SignInPopup';
 import { canDownloadFile } from '@/lib/utils/download-limits';
 import { recordDownload } from '@/lib/utils/download-limits';
+import { motion } from 'framer-motion';
 
 const PRICING = {
   Mini: { PLA: 20, Wood: 40, TPU: 45, Resin: 60, Aluminum: 200 },
@@ -340,11 +341,57 @@ export default function GetItMade() {
 
   if (!design) {
     return (
-      <div className="container max-w-7xl mx-auto px-4 py-8">
-        <div className="text-center">
-          <Package className="w-12 h-12 mx-auto text-gray-400 mb-4" />
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">No Design Found</h1>
-          <p className="text-gray-600">The design you're looking for could not be found.</p>
+      <div className="min-h-screen bg-white">
+        <div className="container mx-auto px-4 py-12">
+          <div className="max-w-6xl mx-auto">
+            {/* Header */}
+            <div className="mb-8">
+              <h1 className="text-3xl font-bold mb-2">Get It Made</h1>
+              <p className="text-gray-600">Upload your design or create one to get started</p>
+            </div>
+
+            {/* Upload Section */}
+            <div className="bg-white border border-gray-200 rounded-2xl p-8">
+              <div className="flex flex-col items-center justify-center text-center">
+                <img 
+                  src="/images/taiyaki.svg"
+                  alt="Taiyaki Logo"
+                  className="w-16 h-16 text-gray-400 mb-4 [filter:grayscale(100%)_opacity(40%)]"
+                />
+                <h3 className="text-xl font-medium text-gray-900 mb-2">
+                  Ready to make your design?
+                </h3>
+                <p className="text-gray-600 mb-6 max-w-md">
+                  Upload your design file or create a new one to get started with manufacturing
+                </p>
+                
+                <div className="flex gap-4">
+                  <button
+                    onClick={() => window.location.href = '/design'}
+                    className="px-4 py-2 bg-black text-white rounded-xl hover:opacity-90 transition-opacity"
+                  >
+                    Create Design
+                  </button>
+                  <label className="px-4 py-2 bg-white border border-gray-200 rounded-xl hover:border-gray-300 
+                    cursor-pointer transition-colors flex items-center gap-2">
+                    <Upload className="w-5 h-5" />
+                    <span>Upload Design</span>
+                    <input
+                      type="file"
+                      className="hidden"
+                      accept=".stl,.obj,.fbx"
+                      onChange={(e) => {
+                        // Handle file upload
+                        if (e.target.files?.[0]) {
+                          // Add file handling logic here
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     );

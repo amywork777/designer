@@ -2364,7 +2364,11 @@ export default function LandingPage() {
                   </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center py-12 text-center">
-                    <Fish className="w-12 h-12 text-gray-400 mb-4" />
+                    <img 
+                      src="/images/taiyaki.svg"
+                      alt="Taiyaki Logo"
+                      className="w-16 h-16 text-gray-400 mb-4 [filter:grayscale(100%)_opacity(40%)]" // Increased from w-12 h-12
+                    />
                     <p className="font-dm-sans font-medium text-gray-900 mb-2">
                       Upload a design or generate one to get started
                     </p>
