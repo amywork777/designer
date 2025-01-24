@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { ManufacturingAnalysis } from '@/components/ManufacturingAnalysis';
-import { Package, Lock, Check, Sparkles, Download, Info as InfoIcon, DollarSign, ArrowRight, Loader2, FileDown, ChevronDown, ChevronRight, X } from 'lucide-react';
+import { Package, Lock, Check, Sparkles, Download, Info as InfoIcon, DollarSign, ArrowRight, Loader2, FileDown, ChevronDown, ChevronRight, X, Upload } from 'lucide-react';
 import { useDesignStore } from '@/lib/store/designs';
 import { useToast } from "@/components/ui/use-toast";
 import { getMaterialRecommendation } from '@/lib/utils/materials';
@@ -20,6 +20,10 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { MATERIAL_OPTIONS } from '@/lib/constants/materials';
 import SignInPopup from '@/components/SignInPopup';
+import { canDownloadFile } from '@/lib/utils/download-limits';
+import { recordDownload } from '@/lib/utils/download-limits';
+import { motion } from 'framer-motion';
+import Image from 'next/image';
 
 const PRICING = {
   Mini: { PLA: 20, Wood: 40, TPU: 45, Resin: 60, Aluminum: 200 },
@@ -28,6 +32,18 @@ const PRICING = {
   Large: { PLA: 'contact us', Wood: 'contact us', TPU: 'contact us', Resin: 'contact us', Aluminum: 'contact us' }
 } as const;
 
+type SizeType = keyof typeof SIZE_OPTIONS;
+
+const MATERIALS = ['PLA', 'Wood-PLA', 'TPU', 'Resin', 'Aluminum'];
+
+const MATERIAL_DESCRIPTIONS = {
+  'PLA': 'Basic plastic filament, easy to print, most common and cost-effective.',
+  'Wood-PLA': 'Regular PLA mixed with wood particles for natural look.',
+  'TPU': 'Flexible, squishy rubber-like material.',
+  'Resin': 'Liquid that cures into solid. High detail but requires special handling.',
+  'Aluminum': 'High-quality metal requiring advanced manufacturing processes.'
+};
+
 const DELIVERY_ESTIMATES = {
   Mini: { PLA: '< 2 weeks', Wood: '< 2 weeks', TPU: '< 2 weeks', Resin: '< 2 weeks' },
   Small: { PLA: '< 2 weeks', Wood: '< 3 weeks', TPU: '< 3 weeks', Resin: '< 2 weeks' },
@@ -35,27 +51,51 @@ const DELIVERY_ESTIMATES = {
   Large: { PLA: '< 1 month', Wood: '< 1 month', TPU: '< 3 weeks', Resin: '< 2 weeks' }
 } as const;
 
-const getPriceAndDelivery = (size: string, material: string) => {
-  const basePrice = {
-    'Small (up to 5cm)': 20,
-    'Medium (5-15cm)': 35,
-    'Large (15-25cm)': 50,
-    'Extra Large (25cm+)': 75
-  }[size] || 0;
+const SIZE_OPTIONS_LIST: SizeOption[] = [
+  {
+    name: 'Mini',
+    dimensions: 'Up to 2 x 2 x 2"'
+  },
+  {
+    name: 'Small',
+    dimensions: 'Up to 3.5 x 3.5 x 3.5"'
+  },
+  {
+    name: 'Medium',
+    dimensions: 'Up to 5 x 5 x 5"'
+  },
+  {
+    name: 'Large',
+    dimensions: 'Up to 10 x 10 x 10"'
+  }
+];
 
-  const materialMultiplier = {
-    'PLA': 1,
-    'PETG': 1.2,
-    'ABS': 1.3,
-    'TPU': 1.5,
-    'Resin': 1.8
-  }[material] || 1;
+// Manufacturing types grouped
+const MANUFACTURING_GROUPS = {
+  '3D_PRINTING': {
+    title: '3D Printing',
+    description: 'Fast prototyping and small production runs',
+    options: {
+      'PLA': 'Standard PLA',
+      'WOOD_PLA': 'Wood PLA',
+      'TPU': 'Flexible TPU',
+      'RESIN': 'High Detail Resin',
+      'ALUMINUM': 'Metal Aluminum'
+    }
+  },
+  'ADVANCED': {
+    title: 'Advanced Manufacturing',
+    description: 'Industrial-grade production methods',
+    options: {
+      'CNC': 'CNC Machining',
+      'INJECTION': 'Injection Molding',
+      'SHEET_METAL': 'Sheet Metal'
+    }
+  }
+} as const;
 
-  return {
-    price: `$${(basePrice * materialMultiplier).toFixed(2)}`,
-    delivery: '3-5 business days'
-  };
-};
+type ManufacturingType = keyof (typeof MANUFACTURING_GROUPS['3D_PRINTING']['options'] & 
+                              typeof MANUFACTURING_GROUPS['ADVANCED']['options']);
 
 export default function GetItMade() {
   const { designs, loadDesign, updateDesign } = useDesignStore();
@@ -66,13 +106,12 @@ export default function GetItMade() {
   const { data: session } = useSession();
   
   const [isDesignFinalized, setIsDesignFinalized] = useState(false);
-  const [selectedMaterial, setSelectedMaterial] = useState('');
-  const [recommendationInfo, setRecommendationInfo] = useState<{ material: string; reason: string } | null>(null);
-  const [dimensions, setDimensions] = useState('');
+  const [selectedType, setSelectedType] = useState<ManufacturingType>('PLA');
+  const [expandedGroup, setExpandedGroup] = useState<'3D_PRINTING' | 'ADVANCED' | null>('3D_PRINTING');
+  const [selectedSize, setSelectedSize] = useState<SizeType>('Mini');
   const [quantity, setQuantity] = useState(1);
   const [designComments, setDesignComments] = useState('');
   const [processing3D, setProcessing3D] = useState(false);
-  const [selectedProcess, setSelectedProcess] = useState('3d-printing');
   const [filesUnlocked, setFilesUnlocked] = useState(false);
   const [show3DPreview, setShow3DPreview] = useState(false);
   const [showSignInPopup, setShowSignInPopup] = useState(false);
@@ -119,7 +158,7 @@ export default function GetItMade() {
 
       const updatedAnalysis = {
         productDescription: data.description,
-        dimensions: dimensions,
+        dimensions: SIZE_OPTIONS[selectedSize],
         manufacturingOptions: [],
         status: 'analyzed' as const,
         features: data.features,
@@ -133,7 +172,7 @@ export default function GetItMade() {
 
       // Set the recommended material
       if (data.recommendedMaterials && data.recommendedMaterials.length > 0) {
-        setSelectedMaterial(data.recommendedMaterials[0]);
+        setSelectedType(data.recommendedMaterials[0] as ManufacturingType);
         setRecommendationInfo({
           material: data.recommendedMaterials[0],
           reason: data.description || 'Based on design analysis'
@@ -163,20 +202,20 @@ export default function GetItMade() {
       return;
     }
 
-    if (!dimensions.size || !selectedMaterial) {
+    if (!selectedSize || !selectedType) {
       return;
     }
 
-    const isCustomQuote = typeof getPriceAndDelivery(dimensions.size, selectedMaterial).price !== 'number';
+    const isCustomQuote = typeof getPriceAndDelivery().price !== 'number';
 
     if (isCustomQuote) {
       // Handle custom quote request
-      router.push(`/request-quote?designId=${design.id}&size=${dimensions.size}&material=${selectedMaterial}&quantity=${quantity}`);
+      router.push(`/request-quote?designId=${design.id}&size=${selectedSize}&material=${selectedType}&quantity=${quantity}`);
     } else {
       // Handle direct checkout
       try {
         // You can add your checkout logic here
-        router.push(`/checkout?designId=${design.id}&size=${dimensions.size}&material=${selectedMaterial}&quantity=${quantity}`);
+        router.push(`/checkout?designId=${design.id}&size=${selectedSize}&material=${selectedType}&quantity=${quantity}`);
       } catch (error) {
         console.error('Checkout error:', error);
         // Handle error appropriately
@@ -359,13 +398,130 @@ export default function GetItMade() {
     });
   };
 
+  const is3DPrinting = useCallback(() => {
+    return ['PLA', 'WOOD_PLA', 'TPU', 'RESIN', 'ALUMINUM'].includes(selectedType);
+  }, [selectedType]);
+
+  const getPriceAndDelivery = useCallback(() => {
+    if (!is3DPrinting()) {
+      return {
+        price: 'Contact',
+        delivery: 'Variable'
+      };
+    }
+
+    // Convert selected type to material name for pricing lookup
+    const materialMap = {
+      'PLA': 'PLA',
+      'WOOD_PLA': 'Wood-PLA',
+      'TPU': 'TPU',
+      'RESIN': 'Resin',
+      'ALUMINUM': 'Aluminum'
+    };
+
+    const material = materialMap[selectedType as keyof typeof materialMap];
+    const pricing = PRICING[selectedSize]?.[material];
+    
+    return pricing || {
+      price: '(Select options)',
+      delivery: '(Select options)'
+    };
+  }, [selectedType, selectedSize, is3DPrinting]);
+
+  const calculateTotal = useCallback(() => {
+    const pricing = getPriceAndDelivery();
+    if (pricing.price === 'Contact' || pricing.price === '(Select options)') {
+      return 'N/A';
+    }
+    
+    const basePrice = Number(pricing.price.replace('$', ''));
+    if (isNaN(basePrice)) return 'N/A';
+    
+    return `$${(basePrice * quantity).toFixed(2)}`;
+  }, [getPriceAndDelivery, quantity]);
+
+  const getButtonText = useCallback(() => {
+    const pricing = getPriceAndDelivery();
+    
+    // If price is Contact or total is N/A, show quote button
+    if (pricing.price === 'Contact' || calculateTotal() === 'N/A') {
+      return 'Submit for a Quote';
+    }
+
+    // If any required selections are missing, show complete selections
+    if (!selectedSize || !selectedType || pricing.price === '(Select options)') {
+      return 'Complete Selections Above';
+    }
+
+    // If we have a valid price, show checkout button
+    return 'Proceed to Checkout';
+  }, [getPriceAndDelivery, selectedSize, selectedType, calculateTotal]);
+
+  // Debug log to track state changes
+  useEffect(() => {
+    console.log('State:', {
+      selectedType,
+      is3DPrinting: is3DPrinting(),
+      pricing: getPriceAndDelivery()
+    });
+  }, [selectedType, is3DPrinting, getPriceAndDelivery]);
+
+  // Debugging log
+  console.log('Current selections:', { selectedType, selectedSize });
+
   if (!design) {
     return (
-      <div className="container max-w-7xl mx-auto px-4 py-8">
-        <div className="text-center">
-          <Package className="w-12 h-12 mx-auto text-gray-400 mb-4" />
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">No Design Found</h1>
-          <p className="text-gray-600">The design you're looking for could not be found.</p>
+      <div className="min-h-screen bg-white">
+        <div className="container mx-auto px-4 py-12">
+          <div className="max-w-6xl mx-auto">
+            {/* Header */}
+            <div className="mb-8">
+              <h1 className="text-3xl font-bold mb-2">Get It Made</h1>
+              <p className="text-gray-600">Upload your design or create one to get started</p>
+            </div>
+
+            {/* Upload Section */}
+            <div className="bg-white border border-gray-200 rounded-2xl p-8">
+              <div className="flex flex-col items-center justify-center text-center">
+                <img 
+                  src="/images/taiyaki.svg"
+                  alt="Taiyaki Logo"
+                  className="w-16 h-16 text-gray-400 mb-4 [filter:grayscale(100%)_opacity(40%)]"
+                />
+                <h3 className="text-xl font-medium text-gray-900 mb-2">
+                  Ready to make your design?
+                </h3>
+                <p className="text-gray-600 mb-6 max-w-md">
+                  Upload your design file or create a new one to get started with manufacturing
+                </p>
+                
+                <div className="flex gap-4">
+                  <button
+                    onClick={() => window.location.href = '/design'}
+                    className="px-4 py-2 bg-black text-white rounded-xl hover:opacity-90 transition-opacity"
+                  >
+                    Create Design
+                  </button>
+                  <label className="px-4 py-2 bg-white border border-gray-200 rounded-xl hover:border-gray-300 
+                    cursor-pointer transition-colors flex items-center gap-2">
+                    <Upload className="w-5 h-5" />
+                    <span>Upload Design</span>
+                    <input
+                      type="file"
+                      className="hidden"
+                      accept=".stl,.obj,.fbx"
+                      onChange={(e) => {
+                        // Handle file upload
+                        if (e.target.files?.[0]) {
+                          // Add file handling logic here
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -374,20 +530,121 @@ export default function GetItMade() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-white via-gray-50 to-rose-100">
       <div className="max-w-6xl mx-auto px-6 pt-8 pb-6">
-        <h1 className="text-2xl font-medium">
+        <h1 className="text-2xl font-dm-sans font-medium text-gray-900 pb-6">
           Ready to bring your design to life? Let's make it happen.
         </h1>
-      </div>
 
-      <div className="max-w-6xl mx-auto px-6 pb-12">
-        <div className="flex gap-6">
-          {/* Left Side - Preview and Files */}
-          <div className="w-[400px] space-y-6 font-inter">
-            <Card className="bg-white rounded-[10px] shadow-sm border">
-              <CardHeader>
-                <CardTitle className="font-dm-sans font-medium text-lg">Design Preview</CardTitle>
-              </CardHeader>
-              <CardContent className="pt-0">
+        {/* Manufacturing Section */}
+        <div className="mb-12">
+          <h3 className="text-base font-medium text-gray-900 mb-4">Manufacturing</h3>
+          
+          <div className="space-y-4">
+            {/* 3D Printing Group */}
+            <div className="border rounded-xl overflow-hidden bg-white">
+              <button
+                onClick={() => setExpandedGroup(expandedGroup === '3D_PRINTING' ? null : '3D_PRINTING')}
+                className="w-full p-6 bg-white flex justify-between items-center hover:bg-gray-50"
+                style={{
+                  backgroundImage: `url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e")`,
+                  backgroundRepeat: 'no-repeat',
+                  backgroundPosition: 'right 1.5rem center',
+                  backgroundSize: '1.5em 1.5em'
+                }}
+              >
+                <div>
+                  <div className="font-medium text-left text-lg">{MANUFACTURING_GROUPS['3D_PRINTING'].title}</div>
+                  <div className="text-sm text-gray-600 text-left">
+                    {MANUFACTURING_GROUPS['3D_PRINTING'].description}
+                  </div>
+                </div>
+              </button>
+              
+              {expandedGroup === '3D_PRINTING' && (
+                <div className="border-t p-6">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {Object.entries(MANUFACTURING_GROUPS['3D_PRINTING'].options).map(([type, label]) => (
+                      <button
+                        key={type}
+                        onClick={() => setSelectedType(type as ManufacturingType)}
+                        className={`p-4 rounded-xl border transition-colors
+                          ${selectedType === type 
+                            ? 'border-blue-500 bg-blue-50' 
+                            : 'border-gray-200 hover:border-blue-200'}`}
+                      >
+                        <div className="text-left">
+                          <div className="font-medium mb-1">{label}</div>
+                          <div className="text-sm text-gray-600">
+                            {type === 'PLA' && 'Most cost-effective option'}
+                            {type === 'WOOD_PLA' && 'Natural wood-like appearance'}
+                            {type === 'TPU' && 'Flexible and durable'}
+                            {type === 'RESIN' && 'Smooth finish and fine detail'}
+                            {type === 'ALUMINUM' && 'Strong and metallic'}
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Advanced Manufacturing Group */}
+            <div className="border rounded-xl overflow-hidden bg-white">
+              <button
+                onClick={() => setExpandedGroup(expandedGroup === 'ADVANCED' ? null : 'ADVANCED')}
+                className="w-full p-6 bg-white flex justify-between items-center hover:bg-gray-50"
+                style={{
+                  backgroundImage: `url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e")`,
+                  backgroundRepeat: 'no-repeat',
+                  backgroundPosition: 'right 1.5rem center',
+                  backgroundSize: '1.5em 1.5em'
+                }}
+              >
+                <div>
+                  <div className="font-medium text-left text-lg">{MANUFACTURING_GROUPS['ADVANCED'].title}</div>
+                  <div className="text-sm text-gray-600 text-left">
+                    {MANUFACTURING_GROUPS['ADVANCED'].description}
+                  </div>
+                </div>
+              </button>
+              
+              {expandedGroup === 'ADVANCED' && (
+                <div className="border-t p-6">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {Object.entries(MANUFACTURING_GROUPS['ADVANCED'].options).map(([type, label]) => (
+                      <button
+                        key={type}
+                        onClick={() => setSelectedType(type as ManufacturingType)}
+                        className={`p-4 rounded-xl border transition-colors
+                          ${selectedType === type 
+                            ? 'border-blue-500 bg-blue-50' 
+                            : 'border-gray-200 hover:border-blue-200'}`}
+                      >
+                        <div className="text-left">
+                          <div className="font-medium mb-1">{label}</div>
+                          <div className="text-sm text-gray-600">
+                            {type === 'CNC' && 'Precision-cut from solid material blocks'}
+                            {type === 'INJECTION' && 'High-volume plastic production'}
+                            {type === 'SHEET_METAL' && 'Formed and bent metal parts'}
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Design Preview and Details Section */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Left Column */}
+          <div className="h-full">
+            {/* Design Preview Card */}
+            <div className="bg-white border border-gray-200 rounded-2xl p-6 h-full">
+              <h3 className="text-base font-medium text-gray-900 mb-4">Design Preview</h3>
+              <div className="space-y-4">
                 <div className="aspect-square bg-gray-100 rounded-[10px] flex items-center justify-center overflow-hidden">
                   {selectedDesign ? (
                     <img src={selectedDesign} alt="Design preview" className="w-full h-full object-contain" />
@@ -400,19 +657,17 @@ export default function GetItMade() {
                 {design?.threeDData?.videoUrl ? (
                   <div className="mt-4 space-y-2">
                     <div className="relative w-full rounded-[10px] overflow-hidden shadow-sm">
-                      <div className="aspect-video md:aspect-video sm:aspect-square relative">
-                        <div className="absolute inset-0 border border-gray-200 rounded-[10px] pointer-events-none z-10" />
-                        <video
-                          src={design.threeDData.videoUrl}
-                          className="w-full h-full object-cover"
-                          autoPlay
-                          loop
-                          muted
-                          playsInline
-                          controls={false}
-                          controlsList="nodownload nofullscreen noremoteplayback"
-                        />
-                      </div>
+                      <div className="absolute inset-0 border border-gray-200 rounded-[10px] pointer-events-none z-10" />
+                      <video
+                        src={design.threeDData.videoUrl}
+                        className="w-full h-full object-cover"
+                        autoPlay
+                        loop
+                        muted
+                        playsInline
+                        controls={false}
+                        controlsList="nodownload nofullscreen noremoteplayback"
+                      />
                     </div>
                     <div className="text-sm text-gray-500 font-inter italic px-1 sm:text-xs md:text-sm">
                       Note: This is an AI-generated preview. The actual 3D model will be professionally optimized for manufacturing with cleaner geometry and proper dimensions.
@@ -480,241 +735,110 @@ export default function GetItMade() {
                     </CardContent>
                   </Card>
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           </div>
 
-          {/* Right Side - Manufacturing Details */}
-          <div className="flex-1 space-y-6 font-inter">
-            {/* Manufacturing Analysis Card */}
-            <Card className="bg-white rounded-[10px] shadow-sm border">
-              <CardHeader>
-                <CardTitle className="font-dm-sans font-medium text-lg">Design Details</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {/* Quantity Input */}
-                  <div className="space-y-2">
-                    <label className="text-sm font-dm-sans font-medium">Quantity</label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={quantity}
-                      onChange={(e) => setQuantity(Number(e.target.value))}
-                      className="w-full px-3 py-2 border rounded-[10px] focus:outline-none focus:ring-2 focus:ring-blue-500 font-inter"
-                    />
-                  </div>
+          {/* Right Column */}
+          <div className="h-full flex flex-col">
+            {/* Design Details Card */}
+            <div className="bg-white border border-gray-200 rounded-2xl p-6 flex-1 relative overflow-hidden flex flex-col">
+              {/* Taiyaki Logo Watermark */}
+              <div className="absolute right-0 bottom-0 opacity-[0.03] pointer-events-none">
+                <Image
+                  src="/taiyaki.svg"
+                  alt=""
+                  width={300}
+                  height={300}
+                  className="transform translate-x-1/4 translate-y-1/4"
+                />
+              </div>
 
-                  {/* Size Selection */}
-                  <div className="space-y-2">
-                    <label className="text-sm font-dm-sans font-medium">Size Selection</label>
-                    <select
-                      value={dimensions}
-                      onChange={(e) => setDimensions(e.target.value)}
-                      className="w-full px-3 py-2 border rounded-[10px] bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-inter appearance-none"
-                    >
-                      <option value="">Select size...</option>
-                      <option value="Small (up to 5cm)">Small (up to 5cm)</option>
-                      <option value="Medium (5-15cm)">Medium (5-15cm)</option>
-                      <option value="Large (15-25cm)">Large (15-25cm)</option>
-                      <option value="Extra Large (25cm+)">Extra Large (25cm+)</option>
-                    </select>
-                  </div>
-
-                  {/* Additional Comments */}
-                  <div className="space-y-2">
-                    <label className="text-sm font-dm-sans font-medium">Additional Comments</label>
-                    <textarea
-                      value={designComments}
-                      onChange={(e) => setDesignComments(e.target.value)}
-                      placeholder="Add any specific requirements or notes..."
-                      rows={4}
-                      className="w-full px-3 py-2 border rounded-[10px] focus:outline-none focus:ring-2 focus:ring-blue-500 font-inter resize-none"
-                    />
-                  </div>
+              <h3 className="text-base font-medium text-gray-900 mb-4">Design Details</h3>
+              <div className="space-y-6 relative z-10 flex-1 flex flex-col">
+                {/* Quantity */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Quantity</label>
+                  <input
+                    type="number"
+                    value={quantity}
+                    onChange={(e) => setQuantity(parseInt(e.target.value) || 1)}
+                    min="1"
+                    className="w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                  />
                 </div>
-              </CardContent>
-            </Card>
 
-            {/* Material Selection Card */}
-            <Card className="bg-white rounded-[10px] shadow-sm border">
-              <CardHeader>
-                <CardTitle className="font-dm-sans font-medium text-lg">Select Manufacturing Process</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {/* 3D Printing Section */}
-                  <div className="bg-white border rounded-[10px] overflow-hidden shadow-sm">
-                    <button
-                      className={`w-full p-4 text-left hover:bg-gray-50 transition-colors rounded-[10px] ${
-                        selectedProcess === '3d-printing' ? 'bg-blue-50' : ''
-                      }`}
-                      onClick={() => setSelectedProcess(selectedProcess === '3d-printing' ? '' : '3d-printing')}
-                    >
-                      <div className="flex justify-between items-center">
-                        <div>
-                          <div className="font-dm-sans font-medium text-base">3D Printing</div>
-                          <div className="text-sm text-gray-600 font-inter mt-0.5">Layer by layer manufacturing, great for prototypes and small runs</div>
-                        </div>
-                        <ChevronDown 
-                          className={`h-5 w-5 text-gray-500 transition-transform duration-200 ${
-                            selectedProcess === '3d-printing' ? 'transform rotate-180' : ''
-                          }`}
-                        />
-                      </div>
-                    </button>
-
-                    <div className={`transition-all duration-200 ease-in-out ${
-                      selectedProcess === '3d-printing' 
-                        ? 'max-h-[1000px] opacity-100' 
-                        : 'max-h-0 opacity-0 overflow-hidden'
-                    }`}>
-                      <div className="divide-y border-t">
-                        {MATERIAL_OPTIONS.map((material) => (
-                          <button
-                            key={material.title}
-                            onClick={() => setSelectedMaterial(material.title)}
-                            className={`w-full p-4 text-left hover:bg-gray-50 transition-colors ${
-                              selectedMaterial === material.title ? 'bg-blue-50' : ''
-                            }`}
-                          >
-                            <div className="flex justify-between items-start">
-                              <div>
-                                <div className="font-dm-sans font-medium text-base">{material.title}</div>
-                                <div className="text-sm text-gray-600 font-inter mt-0.5">{material.description}</div>
-                              </div>
-                              <div className="text-sm text-gray-600 font-inter whitespace-nowrap">{material.cost}</div>
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Advanced Manufacturing Section */}
-                  <div className="bg-white border rounded-[10px] overflow-hidden shadow-sm">
-                    <button
-                      className={`w-full p-4 text-left hover:bg-gray-50 transition-colors rounded-[10px] ${
-                        selectedProcess === 'advanced' ? 'bg-blue-50' : ''
-                      }`}
-                      onClick={() => setSelectedProcess(selectedProcess === 'advanced' ? '' : 'advanced')}
-                    >
-                      <div className="flex justify-between items-center">
-                        <div>
-                          <div className="font-dm-sans font-medium text-base">Advanced Manufacturing</div>
-                          <div className="text-sm text-gray-600 font-inter mt-0.5">Industrial manufacturing processes for production runs</div>
-                        </div>
-                        <ChevronDown 
-                          className={`h-5 w-5 text-gray-500 transition-transform duration-200 ${
-                            selectedProcess === 'advanced' ? 'transform rotate-180' : ''
-                          }`}
-                        />
-                      </div>
-                    </button>
-
-                    <div className={`transition-all duration-200 ease-in-out ${
-                      selectedProcess === 'advanced' 
-                        ? 'max-h-[1000px] opacity-100' 
-                        : 'max-h-0 opacity-0 overflow-hidden'
-                    }`}>
-                      <div className="divide-y border-t">
-                        {[
-                          {
-                            title: 'CNC Machining',
-                            description: 'Precision-cut from solid material blocks',
-                            materials: 'Materials: Aluminum, Steel, Plastic',
-                            cost: '$$$ (Premium)'
-                          },
-                          {
-                            title: 'Injection Molding',
-                            description: 'High-volume plastic production',
-                            materials: 'Materials: Various Plastics',
-                            cost: '$$$$ (Production)'
-                          },
-                          {
-                            title: 'Sheet Metal',
-                            description: 'Formed and bent metal parts',
-                            materials: 'Materials: Steel, Aluminum',
-                            cost: '$$$ (Premium)'
-                          }
-                        ].map((process) => (
-                          <button
-                            key={process.title}
-                            onClick={() => setSelectedMaterial(process.title)}
-                            className={`w-full p-4 text-left hover:bg-gray-50 transition-colors ${
-                              selectedMaterial === process.title ? 'bg-blue-50' : ''
-                            }`}
-                          >
-                            <div className="flex justify-between items-start">
-                              <div>
-                                <div className="font-dm-sans font-medium text-base">{process.title}</div>
-                                <div className="text-sm text-gray-600 font-inter mt-0.5">{process.description}</div>
-                                <div className="text-sm text-gray-600 font-inter mt-1">{process.materials}</div>
-                              </div>
-                              <div className="text-sm text-gray-600 font-inter whitespace-nowrap">{process.cost}</div>
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
+                {/* Size */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Size</label>
+                  <select
+                    value={selectedSize}
+                    onChange={(e) => setSelectedSize(e.target.value as SizeType)}
+                    className="w-full px-4 py-2.5 border rounded-xl appearance-none bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                    style={{
+                      backgroundImage: `url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e")`,
+                      backgroundRepeat: 'no-repeat',
+                      backgroundPosition: 'right 1rem center',
+                      backgroundSize: '1.5em 1.5em'
+                    }}
+                  >
+                    <option value="Mini">Mini - Up to 2 x 2 x 2"</option>
+                    <option value="Small">Small - Up to 4 x 4 x 4"</option>
+                    <option value="Medium">Medium - Up to 8 x 8 x 8"</option>
+                    <option value="Large">Large - Up to 12 x 12 x 12"</option>
+                    <option value="Custom">Custom Size</option>
+                  </select>
                 </div>
-              </CardContent>
-            </Card>
+
+                {/* Additional Comments */}
+                <div className="flex-1 flex flex-col min-h-0">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Additional Comments</label>
+                  <textarea
+                    placeholder="Add any specific requirements or notes..."
+                    className="w-full px-4 py-2.5 border rounded-xl resize-none flex-1 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                  />
+                </div>
+              </div>
+            </div>
 
             {/* Price Summary Card */}
-            <Card className="bg-white rounded-[10px] shadow-sm border">
-              <CardContent className="p-4">
-                <div className="space-y-3">
-                  {/* Price Breakdown */}
-                  <div className="space-y-2">
-                    <div className="flex justify-between items-center text-sm">
-                      <span className="text-gray-600 font-inter">Base Price:</span>
-                      <span className="font-dm-sans font-medium">
-                        {selectedMaterial && dimensions ? getPriceAndDelivery(dimensions.size, selectedMaterial).price : '(Select size and material)'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center text-sm">
-                      <span className="text-gray-600 font-inter">Quantity:</span>
-                      <span className="font-dm-sans font-medium">
-                        {quantity || 1}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center text-sm">
-                      <span className="text-gray-600 font-inter">Estimated Delivery:</span>
-                      <span className="font-dm-sans font-medium">
-                        {selectedMaterial && dimensions ? getPriceAndDelivery(dimensions.size, selectedMaterial).delivery : '(Select size and material)'}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Divider */}
-                  <div className="border-t border-gray-200"></div>
-
-                  {/* Total */}
-                  <div className="flex justify-between items-center">
-                    <span className="font-dm-sans font-medium text-base">Total:</span>
-                    <span className="font-dm-sans font-medium text-base">
-                      {selectedMaterial && dimensions ? 
-                        `$${(Number(getPriceAndDelivery(dimensions.size, selectedMaterial).price) * quantity * (quantity > 1 ? 0.9 : 1)).toFixed(2)}` 
-                        : '(Complete selections above)'}
-                    </span>
-                  </div>
-
-                  {/* Action Button */}
-                  <Button 
-                    variant="default" 
-                    className="w-full bg-black text-white hover:bg-gray-800 font-dm-sans font-medium text-sm rounded-[10px] mt-3"
-                    disabled={!selectedMaterial || !dimensions}
-                    onClick={handleProceed}
-                  >
-                    <span className="mr-2">$</span>
-                    Complete Selections Above
-                    <ChevronRight className="ml-2 h-4 w-4" />
-                  </Button>
+            <div className="bg-white border border-gray-200 rounded-2xl p-6 mt-4">
+              <div className="space-y-4">
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-gray-600">Base Price:</span>
+                  <span className="font-medium">{is3DPrinting() ? '$15' : 'Contact'}</span>
                 </div>
-              </CardContent>
-            </Card>
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-gray-600">Quantity:</span>
+                  <span className="font-dm-sans font-medium">
+                    {quantity}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-gray-600">Estimated Delivery:</span>
+                  <span className="font-dm-sans font-medium">
+                    {is3DPrinting() ? '1-2 weeks' : 'Variable'}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-sm font-medium">
+                  <span className="text-gray-900">Total:</span>
+                  <span className="font-dm-sans font-medium">
+                    {calculateTotal()}
+                  </span>
+                </div>
+                <button
+                  className={`w-full mt-4 py-3.5 px-4 rounded-xl font-medium flex items-center justify-center space-x-2 transition-all
+                    ${getButtonText() === 'Proceed to Checkout' 
+                      ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 active:translate-y-0' 
+                      : 'bg-black hover:bg-gray-900 text-white'}`}
+                  onClick={handleProceed}
+                >
+                  <span>$</span>
+                  <span className={`${getButtonText() === 'Proceed to Checkout' ? 'text-lg' : ''}`}>{getButtonText()}</span>
+                  <span className="text-lg">›</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
