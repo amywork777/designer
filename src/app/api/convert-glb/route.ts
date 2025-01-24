@@ -12,30 +12,13 @@ export async function POST(req: Request) {
     const { glbUrl, designId } = await req.json();
     console.log('Starting GLB conversion with URL:', glbUrl);
 
-    // Get the download URL from Firebase Storage
-    const storage = getStorage(app);
-    const urlPath = glbUrl.split('/processed/')[1];
-    const storagePath = `processed/${urlPath}`;
-    
-    let downloadUrl;
-    try {
-      const glbRef = ref(storage, storagePath);
-      downloadUrl = await getDownloadURL(glbRef);
-    } catch (error: any) {
-      console.error('Error getting download URL:', error);
-      return NextResponse.json({ 
-        error: 'Failed to get download URL',
-        details: error.message 
-      }, { status: 400 });
-    }
-
-    // Call Blender service with exact format it expects
+    // Call Blender service
     const response = await fetch(BLENDER_SERVICE_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
-        glbUrl: downloadUrl,  // Matches the exact key expected
-        designId: designId    // Matches the exact key expected
+        glbUrl: glbUrl,
+        designId: designId
       })
     });
 
@@ -45,8 +28,22 @@ export async function POST(req: Request) {
       throw new Error(errorText);
     }
 
-    // Your service returns the STL file directly
-    const stlData = await response.arrayBuffer();
+    // Get the response which contains the Firebase Storage URL
+    const data = await response.json();
+    console.log('Received response:', data);
+
+    if (!data.stlUrl) {
+      throw new Error('No STL URL in response');
+    }
+
+    // Download the STL from Firebase Storage
+    const stlResponse = await fetch(data.stlUrl);
+    if (!stlResponse.ok) {
+      throw new Error('Failed to download STL from storage');
+    }
+
+    const stlData = await stlResponse.arrayBuffer();
+    console.log('Downloaded STL size:', stlData.byteLength);
     
     return new NextResponse(stlData, {
       headers: {

@@ -279,23 +279,35 @@ export default function GetItMade() {
 
     try {
       console.log('Starting conversion for GLB:', design.threeDData.glbUrls[0]);
+      console.log('Design ID:', design.id);
+      
+      const requestData = { 
+        glbUrl: design.threeDData.glbUrls[0],
+        designId: design.id
+      };
+      console.log('Sending request with data:', requestData);
       
       const response = await fetch('/api/convert-glb', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          glbUrl: design.threeDData.glbUrls[0],
-          designId: design.id
-        })
+        body: JSON.stringify(requestData)
       });
 
+      console.log('Response status:', response.status);
+      
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.details || errorData.error || 'Failed to convert file');
+        console.error('Error data:', errorData);
+        throw new Error(JSON.stringify(errorData));
       }
 
       const blob = await response.blob();
-      console.log('Received converted file:', blob.size);
+      console.log('Received converted file:', blob.size, 'bytes');
+
+      // Only proceed if we got a valid file (more than header size)
+      if (blob.size <= 228) {
+        throw new Error('Received empty or invalid STL file');
+      }
 
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -313,12 +325,21 @@ export default function GetItMade() {
         description: `${type.toUpperCase()} file downloaded successfully`
       });
 
-    } catch (error) {
+    } catch (error: any) {
       console.error(`Error downloading ${type}:`, error);
+      let errorMessage = error.message;
+      try {
+        // Try to parse error message if it's JSON
+        const errorData = JSON.parse(error.message);
+        errorMessage = errorData.error || errorData.details || error.message;
+      } catch (e) {
+        // If parsing fails, use the original message
+      }
+      
       toast({
         variant: "destructive",
         title: "Error",
-        description: error.message || `Failed to download ${type} file`
+        description: errorMessage
       });
     }
   };
