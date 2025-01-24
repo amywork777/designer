@@ -122,6 +122,7 @@ export default function GetItMade() {
   const [showSignInPopup, setShowSignInPopup] = useState(false);
   const [pricing, setPricing] = useState<PricingType>({ price: 'Contact us' });
   const [isLoading, setIsLoading] = useState(true);
+  const [isDownloading, setIsDownloading] = useState(false);
 
   const design = designs.find(d => d.id === designId);
   const selectedDesign = design?.images[0];
@@ -330,37 +331,27 @@ export default function GetItMade() {
       return;
     }
 
+    setIsDownloading(true);
+    
     try {
       console.log('Starting conversion for GLB:', design.threeDData.glbUrls[0]);
-      console.log('Design ID:', design.id);
-      
-      const requestData = { 
-        glbUrl: design.threeDData.glbUrls[0],
-        designId: design.id
-      };
-      console.log('Sending request with data:', requestData);
       
       const response = await fetch('/api/convert-glb', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestData)
+        body: JSON.stringify({ 
+          glbUrl: design.threeDData.glbUrls[0],
+          designId: design.id
+        })
       });
 
-      console.log('Response status:', response.status);
-      
       if (!response.ok) {
         const errorData = await response.json();
-        console.error('Error data:', errorData);
-        throw new Error(JSON.stringify(errorData));
+        throw new Error(errorData.details || errorData.error || 'Failed to convert file');
       }
 
       const blob = await response.blob();
-      console.log('Received converted file:', blob.size, 'bytes');
-
-      // Only proceed if we got a valid file (more than header size)
-      if (blob.size <= 228) {
-        throw new Error('Received empty or invalid STL file');
-      }
+      console.log('Received converted file:', blob.size);
 
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -368,8 +359,6 @@ export default function GetItMade() {
       a.download = `${design.id}.${type}`;
       document.body.appendChild(a);
       a.click();
-      
-      // Cleanup
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
 
@@ -380,20 +369,13 @@ export default function GetItMade() {
 
     } catch (error: any) {
       console.error(`Error downloading ${type}:`, error);
-      let errorMessage = error.message;
-      try {
-        // Try to parse error message if it's JSON
-        const errorData = JSON.parse(error.message);
-        errorMessage = errorData.error || errorData.details || error.message;
-      } catch (e) {
-        // If parsing fails, use the original message
-      }
-      
       toast({
         variant: "destructive",
         title: "Error",
-        description: errorMessage
+        description: error.message
       });
+    } finally {
+      setIsDownloading(false);
     }
   };
 
@@ -743,10 +725,19 @@ export default function GetItMade() {
                               variant="outline" 
                               className="w-full font-dm-sans font-medium text-sm rounded-[10px]" 
                               onClick={() => handleDownload('stl')}
-                              disabled={!design?.threeDData?.videoUrl}
+                              disabled={!design?.threeDData?.videoUrl || isDownloading}
                             >
-                              <FileDown className="mr-2 h-4 w-4" />
-                              {!design?.threeDData?.videoUrl ? 'Generate 3D Preview First' : 'Download STL File'}
+                              {isDownloading ? (
+                                <>
+                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                  Converting STL...
+                                </>
+                              ) : (
+                                <>
+                                  <FileDown className="mr-2 h-4 w-4" />
+                                  {!design?.threeDData?.videoUrl ? 'Generate 3D Preview First' : 'Download STL File'}
+                                </>
+                              )}
                             </Button>
                             <Button 
                               variant="outline" 
