@@ -20,9 +20,10 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { MATERIAL_OPTIONS } from '@/lib/constants/materials';
 import SignInPopup from '@/components/SignInPopup';
-import { canDownloadFile, recordDownload } from '@/lib/firebase/subscriptions';
+import { canDownloadFile, recordDownload, getUserSubscription } from '@/lib/firebase/subscriptions';
 import { motion } from 'framer-motion';
 import Image from 'next/image';
+import { PLAN_LIMITS } from '@/types/subscription';
 
 const PRICING = {
   Mini: { PLA: 20, Wood: 40, TPU: 45, Resin: 60, Aluminum: 200 },
@@ -121,7 +122,9 @@ export default function GetItMade() {
   const [showSignInPopup, setShowSignInPopup] = useState(false);
   const [pricing, setPricing] = useState<PricingType>({ price: 'Contact us' });
   const [isLoading, setIsLoading] = useState(true);
-  const [isDownloading, setIsDownloading] = useState(false);
+  const [isDownloadingSTL, setIsDownloadingSTL] = useState(false);
+  const [isDownloadingSTEP, setIsDownloadingSTEP] = useState(false);
+  const [downloadLimits, setDownloadLimits] = useState<{ stl: number; step: number } | null>(null);
 
   const design = designs.find(d => d.id === designId);
   const selectedDesign = design?.images[0];
@@ -149,6 +152,23 @@ export default function GetItMade() {
 
     return () => clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    async function fetchLimits() {
+      if (session?.user) {
+        const subscription = await getUserSubscription(session.user.id);
+        if (subscription) {
+          const limits = PLAN_LIMITS[subscription.planType];
+          const used = subscription.downloadCounts || { stl: 0, step: 0 };
+          setDownloadLimits({
+            stl: limits.stlDownloads === Infinity ? Infinity : limits.stlDownloads - used.stl,
+            step: limits.stepDownloads === Infinity ? Infinity : limits.stepDownloads - used.step
+          });
+        }
+      }
+    }
+    fetchLimits();
+  }, [session?.user]);
 
   const handleFinalizeDesign = async () => {
     if (!design?.images[0]) return;
@@ -315,6 +335,20 @@ export default function GetItMade() {
     }
   };
 
+  const fetchDownloadLimits = async () => {
+    if (session?.user) {
+      const subscription = await getUserSubscription(session.user.id);
+      if (subscription) {
+        const limits = PLAN_LIMITS[subscription.planType];
+        const used = subscription.downloadCounts || { stl: 0, step: 0 };
+        setDownloadLimits({
+          stl: limits.stlDownloads === Infinity ? Infinity : limits.stlDownloads - used.stl,
+          step: limits.stepDownloads === Infinity ? Infinity : limits.stepDownloads - used.step
+        });
+      }
+    }
+  };
+
   const handleDownload = async (type: 'stl' | 'step') => {
     if (!session?.user) {
       setShowSignInPopup(true);
@@ -330,10 +364,7 @@ export default function GetItMade() {
       return;
     }
 
-    setIsDownloading(true);
-    
     try {
-      // Check download limits first
       const { allowed, remaining } = await canDownloadFile(session.user.id, type);
       
       if (!allowed) {
@@ -345,7 +376,12 @@ export default function GetItMade() {
         return;
       }
 
-      // Start the download process
+      if (type === 'stl') {
+        setIsDownloadingSTL(true);
+      } else {
+        setIsDownloadingSTEP(true);
+      }
+
       const response = await fetch('/api/convert-glb', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -362,10 +398,10 @@ export default function GetItMade() {
 
       const blob = await response.blob();
 
-      // Record the successful download in Firebase
       await recordDownload(session.user.id, design.id, type);
+      
+      await fetchDownloadLimits();
 
-      // Create download
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -390,7 +426,11 @@ export default function GetItMade() {
         description: error.message
       });
     } finally {
-      setIsDownloading(false);
+      if (type === 'stl') {
+        setIsDownloadingSTL(false);
+      } else {
+        setIsDownloadingSTEP(false);
+      }
     }
   };
 
@@ -723,26 +763,20 @@ export default function GetItMade() {
                 <div className="mt-4">
                   <Card className="bg-white rounded-[10px] shadow-sm border">
                     <CardContent className="p-4">
-                      <div className="text-center space-y-2">
-                        <div className="text-sm text-gray-600">Get STL for 3D printing and STEP for CAD editing</div>
-                        {!filesUnlocked ? (
-                          <Button 
-                            variant="default" 
-                            className="w-full bg-black text-white hover:bg-gray-800 font-dm-sans font-medium text-sm rounded-[10px]"
-                            onClick={handleUnlockFiles}
-                          >
-                            <Lock className="mr-2 h-4 w-4" />
-                            Unlock Files
-                          </Button>
-                        ) : (
-                          <div className="space-y-2">
+                      <div className="text-center space-y-4">
+                        <h3 className="text-center text-[20px] text-gray-700">
+                          Get STL for 3D printing and STEP for CAD editing
+                        </h3>
+
+                        <div className="space-y-4">
+                          <div>
                             <Button 
                               variant="outline" 
                               className="w-full font-dm-sans font-medium text-sm rounded-[10px]" 
                               onClick={() => handleDownload('stl')}
-                              disabled={!design?.threeDData?.videoUrl || isDownloading}
+                              disabled={!design?.threeDData?.videoUrl || isDownloadingSTL}
                             >
-                              {isDownloading ? (
+                              {isDownloadingSTL ? (
                                 <>
                                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                   Converting STL...
@@ -750,21 +784,49 @@ export default function GetItMade() {
                               ) : (
                                 <>
                                   <FileDown className="mr-2 h-4 w-4" />
-                                  {!design?.threeDData?.videoUrl ? 'Generate 3D Preview First' : 'Download STL File'}
+                                  Download STL File
                                 </>
                               )}
                             </Button>
+                            {session?.user && downloadLimits && (
+                              <div className="text-sm text-center text-gray-600 mt-2">
+                                {downloadLimits.stl === Infinity ? 
+                                  'Unlimited downloads available' : 
+                                  `${downloadLimits.stl}/${PLAN_LIMITS[session?.user.planType || 'free'].stlDownloads} downloads remaining this month`
+                                }
+                              </div>
+                            )}
+                          </div>
+
+                          <div>
                             <Button 
                               variant="outline" 
                               className="w-full font-dm-sans font-medium text-sm rounded-[10px]" 
                               onClick={() => handleDownload('step')}
-                              disabled={!design?.threeDData?.videoUrl}
+                              disabled={!design?.threeDData?.videoUrl || isDownloadingSTEP}
                             >
-                              <FileDown className="mr-2 h-4 w-4" />
-                              {!design?.threeDData?.videoUrl ? 'Generate 3D Preview First' : 'Download STEP File'}
+                              {isDownloadingSTEP ? (
+                                <>
+                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                  Converting STEP...
+                                </>
+                              ) : (
+                                <>
+                                  <FileDown className="mr-2 h-4 w-4" />
+                                  Download STEP File
+                                </>
+                              )}
                             </Button>
+                            {session?.user && downloadLimits && (
+                              <div className="text-sm text-center text-gray-600 mt-2">
+                                {downloadLimits.step === Infinity ? 
+                                  'Unlimited downloads available' : 
+                                  `${downloadLimits.step}/${PLAN_LIMITS[session?.user.planType || 'free'].stepDownloads} downloads remaining this month`
+                                }
+                              </div>
+                            )}
                           </div>
-                        )}
+                        </div>
                       </div>
                     </CardContent>
                   </Card>
