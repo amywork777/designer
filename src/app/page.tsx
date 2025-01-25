@@ -19,6 +19,7 @@ import { SIZES } from '@/lib/types/sizes';
 import { saveDesignToFirebase } from '@/lib/firebase/utils';
 import { handleSignOut } from "@/lib/firebase/auth";
 import { useAuth } from "@/contexts/AuthContext";
+import { process3DPreview } from "@/lib/firebase/utils";
 
 const PROGRESS_STEPS = [
   {
@@ -302,6 +303,15 @@ interface GenerateResponse {
 }
 
 const handleGenerateDesign = async () => {
+  if (!session?.user?.id) {
+    toast({
+      variant: "destructive",
+      title: "Error",
+      description: "Please sign in to save designs"
+    });
+    return;
+  }
+
   if (!designPrompt) {
     toast({
       variant: "destructive",
@@ -375,6 +385,16 @@ const handleGenerateDesign = async () => {
       title: "Success",
       description: "Design generated successfully"
     });
+
+    // After successful generation, save to Firebase and reload designs
+    const savedDesign = await saveDesignToFirebase({
+      imageUrl: data.images[0],
+      prompt: fullPrompt,
+      userId: session.user.id,
+      mode: 'generated'
+    });
+
+    await loadUserDesigns(session.user.id);
 
   } catch (error) {
     console.error('Error generating design:', error);
@@ -526,7 +546,7 @@ export default function LandingPage() {
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [generating, setGenerating] = useState(false);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const { designs, addDesign, clearDesigns, updateDesign, getUserDesigns } = useDesignStore();
+  const { designs, addDesign, clearDesigns, updateDesign, loadUserDesigns } = useDesignStore();
   const [selectedDesign, setSelectedDesign] = useState<string | null>(null);
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [selectedMethod, setSelectedMethod] = useState<string>('FDM 3D Printing');
@@ -538,9 +558,6 @@ export default function LandingPage() {
   const [error, setError] = useState<string | null>(null);
   const [generatedImages, setGeneratedImages] = useState<string[]>([]);
   const { data: session, status } = useSession();
-  const userDesigns = session?.user?.id 
-    ? getUserDesigns(session.user.id) 
-    : getUserDesigns('anonymous'); // Get anonymous designs if not logged in
   const [imageStates, setImageStates] = useState<Record<string, ImageState>>({});
   const [hasUsedFreeDesign, setHasUsedFreeDesign] = useState(false);
   const [dimensions, setDimensions] = useState<Dimensions>({
@@ -578,6 +595,13 @@ export default function LandingPage() {
   // Add state for selected styles if not already present
   const [selectedStyles, setSelectedStyles] = useState<string[]>([]);
 
+  // Load user designs when session changes
+  useEffect(() => {
+    if (session?.user?.id) {
+      loadUserDesigns(session.user.id);
+    }
+  }, [session?.user?.id]);
+
   const handleImageError = (imageUrl: string) => (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
     const img = e.target as HTMLImageElement;
     setImageStates(prev => ({
@@ -609,8 +633,7 @@ export default function LandingPage() {
       try {
         setLoading(true);
         const file = files[0];
-
-        // Convert to base64
+        
         const base64Image = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
           reader.onloadend = () => {
@@ -624,28 +647,21 @@ export default function LandingPage() {
           reader.readAsDataURL(file);
         });
 
-        // Save to Firebase first
-        const userId = session?.user?.id || 'anonymous';
+        if (!session?.user?.id) {
+          throw new Error('Please sign in to save designs');
+        }
+
+        // Save to Firebase
         const savedDesign = await saveDesignToFirebase({
           imageUrl: base64Image,
           prompt: 'User uploaded design',
-          userId,
+          userId: session.user.id,
           mode: 'uploaded'
         });
 
-        // Create new design for local store
-        const newDesign = {
-          id: savedDesign.id,
-          title: 'Uploaded Design',
-          images: [savedDesign.imageUrl],
-          createdAt: new Date().toISOString(),
-          prompt: ''
-        };
+        // Reload designs from Firebase
+        await loadUserDesigns(session.user.id);
 
-        // Add to local store
-        addDesign(newDesign, userId);
-        
-        // Update UI
         setSelectedDesign(savedDesign.imageUrl);
         setShowAnalysis(true);
         setScrollToAnalysis(true);
@@ -1719,23 +1735,38 @@ export default function LandingPage() {
   // When generated image is clicked
   const handleDesignClick = async (imageUrl: string, isReferenceImage: boolean = false) => {
     if (isReferenceImage) {
-      // Just set as selected design for reference, don't save to Firebase
       setSelectedDesign(imageUrl);
       return;
     }
 
     try {
-      console.log('1. Design clicked, saving to Firebase...');
-      const tempUserId = 'temp-user-123';
-      
+      const userId = session?.user?.id;
+      if (!userId) {
+        toast({
+          title: "Error",
+          description: "Please sign in to save designs",
+          variant: "destructive"
+        });
+        return;
+      }
+
       const savedDesign = await saveDesignToFirebase({
         imageUrl,
         prompt: designPrompt,
-        userId: tempUserId,
+        userId,
         mode: 'generated'
       });
 
-      console.log('2. Design saved:', savedDesign);
+      // Add to local store
+      const newDesign = {
+        id: savedDesign.id,
+        images: [savedDesign.imageUrl],
+        prompt: designPrompt,
+        createdAt: new Date().toISOString(),
+        userId
+      };
+      
+      addDesign(newDesign, userId);
       setSelectedDesign(savedDesign.imageUrl);
       
       toast({
@@ -1754,76 +1785,45 @@ export default function LandingPage() {
 
   // Update the handle3DProcessing function
   const handle3DProcessing = async () => {
-    if (!selectedDesign) return;
-    
-    setProcessing3D(true);
-    let attempts = 0;
+    if (!selectedDesign || !session?.user?.id) {
+      toast({
+        title: "Error",
+        description: "Please sign in to generate 3D preview",
+        variant: "destructive"
+      });
+      return;
+    }
     
     try {
-      while (attempts < MAX_RETRIES) {
-        const response = await fetch('https://us-central1-taiyaki-test1.cloudfunctions.net/process_3d', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            image_url: selectedDesign,
-            userId: session?.user?.id || 'default'
-          })
+      setProcessing3D(true);
+      const currentDesign = designs.find(d => d.images.includes(selectedDesign));
+      if (!currentDesign) {
+        throw new Error('No design found');
+      }
+
+      const merged3DData = await process3DPreview(currentDesign, session.user.id, setProcessing3D);
+      
+      if (merged3DData) {
+        // Update local store with the merged data
+        updateDesign(currentDesign.id, {
+          threeDData: merged3DData,
+          has3DPreview: true
         });
 
-        const rawText = await response.text();
-        console.log('Raw response:', rawText);
-
-        let data;
-        try {
-          data = JSON.parse(rawText);
-        } catch (e) {
-          console.error('Failed to parse response:', e);
-          throw new Error('Invalid response from server');
-        }
-
-        if (!response.ok) {
-          throw new Error(data.error || 'Server error');
-        }
-
-        if (data.success && data.video_url) {
-          const currentDesign = designs.find(d => d.images.includes(selectedDesign));
-          if (currentDesign) {
-            updateDesign(currentDesign.id, {
-              threeDData: {
-                videoUrl: data.video_url,
-                glbUrls: data.glb_urls || [],
-                preprocessedUrl: data.preprocessed_url,
-                timestamp: data.timestamp
-              }
-            });
-          }
-
-          toast({
-            title: "Success",
-            description: "3D model generated successfully"
-          });
-          return; // Success - exit the retry loop
-        }
-        
-        attempts++;
-        if (attempts < MAX_RETRIES) {
-          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
-        }
+        toast({
+          title: "Success",
+          description: "3D preview generated successfully"
+        });
       }
-      
-      throw new Error('Failed to generate 3D model after multiple attempts');
-      
     } catch (error) {
-      console.error('3D processing error:', error);
+      console.error('Error processing 3D:', error);
       toast({
-        variant: "destructive",
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to generate 3D model"
+        description: "Failed to generate 3D preview",
+        variant: "destructive"
       });
     } finally {
-      setProcessing3D(false); // Always reset the processing state
+      setProcessing3D(false);
     }
   };
 
@@ -2148,10 +2148,10 @@ export default function LandingPage() {
                     >
                       Clear All
                     </button>
-                    {userDesigns.length > 4 && (
+                    {designs.length > 4 && (
                       <button
                         onClick={() => setIsHistoryCollapsed(!isHistoryCollapsed)}
-                        className="text-sm text-blue-500 hover:text-blue-700 flex items-center gap-1 font-dm-sans font-medium"
+                        className="text-sm text-blue-500 hover:text-blue-700 flex items-center gap-1"
                       >
                         {isHistoryCollapsed ? (
                           <>Show All <ChevronDown className="w-4 h-4" /></>
@@ -2165,65 +2165,63 @@ export default function LandingPage() {
 
                 {/* Design Thumbnails */}
                 <div className="p-3">
-                  {userDesigns.length > 0 ? (
+                  {designs.length > 0 ? (
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 transition-all duration-200">
-                      {(isHistoryCollapsed ? userDesigns.slice(0, 4) : userDesigns).map((design, index) => (
-                        <div
-                          key={design.id || index}
-                          className="relative aspect-square group cursor-pointer bg-white border border-gray-200 hover:border-gray-300 rounded-xl transition-all"
-                          onClick={() => {
-                            setSelectedDesign(design.images[0]);
-                            setShowAnalysis(true);
-                            setScrollToAnalysis(true);
-                          }}
-                        >
-                          <img
-                            src={design.images[0]}
-                            alt={`Design ${index + 1}`}
-                            className={`w-full h-full object-cover rounded-xl transition-opacity duration-200 ${
-                              selectedDesign === design.images[0] ? 'ring-2 ring-blue-500' : ''
-                            }`}
-                          />
-                          
-                          <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-xl">
-                            <div className="absolute inset-0 flex flex-col justify-between p-2 text-white">
-                              <div className="text-xs">
-                                <p className="font-dm-sans font-medium truncate">
-                                  {design.title || `Design ${index + 1}`}
-                                </p>
-                                <p className="text-gray-300 font-inter">
-                                  {new Date(design.createdAt).toLocaleDateString()}
-                                </p>
+                      {(isHistoryCollapsed ? designs.slice(0, 4) : designs).map((design, index) => {
+                        // Skip designs without images
+                        if (!design?.images?.length) return null;
+                        
+                        return (
+                          <div
+                            key={design.id || index}
+                            className="relative aspect-square group cursor-pointer bg-white border border-gray-200 hover:border-gray-300 rounded-xl transition-all"
+                            onClick={() => {
+                              setSelectedDesign(design.images[0]);
+                              setShowAnalysis(true);
+                              setScrollToAnalysis(true);
+                            }}
+                          >
+                            <div className="relative w-full h-full">
+                              <div className="absolute inset-0">
+                                <img
+                                  src={design.images[0]}
+                                  alt={`Design ${index + 1}`}
+                                  className={`w-full h-full object-cover rounded-xl ${
+                                    selectedDesign === design.images[0] ? 'ring-2 ring-blue-500' : ''
+                                  }`}
+                                  onError={handleImageError(design.images[0])}
+                                  onLoad={handleImageLoad(design.images[0])}
+                                />
                               </div>
-
-                              <div className="flex justify-end gap-1">
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleDownload(design.images[0]);
-                                  }}
-                                  className="p-2 bg-white border border-gray-200 hover:border-gray-300 
-                                    rounded-xl text-gray-700 transition-all duration-200"
-                                  aria-label="Download design"
-                                >
-                                  <Download className="w-5 h-5" />
-                                </button>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setShowEditDialog(true);
-                                  }}
-                                  className="p-2 bg-white border border-gray-200 hover:border-gray-300 
-                                    rounded-xl text-gray-700 transition-all duration-200"
-                                  aria-label="Edit design"
-                                >
-                                  <Edit className="w-5 h-5" />
-                                </button>
+                              
+                              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all duration-200 rounded-xl">
+                                <div className="absolute bottom-0 left-0 right-0 p-3 flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all duration-200">
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDownload(design.images[0]);
+                                    }}
+                                    className="p-2 bg-white border border-gray-200 hover:border-gray-300 rounded-xl text-gray-700 transition-all duration-200"
+                                    aria-label="Download design"
+                                  >
+                                    <Download className="w-5 h-5" />
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setShowEditDialog(true);
+                                    }}
+                                    className="p-2 bg-white border border-gray-200 hover:border-gray-300 rounded-xl text-gray-700 transition-all duration-200"
+                                    aria-label="Edit design"
+                                  >
+                                    <Edit className="w-5 h-5" />
+                                  </button>
+                                </div>
                               </div>
                             </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   ) : (
                     <div className="text-center py-6 text-gray-500 text-sm font-dm-sans font-medium">
@@ -2341,32 +2339,34 @@ export default function LandingPage() {
                     </div>
 
                     {/* 3D Preview - Shown when available */}
-                    {selectedDesign && designs.find(d => d.images.includes(selectedDesign))?.threeDData?.videoUrl && (
+                    {selectedDesign && (
                       <div className="mt-6">
-                        {/* Find the current design and its corresponding 3D data */}
                         {(() => {
                           const currentDesign = designs.find(d => d.images.includes(selectedDesign));
                           const threeDVideo = currentDesign?.threeDData?.videoUrl;
                           
                           return threeDVideo ? (
-                            <div className="overflow-hidden rounded-xl border border-gray-200">
-                              <video
-                                key={threeDVideo} // Add key to force video reload when source changes
-                                autoPlay
-                                loop
-                                muted
-                                playsInline
-                                className="w-full h-full object-cover"
-                              >
-                                <source src={threeDVideo} type="video/mp4" />
-                                Your browser does not support the video tag.
-                              </video>
+                            <div>
+                              <div className="overflow-hidden rounded-xl border border-gray-200">
+                                <video
+                                  key={threeDVideo}
+                                  autoPlay
+                                  loop
+                                  muted
+                                  playsInline
+                                  controls
+                                  className="w-full h-full object-cover"
+                                >
+                                  <source src={threeDVideo} type="video/mp4" />
+                                  Your browser does not support the video tag.
+                                </video>
+                              </div>
+                              <p className="text-sm text-gray-500 mt-2 italic">
+                                Note: This is an AI-generated preview. The actual 3D model will be professionally optimized for manufacturing with cleaner geometry and proper dimensions.
+                              </p>
                             </div>
                           ) : null;
                         })()}
-                        <p className="text-sm text-gray-500 mt-2 italic">
-                          Note: This is an AI-generated preview. The actual 3D model will be professionally optimized for manufacturing with cleaner geometry and proper dimensions.
-                        </p>
                       </div>
                     )}
                   </div>

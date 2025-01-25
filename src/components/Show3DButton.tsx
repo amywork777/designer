@@ -20,7 +20,7 @@ export default function Show3DButton({
 }: Show3DButtonProps) {
   const { toast } = useToast();
 
-  const handle3DProcessing = async () => {
+  const process3DPreview = async () => {
     if (!design?.images[0]) {
       toast({
         variant: "destructive",
@@ -69,7 +69,7 @@ export default function Show3DButton({
 
   return (
     <Button 
-      onClick={handle3DProcessing}
+      onClick={process3DPreview}
       disabled={processing3D}
       className={className}
     >

@@ -271,67 +271,36 @@ export default function GetItMade() {
   const MAX_RETRIES = 3;
   const RETRY_DELAY = 1000; // 1 second delay between attempts
 
-  const handle3DProcessing = async () => {
-    if (!design) return;
-    
-    setProcessing3D(true);
-    let attempts = 0;
-    
-    while (attempts < MAX_RETRIES) {
-      try {
-        const response = await fetch('https://us-central1-taiyaki-test1.cloudfunctions.net/process_3d', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            image_url: design.images[0],
-            userId: session?.user?.id || 'default'
-          })
-        });
+  const process3DPreview = async () => {
+    if (!design || !session?.user?.id) {
+      toast({
+        title: "Error",
+        description: "Please sign in to generate 3D preview",
+        variant: "destructive"
+      });
+      return;
+    }
 
-        const rawText = await response.text();
-        console.log('Raw response:', rawText);
+    try {
+      const merged3DData = await process3DPreview(design, session.user.id, setProcessing3D);
+      
+      // Update local store with the merged data
+      updateDesign(design.id, {
+        threeDData: merged3DData,
+        has3DPreview: true
+      });
 
-        let data;
-        try {
-          data = JSON.parse(rawText);
-        } catch (e) {
-          console.error('Failed to parse response:', e);
-          throw new Error('Invalid response from server');
-        }
-
-        if (!response.ok) {
-          throw new Error(data.error || 'Server error');
-        }
-
-        if (data.success && data.video_url) {
-          updateDesign(design.id, {
-            threeDData: {
-              videoUrl: data.video_url,
-              glbUrls: data.glb_urls || [],
-              preprocessedUrl: data.preprocessed_url,
-              timestamp: data.timestamp
-            }
-          });
-
-          toast({
-            title: "Success",
-            description: "3D model generated successfully"
-          });
-          return;
-        }
-        
-        attempts++;
-        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
-        
-      } catch (error) {
-        console.error(`Attempt ${attempts + 1} failed:`, error);
-        if (attempts >= MAX_RETRIES - 1) {
-          throw error;
-        }
-        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
-      }
+      toast({
+        title: "Success",
+        description: "3D preview generated successfully"
+      });
+    } catch (error) {
+      console.error('Error getting 3D files:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load 3D preview",
+        variant: "destructive"
+      });
     }
   };
 
@@ -740,7 +709,7 @@ export default function GetItMade() {
                   </div>
                 ) : (
                   <Button
-                    onClick={handle3DProcessing}
+                    onClick={process3DPreview}
                     disabled={processing3D}
                     className="w-full mt-4 font-dm-sans font-medium text-sm rounded-[10px] bg-black text-white hover:bg-gray-800 
                       disabled:bg-gray-400 flex items-center justify-center gap-2 px-4 py-2 sm:py-3"

@@ -12,8 +12,8 @@ const FILE_PATHS = {
     `users/${userId}/designs/${designId}/original.png`,
   preview: (userId: string, designId: string) =>
     `users/${userId}/designs/${designId}/3d/preview.mp4`,
-  model: (userId: string, designId: string) =>
-    `users/${userId}/designs/${designId}/3d/model.glb`,
+  model_0: (userId: string, designId: string) =>
+    `users/${userId}/designs/${designId}/3d/model_0.glb`,
   model_1: (userId: string, designId: string) =>
     `users/${userId}/designs/${designId}/3d/model_1.glb`,
   preprocessed: (userId: string, designId: string) =>
@@ -25,7 +25,7 @@ const FILE_PATHS = {
 const CONTENT_TYPES = {
   original: 'image/png',
   preview: 'video/mp4',
-  model: 'model/gltf-binary',
+  model_0: 'model/gltf-binary',
   model_1: 'model/gltf-binary',
   preprocessed: 'image/png',
   stl: 'application/octet-stream'
@@ -34,33 +34,40 @@ const CONTENT_TYPES = {
 type FileType = keyof typeof FILE_PATHS;
 
 export async function uploadFile(
-  data: Blob | string,
+  data: string,
   userId: string,
   designId: string,
   fileType: FileType
 ): Promise<UploadResult> {
   try {
+    console.log(`📤 Uploading ${fileType} for design ${designId}`);
+    
+    // Get the correct path and content type
     const path = FILE_PATHS[fileType](userId, designId);
-    const storageRef = ref(storage, path);
     const contentType = CONTENT_TYPES[fileType];
+    const storageRef = ref(storage, path);
 
-    if (data instanceof Blob) {
-      await uploadBytes(storageRef, data, { contentType });
-    } else if (data.startsWith('blob:')) {
-      const response = await fetch(data);
-      const blob = await response.blob();
-      await uploadBytes(storageRef, blob, { contentType });
-    } else {
-      if (!data.startsWith('data:')) {
-        data = `data:${contentType};base64,${data}`;
-      }
-      await uploadString(storageRef, data, 'data_url');
-    }
+    // Handle base64 data
+    const base64Data = data.split(',')[1] || data;
+    const cleanedBase64 = base64Data
+      .replace(/-/g, '+')
+      .replace(/_/g, '/')
+      .replace(/\s/g, '');
 
+    // Upload the file
+    await uploadString(storageRef, cleanedBase64, 'base64', {
+      contentType
+    });
+
+    // Get the download URL
     const url = await getDownloadURL(storageRef);
-    return { url, path };
+
+    return {
+      url,
+      path
+    };
   } catch (error) {
-    console.error(`Error uploading ${fileType}:`, error);
+    console.error(`❌ Error uploading ${fileType}:`, error);
     throw error;
   }
 }
@@ -78,18 +85,23 @@ export function getDesignBasePath(userId: string, designId: string): string {
 // Function to delete all files for a design
 export async function deleteDesignFiles(userId: string, designId: string): Promise<void> {
   const paths = Object.values(FILE_PATHS).map(pathFn => pathFn(userId, designId));
-
+  
+  console.log(`🗑️ Deleting files for design ${designId}`);
+  
   const deletePromises = paths.map(async (path) => {
     try {
       const fileRef = ref(storage, path);
       await deleteObject(fileRef);
+      console.log(`✅ Deleted file: ${path}`);
     } catch (error: any) {
       // Ignore if file doesn't exist
       if (error.code !== 'storage/object-not-found') {
+        console.error(`❌ Error deleting file ${path}:`, error);
         throw error;
       }
     }
   });
 
   await Promise.all(deletePromises);
+  console.log(`✅ Finished deleting files for design ${designId}`);
 }

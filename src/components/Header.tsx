@@ -6,12 +6,20 @@ import { useSession, signIn, signOut } from 'next-auth/react';
 import { useState } from 'react';
 import SignInPopup from './SignInPopup';
 import { usePricing } from '@/contexts/PricingContext';
+import { useDesignStore } from '@/lib/store/designs';
 
 export default function Header() {
   const { data: session } = useSession();
   const [showSignInPopup, setShowSignInPopup] = useState(false);
   const { openPricing } = usePricing();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const { clearDesigns, loadUserDesigns } = useDesignStore();
+
+  const handleSignOut = async () => {
+    clearDesigns();
+    loadUserDesigns(null);
+    await signOut();
+  };
 
   return (
     <>
@@ -70,7 +78,7 @@ export default function Header() {
                     </span>
                   </div>
                   <button
-                    onClick={() => signOut()}
+                    onClick={handleSignOut}
                     className="py-1.5 sm:py-2 px-3 sm:px-4 bg-black text-white text-sm font-dm-sans font-medium rounded-xl 
                       hover:opacity-90 transition-all"
                   >

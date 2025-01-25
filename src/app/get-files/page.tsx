@@ -1,12 +1,16 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Download, Crown, Info as InfoIcon, Package, AlertTriangle, Loader2, Factory } from 'lucide-react';
 import { useDesignStore } from '@/lib/store/designs';
 import Link from 'next/link';
 import { useToast } from "@/components/ui/use-toast";
 import { useSession } from 'next-auth/react';
+import { get3DFilesForDesign } from '@/lib/firebase/utils';
+import { updateDesignWithThreeDData } from '@/lib/firebase/utils';
+import { process3DPreview } from '@/lib/firebase/utils';
+import { verify3DData } from '@/lib/firebase/utils';
 
 export default function GetFiles() {
   const searchParams = useSearchParams();
@@ -21,79 +25,97 @@ export default function GetFiles() {
 
   const MAX_RETRIES = 3;
 
-  const handle3DProcessing = async () => {
-    if (!design?.images[0]) return;
+  // Add useEffect to call process3DFiles
+  useEffect(() => {
+    console.log('GetFiles useEffect triggered with:', {
+      designId: design?.id,
+      userId: session?.user?.id
+    });
     
-    setProcessing3D(true);
-    let attempts = 0;
-    
-    while (attempts < MAX_RETRIES) {
-      try {
-        const response = await fetch('https://us-central1-taiyaki-test1.cloudfunctions.net/process_3d', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            image_url: design.images[0],
-            userId: 'default'  // Replace with actual user ID when auth is implemented
-          })
+    if (design?.id && session?.user?.id) {
+      console.log('Calling process3DFiles');
+      process3DFiles();
+    }
+  }, [design?.id, session?.user?.id]);
+
+  useEffect(() => {
+    console.log('Current design data:', {
+      designId: design?.id,
+      userId: session?.user?.id,
+      threeDData: design?.threeDData
+    });
+  }, [design, session?.user?.id]);
+
+  // Add this function to process the 3D files
+  const process3DFiles = async () => {
+    if (!design?.id || !session?.user?.id) return;
+
+    try {
+      console.log('Starting process3DFiles for:', design.id);
+      
+      // First try to get existing files
+      const threeDData = await get3DFilesForDesign(session.user.id, design.id);
+      
+      if (threeDData?.videoUrl) {
+        // Update local store with verified data
+        updateDesign(design.id, {
+          threeDData,
+          has3DPreview: true
         });
 
-        const rawText = await response.text();
-        console.log('Raw response:', rawText);
-
-        let data;
-        try {
-          data = JSON.parse(rawText);
-        } catch (e) {
-          console.error('Failed to parse response:', e);
-          throw new Error('Invalid response from server');
-        }
-
-        if (!response.ok) {
-          throw new Error(data.error || 'Server error');
-        }
-
-        if (data.success && data.video_url) {
-          // Update the design with 3D data
-          updateDesign(design.id, {
-            threeDData: {
-              videoUrl: data.video_url,
-              glbUrls: data.glb_urls || [],
-              preprocessedUrl: data.preprocessed_url,
-              timestamp: data.timestamp
-            }
-          });
-
-          toast({
-            title: "Success",
-            description: "3D preview generated successfully"
-          });
-          return; // Success - exit the retry loop
-        }
-        
-        attempts++;
-        await new Promise(resolve => setTimeout(resolve, 2000)); // Wait before retrying
-        
-      } catch (error) {
-        console.error('Error generating 3D:', error);
-        attempts++;
-        
-        if (attempts >= MAX_RETRIES) {
-          toast({
-            variant: "destructive",
-            title: "Error",
-            description: "Failed to generate 3D preview after multiple attempts"
-          });
-          break;
-        }
-        
-        await new Promise(resolve => setTimeout(resolve, 2000)); // Wait before retrying
+        toast({
+          title: "Success",
+          description: "3D preview loaded successfully"
+        });
+      } else {
+        // No valid data found, show processing message
+        toast({
+          title: "Processing",
+          description: "Generating 3D preview..."
+        });
       }
+    } catch (error) {
+      console.error('Error in process3DFiles:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load 3D preview",
+        variant: "destructive"
+      });
     }
-    
-    setProcessing3D(false);
+  };
+
+  const handle3DProcessing = async () => {
+    if (!design || !session?.user?.id) {
+      toast({
+        title: "Error",
+        description: "Please sign in to generate 3D preview",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    try {
+      // Use the imported process3DPreview from utils.ts
+      const merged3DData = await process3DPreview(design, session.user.id, setProcessing3D);
+      
+      // Update local store with the merged data
+      updateDesign(design.id, {
+        threeDData: merged3DData,
+        has3DPreview: true
+      });
+
+      toast({
+        title: "Success",
+        description: "3D preview generated successfully"
+      });
+    } catch (error) {
+      console.error('Error getting 3D files:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load 3D preview",
+        variant: "destructive"
+      });
+    }
   };
 
   const handleUnlockFiles = async () => {
@@ -223,63 +245,83 @@ export default function GetFiles() {
 
   return (
     <div className="container max-w-7xl mx-auto px-4 py-8">
-      {/* Design Preview Section */}
-      <div className="mb-8 bg-white rounded-xl shadow-lg p-6">
-        <h2 className="text-2xl font-bold text-gray-900 mb-4">Your Design</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          {/* Design Preview */}
-          <div className="aspect-square relative rounded-lg overflow-hidden">
-            <img
-              src={design.images[0]}
-              alt="Design Preview"
-              className="object-contain w-full h-full"
-            />
+      <div className="bg-white rounded-xl shadow-lg p-6">
+        <div className="flex justify-between items-start mb-6">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">
+              {design?.title || 'Design Preview'}
+            </h1>
           </div>
+        </div>
 
-          {/* 3D Preview if available */}
-          {design?.threeDData?.videoUrl && design?.threeDData?.timestamp && (
-            <div>
-              <h4 className="text-sm font-medium text-gray-700 mb-2">3D Preview</h4>
-              <div className="aspect-video">
+        {/* Original Design Preview */}
+        <div className="aspect-square relative rounded-lg overflow-hidden bg-gray-100 mb-8">
+          <img
+            src={design?.images[0]}
+            alt="Design Preview"
+            className="object-contain w-full h-full"
+          />
+        </div>
+
+        {/* 3D Preview Section */}
+        {design?.threeDData?.videoUrl && (
+          <div className="mt-8">
+            <h2 className="text-xl font-semibold mb-4">3D Preview</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Original Design */}
+              <div className="aspect-square relative rounded-lg overflow-hidden bg-gray-100">
+                <img
+                  src={design.images[0]}
+                  alt="Original Design"
+                  className="object-contain w-full h-full"
+                />
+              </div>
+
+              {/* Video Preview */}
+              <div className="aspect-square relative rounded-lg overflow-hidden bg-black">
                 <video 
-                  src={design.threeDData.videoUrl}
                   controls
-                  className="w-full h-full rounded-lg"
-                  preload="metadata"
+                  className="w-full h-full object-contain"
+                  poster={design.threeDData.preprocessedUrl}
                 >
+                  <source src={design.threeDData.videoUrl} type="video/mp4" />
                   Your browser does not support the video tag.
                 </video>
               </div>
-              <p className="text-sm text-gray-500 mt-2 italic">
-                Note: This is an AI-generated preview. The actual 3D model will be professionally optimized for manufacturing.
-              </p>
             </div>
-          )}
 
-          {/* Show 3D Generation Button if no video exists */}
-          {(!design?.threeDData?.videoUrl || !design?.threeDData?.timestamp) && (
-            <div>
-              <button
-                onClick={handle3DProcessing}
-                disabled={processing3D}
-                className="w-full px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 
-                  disabled:bg-gray-400 flex items-center justify-center gap-2"
-              >
-                {processing3D ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Processing...
-                  </>
-                ) : (
-                  <>
-                    <Package className="w-4 h-4" />
-                    Generate 3D Preview
-                  </>
-                )}
-              </button>
-            </div>
-          )}
-        </div>
+            {/* GLB Download Section */}
+            {design.threeDData.glbUrls?.length > 0 && (
+              <div className="mt-6">
+                <div className="flex gap-4">
+                  {design.threeDData.glbUrls.map((url, index) => (
+                    <a
+                      key={index}
+                      href={url}
+                      download={`model_${index + 1}.glb`}
+                      className="flex-1 px-4 py-2 bg-blue-500 text-white rounded-lg 
+                        hover:bg-blue-600 transition-colors text-center"
+                    >
+                      Download Model {index + 1}
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Generate 3D Button */}
+        {!design?.threeDData?.videoUrl && (
+          <button
+            onClick={handle3DProcessing}
+            disabled={processing3D}
+            className="mt-6 w-full px-4 py-2 bg-blue-500 text-white rounded-lg 
+              hover:bg-blue-600 disabled:bg-gray-400 transition-colors"
+          >
+            {processing3D ? 'Processing...' : 'Generate 3D Preview'}
+          </button>
+        )}
       </div>
 
       {/* Creative Guidelines Section */}

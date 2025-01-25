@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Sparkles, Wand, Upload, PenTool, Type, Download, Cog, Clock, ChevronRight, Edit, Loader2, History, X, FileText, Info, Package, Palette, RefreshCw, ChevronDown, ChevronUp, Check, Lock } from 'lucide-react';
+import { Sparkles, Wand, Upload, PenTool, Type, Download, Cog, Clock, ChevronRight, Edit, Loader2, History, X, FileText, Info, Package, Palette, RefreshCw, ChevronDown, ChevronUp, Check, Lock, Box } from 'lucide-react';
 import { useToast } from "@/components/ui/use-toast";
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
@@ -19,6 +19,7 @@ import { DesignFeeSection } from '@/components/DesignFeeSection';
 import { SIZES } from '@/lib/types/sizes';
 import { saveDesignToFirebase } from '@/lib/firebase/utils';
 import { MATERIAL_OPTIONS } from '@/lib/constants/materials';
+import { process3DPreview } from "@/lib/firebase/utils";
 
 const PROGRESS_STEPS = [
   {
@@ -575,12 +576,21 @@ export default function LandingPage() {
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!session?.user?.id) {
+      toast({
+        title: "Error",
+        description: "Please sign in to upload designs",
+        variant: "destructive"
+      });
+      return;
+    }
+
     const files = Array.from(e.target.files || []);
     if (files.length > 0) {
       try {
         setLoading(true);
         const file = files[0];
-
+        
         const base64Image = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
           reader.onloadend = () => {
@@ -593,14 +603,12 @@ export default function LandingPage() {
           reader.onerror = reject;
           reader.readAsDataURL(file);
         });
-
-        const userId = session?.user?.id || 'anonymous';
         
-        // Save to Firebase first
+        // Save to Firebase using UID instead of email
         const savedFirebaseDesign = await saveDesignToFirebase({
           imageUrl: base64Image,
           prompt: 'User uploaded design',
-          userId,
+          userId: session.user.id,
           mode: 'uploaded'
         });
 
@@ -612,7 +620,7 @@ export default function LandingPage() {
           prompt: 'User uploaded design'
         };
 
-        const savedDesign = await addDesign(newDesign, userId);
+        const savedDesign = await addDesign(newDesign, session.user.id);
         setSelectedDesign(savedDesign.images[0]);
         setShowAnalysis(true);
         setScrollToAnalysis(true);
@@ -622,11 +630,11 @@ export default function LandingPage() {
           description: "Design uploaded successfully!"
         });
       } catch (error) {
-        console.error('Upload failed:', error);
+        console.error('Error uploading design:', error);
         toast({
           variant: "destructive",
           title: "Error",
-          description: error instanceof Error ? error.message : "Failed to upload image"
+          description: "Failed to upload design"
         });
       } finally {
         setLoading(false);
@@ -902,110 +910,51 @@ export default function LandingPage() {
 
   // Main edit design handler
   const handleEditDesign = async () => {
-    if (!selectedDesign || !editPrompt.trim()) {
+    if (!session?.user?.email) {
       toast({
-        variant: "destructive",
         title: "Error",
-        description: "Please describe the changes you want to make"
+        description: "Please sign in to edit designs",
+        variant: "destructive"
       });
       return;
     }
+
+    const currentDesign = designs.find(d => d.images.includes(selectedDesign));
+    if (!currentDesign) return;
+
+    // Save edited version with reference
+    const savedDesign = await saveDesignToFirebase({
+      imageUrl: data.imageUrl,
+      prompt: editRequest,
+      userId: session.user.email,
+      mode: 'edited',
+      originalDesignId: currentDesign.id
+    });
+
+    console.log('Edited design saved to Firebase:', savedDesign);
+
+    // Create a new design entry
+    const newDesign = {
+      id: savedDesign.id,
+      title: 'Edited Design',
+      images: [savedDesign.imageUrl],
+      createdAt: new Date().toISOString(),
+      prompt: editRequest,
+      originalDesignId: selectedDesign,
+      editHistory: [{
+        originalImage: selectedDesign,
+        newImage: savedDesign.imageUrl,
+        description: description,
+        changes: editPrompt,
+        timestamp: new Date().toISOString()
+      }]
+    };
+
+    // Add the new design to the store using email
+    await addDesign(newDesign, session.user.email);
     
-    setIsEditing(true);
-    try {
-      // First analyze the current design
-      const description = await analyzeImageForEdit(selectedDesign);
-      console.log('Original design analysis:', description);
-      
-      // Create a prompt that combines the analysis and edit request
-      const editRequest = `3D model design: ${description}. Modification: ${editPrompt.trim()}`;
-      console.log('Edit request:', editRequest);
-
-      // Call the API to generate edited design
-      const response = await fetch('/api/generate', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          mode: 'edit',
-          prompt: editRequest,
-          image: selectedDesign,
-          style: selectedStyle
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to edit design');
-      }
-
-      const data = await response.json();
-      if (!data.success || !data.imageUrl) {
-        throw new Error('Failed to generate edited image');
-      }
-
-      // Save the edited design to Firebase
-      const userId = session?.user?.id || 'anonymous';
-      const currentDesign = designs.find(d => d.images.includes(selectedDesign));
-      if (!currentDesign) return;
-
-      // Save edited version with reference
-      const savedDesign = await saveDesignToFirebase({
-        imageUrl: data.imageUrl,
-        prompt: editRequest,
-        userId,
-        mode: 'edited',
-        originalDesignId: currentDesign.id // Clear reference to original
-      });
-
-      console.log('Edited design saved to Firebase:', savedDesign);
-
-      // Create a new design entry instead of updating the existing one
-      const newDesign = {
-        id: savedDesign.id,
-        title: 'Edited Design',
-        images: [savedDesign.imageUrl],
-        createdAt: new Date().toISOString(),
-        prompt: editRequest,
-        originalDesignId: selectedDesign, // Reference to the original design
-        editHistory: [{
-          originalImage: selectedDesign,
-          newImage: savedDesign.imageUrl,
-          description: description,
-          changes: editPrompt,
-          timestamp: new Date().toISOString()
-        }]
-      };
-
-      // Add the new design to the store
-      addDesign(newDesign, userId);
-      
-      // Update selected design and UI states
-      setSelectedDesign(savedDesign.imageUrl);
-      setShowEditDialog(false);
-      setEditPrompt('');
-      
-      // Reset analysis states since this is a new version
-      setIsDesignFinalized(false);
-      setRecommendationInfo(null);
-      setSelectedMaterial('');
-      
-      toast({
-        title: "Success",
-        description: "New design version created successfully!"
-      });
-
-    } catch (error) {
-      console.error('Error editing design:', error);
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to update design"
-      });
-    } finally {
-      setIsEditing(false);
-    }
+    // Update selected design
+    setSelectedDesign(savedDesign.imageUrl);
   };
 
   const handleManufacturingCheckout = (designId: string) => {
@@ -1668,23 +1617,35 @@ export default function LandingPage() {
   // When generated image is clicked
   const handleDesignClick = async (imageUrl: string, isReferenceImage: boolean = false) => {
     if (isReferenceImage) {
-      // Just set as selected design for reference, don't save to Firebase
       setSelectedDesign(imageUrl);
       return;
     }
 
     try {
       console.log('1. Design clicked, saving to Firebase...');
-      const tempUserId = 'temp-user-123';
+      // Use actual user ID instead of temp
+      const userId = session?.user?.id || 'temp-user-123';
       
       const savedDesign = await saveDesignToFirebase({
         imageUrl,
         prompt: designPrompt,
-        userId: tempUserId,
+        userId,
         mode: 'generated'
       });
 
       console.log('2. Design saved:', savedDesign);
+      
+      // Add the new design to local store
+      const newDesign = {
+        id: savedDesign.id,
+        images: [savedDesign.imageUrl],
+        prompt: designPrompt,
+        createdAt: new Date().toISOString(),
+        userId
+      };
+      
+      // Add to designs array
+      addDesign(newDesign, userId);
       setSelectedDesign(savedDesign.imageUrl);
       
       toast({
@@ -1701,80 +1662,47 @@ export default function LandingPage() {
     }
   };
 
-  // Update the handle3DProcessing function
   const handle3DProcessing = async () => {
-    if (!selectedDesign) return;
-    
-    setProcessing3D(true);
-    let attempts = 0;
-    
-    while (attempts < MAX_RETRIES) {
-      try {
-        const response = await fetch('https://us-central1-taiyaki-test1.cloudfunctions.net/process_3d', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            image_url: selectedDesign,
-            userId: session?.user?.id || 'default'
-          })
-        });
-
-        // Get the raw response text first for debugging
-        const rawText = await response.text();
-        console.log('Raw response:', rawText);
-
-        let data;
-        try {
-          data = JSON.parse(rawText);
-        } catch (e) {
-          console.error('Failed to parse response:', e);
-          throw new Error('Invalid response from server');
-        }
-
-        if (!response.ok) {
-          throw new Error(data.error || 'Server error');
-        }
-
-        if (data.success && data.video_url) {
-          const currentDesign = designs.find(d => d.images.includes(selectedDesign));
-          if (currentDesign) {
-            updateDesign(currentDesign.id, {
-              threeDData: {
-                videoUrl: data.video_url,
-                glbUrls: data.glb_urls || [],
-                preprocessedUrl: data.preprocessed_url,
-                timestamp: data.timestamp
-              }
-            });
-          }
-
-          toast({
-            title: "Success",
-            description: "3D model generated successfully"
-          });
-          return; // Success - exit the retry loop
-        }
-        
-      } catch (error) {
-        console.error(`Attempt ${attempts + 1} failed:`, error);
-        attempts++;
-        
-        if (attempts === MAX_RETRIES) {
-          toast({
-            variant: "destructive",
-            title: "Error",
-            description: `Failed after ${MAX_RETRIES} attempts. Please try again later.`
-          });
-        } else {
-          // Wait before retrying
-          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
-        }
-      }
+    if (!selectedDesign || !session?.user?.id) {
+      toast({
+        title: "Error",
+        description: "Please sign in to generate 3D preview",
+        variant: "destructive"
+      });
+      return;
     }
     
-    setProcessing3D(false);
+    try {
+      setProcessing3D(true);
+      const currentDesign = designs.find(d => d.images.includes(selectedDesign));
+      if (!currentDesign) {
+        throw new Error('No design found');
+      }
+
+      const merged3DData = await process3DPreview(currentDesign, session.user.id, setProcessing3D);
+      
+      if (merged3DData) {
+        // Update local store with the merged data
+        updateDesign(currentDesign.id, {
+          threeDData: merged3DData,
+          has3DPreview: true
+        });
+
+        toast({
+          title: "Success",
+          description: "3D preview generated successfully"
+        });
+      }
+    } catch (error) {
+      console.error('Error processing 3D:', error);
+      toast({
+        title: "Error",
+        description: "Failed to generate 3D preview",
+        variant: "destructive"
+      });
+    } finally {
+      setProcessing3D(false);
+    }
   };
 
   const handleReferenceImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2285,17 +2213,19 @@ export default function LandingPage() {
                         <button
                           onClick={handle3DProcessing}
                           disabled={processing3D}
-                          className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-700 font-medium flex items-center gap-1.5 text-sm transition-colors"
+                          className="flex-1 py-3 px-4 bg-white border border-gray-200 hover:border-gray-300 
+                            rounded-xl text-gray-700 font-medium flex items-center justify-center gap-2 
+                            transition-all duration-200 disabled:opacity-50"
                         >
                           {processing3D ? (
                             <>
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                              Processing...
+                              <Loader2 className="w-5 h-5 animate-spin" />
+                              <span>Processing...</span>
                             </>
                           ) : (
                             <>
-                              <Package className="w-4 h-4" />
-                              Show in 3D
+                              <Box className="w-5 h-5" />
+                              <span>Show in 3D</span>
                             </>
                           )}
                         </button>

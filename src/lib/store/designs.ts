@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import imageCompression from 'browser-image-compression';
 import { compressBase64Image } from '@/lib/utils';
-import { saveDesignToFirebase } from '@/lib/firebase/utils';
+import { saveDesignToFirebase, getUserDesigns } from '@/lib/firebase/utils';
 
 const MAX_DESIGNS = 50;
 const MAX_IMAGES_PER_DESIGN = 3;
@@ -26,16 +26,29 @@ interface Design {
 
 interface DesignStore {
   designs: Design[];
-  addDesign: (design: Omit<Design, 'id' | 'createdAt' | 'userId'>, userId: string) => Promise<Design>;
+  loadUserDesigns: (userId: string | null) => Promise<void>;
+  addDesign: (design: Design, userId: string) => void;
   updateDesign: (id: string, updates: Partial<Design>) => void;
   clearDesigns: () => void;
-  getUserDesigns: (userId: string) => Design[];
 }
 
 export const useDesignStore = create<DesignStore>()(
   persist(
     (set, get) => ({
       designs: [],
+      loadUserDesigns: async (userId: string | null) => {
+        try {
+          if (!userId) {
+            set({ designs: [] }); // Clear designs if no user
+            return;
+          }
+          const designs = await getUserDesigns(userId);
+          set({ designs }); // Set designs when user is logged in
+        } catch (error) {
+          console.error('Error loading user designs:', error);
+          // Don't clear designs on error, just log it
+        }
+      },
       addDesign: async (design, userId) => {
         try {
           // Compress images
@@ -84,17 +97,12 @@ export const useDesignStore = create<DesignStore>()(
           )
         }));
       },
-      clearDesigns: () => set({ designs: [] }),
-      getUserDesigns: (userId) => {
-        return get().designs
-          .filter(design => design.userId === userId)
-          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      clearDesigns: () => {
+        set({ designs: [] });
       }
     }),
     {
-      name: 'design-storage',
-      version: 1,
-      getStorage: () => localStorage
+      name: 'design-storage'
     }
   )
 );
