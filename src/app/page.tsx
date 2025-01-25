@@ -7,7 +7,6 @@ import { useToast } from "@/components/ui/use-toast";
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import imageCompression from 'browser-image-compression';
-import { useDesignStore } from '@/lib/store/designs';
 import { ManufacturingAnalysis } from '@/components/ManufacturingAnalysis';
 import Link from 'next/link';
 import { put } from '@vercel/blob';
@@ -19,6 +18,11 @@ import { SIZES } from '@/lib/types/sizes';
 import { saveDesignToFirebase } from '@/lib/firebase/utils';
 import { handleSignOut } from "@/lib/firebase/auth";
 import { useAuth } from "@/contexts/AuthContext";
+import { getStoragePath } from '@/lib/firebase/utils';
+import { getUserDesigns } from '@/lib/firebase/firestore';
+import type { Design } from '@/lib/firebase/firestore';
+import { uploadDesignFile } from '@/lib/firebase/storage';
+import { createDesign } from '@/lib/firebase/firestore';
 
 const PROGRESS_STEPS = [
   {
@@ -526,7 +530,6 @@ export default function LandingPage() {
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [generating, setGenerating] = useState(false);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const { designs, addDesign, clearDesigns, updateDesign, getUserDesigns } = useDesignStore();
   const [selectedDesign, setSelectedDesign] = useState<string | null>(null);
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [selectedMethod, setSelectedMethod] = useState<string>('FDM 3D Printing');
@@ -534,7 +537,7 @@ export default function LandingPage() {
   const [editPrompt, setEditPrompt] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [generatedImages, setGeneratedImages] = useState<string[]>([]);
   const { data: session, status } = useSession();
@@ -577,6 +580,7 @@ export default function LandingPage() {
   const [referenceImage, setReferenceImage] = useState<string | null>(null);
   // Add state for selected styles if not already present
   const [selectedStyles, setSelectedStyles] = useState<string[]>([]);
+  const [designs, setDesigns] = useState<Design[]>([]);
 
   const handleImageError = (imageUrl: string) => (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
     const img = e.target as HTMLImageElement;
@@ -609,7 +613,7 @@ export default function LandingPage() {
       try {
         setLoading(true);
         const file = files[0];
-
+        
         // Convert to base64
         const base64Image = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
@@ -624,42 +628,23 @@ export default function LandingPage() {
           reader.readAsDataURL(file);
         });
 
-        // Save to Firebase first
         const userId = session?.user?.id || 'anonymous';
         const savedDesign = await saveDesignToFirebase({
           imageUrl: base64Image,
-          prompt: 'User uploaded design',
           userId,
-          mode: 'uploaded'
+          mode: 'uploaded',
+          title: file.name,
+          prompt: 'User uploaded design'
         });
 
-        // Create new design for local store
-        const newDesign = {
-          id: savedDesign.id,
-          title: 'Uploaded Design',
-          images: [savedDesign.imageUrl],
-          createdAt: new Date().toISOString(),
-          prompt: ''
-        };
-
-        // Add to local store
-        addDesign(newDesign, userId);
-        
-        // Update UI
         setSelectedDesign(savedDesign.imageUrl);
-        setShowAnalysis(true);
-        setScrollToAnalysis(true);
-
-        toast({
-          title: "Success",
-          description: "Design uploaded successfully!"
-        });
+        // ... rest of your code
       } catch (error) {
         console.error('Upload failed:', error);
         toast({
           variant: "destructive",
           title: "Error",
-          description: error instanceof Error ? error.message : "Failed to upload image"
+          description: "Failed to upload design"
         });
       } finally {
         setLoading(false);
@@ -953,110 +938,39 @@ export default function LandingPage() {
 
   // Main edit design handler
   const handleEditDesign = async () => {
-    if (!selectedDesign || !editPrompt.trim()) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Please describe the changes you want to make"
-      });
-      return;
-    }
+    if (!session?.user?.id) return;
     
-    setIsEditing(true);
-    try {
-      // First analyze the current design
-      const description = await analyzeImageForEdit(selectedDesign);
-      console.log('Original design analysis:', description);
-      
-      // Create a prompt that combines the analysis and edit request
-      const editRequest = `3D model design: ${description}. Modification: ${editPrompt.trim()}`;
-      console.log('Edit request:', editRequest);
+    const currentDesign = designs.find(d => d.images.includes(selectedDesign));
+    if (!currentDesign) return;
 
-      // Call the API to generate edited design
-      const response = await fetch('/api/generate', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          mode: 'edit',
-          prompt: editRequest,
-          image: selectedDesign,
-          style: selectedStyle
-        }),
-      });
+    const savedDesign = await saveDesignToFirebase({
+      imageUrl: data.imageUrl,
+      userId: session.user.id,
+      mode: 'edited',
+      prompt: editRequest,
+      title: 'Edited Design'
+    });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to edit design');
-      }
+    // After saving to Firebase, update local state
+    const newDesign = {
+      id: savedDesign.id,
+      title: 'Edited Design',
+      images: [savedDesign.imageUrl],
+      createdAt: new Date().toISOString(),
+      prompt: editRequest,
+      originalDesignId: selectedDesign,
+      editHistory: [{
+        originalImage: selectedDesign,
+        newImage: savedDesign.imageUrl,
+        description: description,
+        changes: editPrompt,
+        timestamp: new Date().toISOString()
+      }]
+    };
 
-      const data = await response.json();
-      if (!data.success || !data.imageUrl) {
-        throw new Error('Failed to generate edited image');
-      }
-
-      // Save the edited design to Firebase
-      const userId = session?.user?.id || 'anonymous';
-      const currentDesign = designs.find(d => d.images.includes(selectedDesign));
-      if (!currentDesign) return;
-
-      // Save edited version with reference
-      const savedDesign = await saveDesignToFirebase({
-        imageUrl: data.imageUrl,
-        prompt: editRequest,
-        userId,
-        mode: 'edited',
-        originalDesignId: currentDesign.id // Clear reference to original
-      });
-
-      console.log('Edited design saved to Firebase:', savedDesign);
-
-      // Create a new design entry instead of updating the existing one
-      const newDesign = {
-        id: savedDesign.id,
-        title: 'Edited Design',
-        images: [savedDesign.imageUrl],
-        createdAt: new Date().toISOString(),
-        prompt: editRequest,
-        originalDesignId: selectedDesign, // Reference to the original design
-        editHistory: [{
-          originalImage: selectedDesign,
-          newImage: savedDesign.imageUrl,
-          description: description,
-          changes: editPrompt,
-          timestamp: new Date().toISOString()
-        }]
-      };
-
-      // Add the new design to the store
-      addDesign(newDesign, userId);
-      
-      // Update selected design and UI states
-      setSelectedDesign(savedDesign.imageUrl);
-      setShowEditDialog(false);
-      setEditPrompt('');
-      
-      // Reset analysis states since this is a new version
-      setIsDesignFinalized(false);
-      setRecommendationInfo(null);
-      setSelectedMaterial('');
-      
-      toast({
-        title: "Success",
-        description: "New design version created successfully!"
-      });
-
-    } catch (error) {
-      console.error('Error editing design:', error);
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to update design"
-      });
-    } finally {
-      setIsEditing(false);
-    }
+    // Update local state
+    setDesigns(prev => [newDesign, ...prev]);
+    setSelectedDesign(savedDesign.imageUrl);
   };
 
   const handleManufacturingCheckout = (designId: string) => {
@@ -1754,76 +1668,89 @@ export default function LandingPage() {
 
   // Update the handle3DProcessing function
   const handle3DProcessing = async () => {
-    if (!selectedDesign) return;
+    console.log('Starting handle3DProcessing');
     
-    setProcessing3D(true);
-    let attempts = 0;
+    // Get design ID from the URL path
+    const urlPath = selectedDesign.split('?')[0];
+    console.log('Looking for design with path:', urlPath);
+    console.log('Available designs:', designs.map(d => ({
+      id: d.id,
+      imagePaths: d.images.map(img => img.split('?')[0])
+    })));
     
-    try {
-      while (attempts < MAX_RETRIES) {
-        const response = await fetch('https://us-central1-taiyaki-test1.cloudfunctions.net/process_3d', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            image_url: selectedDesign,
-            userId: session?.user?.id || 'default'
-          })
-        });
-
-        const rawText = await response.text();
-        console.log('Raw response:', rawText);
-
-        let data;
-        try {
-          data = JSON.parse(rawText);
-        } catch (e) {
-          console.error('Failed to parse response:', e);
-          throw new Error('Invalid response from server');
-        }
-
-        if (!response.ok) {
-          throw new Error(data.error || 'Server error');
-        }
-
-        if (data.success && data.video_url) {
-          const currentDesign = designs.find(d => d.images.includes(selectedDesign));
-          if (currentDesign) {
-            updateDesign(currentDesign.id, {
-              threeDData: {
-                videoUrl: data.video_url,
-                glbUrls: data.glb_urls || [],
-                preprocessedUrl: data.preprocessed_url,
-                timestamp: data.timestamp
-              }
-            });
-          }
-
-          toast({
-            title: "Success",
-            description: "3D model generated successfully"
-          });
-          return; // Success - exit the retry loop
-        }
-        
-        attempts++;
-        if (attempts < MAX_RETRIES) {
-          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
-        }
-      }
-      
-      throw new Error('Failed to generate 3D model after multiple attempts');
-      
-    } catch (error) {
-      console.error('3D processing error:', error);
+    const currentDesign = designs.find(d => 
+      d.images.some(img => img.split('?')[0] === urlPath)
+    );
+    console.log('Found design:', currentDesign);
+    
+    if (!currentDesign || !currentDesign.images[0]) {
       toast({
         variant: "destructive",
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to generate 3D model"
+        description: "No design selected"
       });
+      return;
+    }
+    
+    setProcessing3D(true);
+    try {
+      console.log('Sending request to process_3d function...');
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+
+      const response = await fetch('https://us-central1-taiyaki-test1.cloudfunctions.net/process_3d', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          image_url: currentDesign.images[0],
+          userId: session?.user?.id || 'anonymous',
+          designId: currentDesign.id
+        }),
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+      console.log('Got response:', response.status);
+      
+      const data = await response.json();
+      console.log('Response data:', data);
+
+      if (data.success && data.video_url) {
+        console.log('Updating design with 3D data...');
+        await updateDesign(currentDesign.id, {
+          threeDData: {
+            videoUrl: data.video_url,
+            glbUrls: data.glb_urls || [],
+            preprocessedUrl: data.preprocessed_url,
+            timestamp: data.timestamp
+          }
+        });
+
+        toast({
+          title: "Success",
+          description: "3D preview generated successfully"
+        });
+      }
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        console.error('Request timed out');
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "Request timed out. Please try again."
+        });
+      } else {
+        console.error('3D processing error:', error);
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: error.message || "Failed to generate 3D model"
+        });
+      }
     } finally {
-      setProcessing3D(false); // Always reset the processing state
+      setProcessing3D(false);
     }
   };
 
@@ -1891,8 +1818,39 @@ export default function LandingPage() {
     console.log('Session data:', session);
   }, [session, status]);
 
-  if (status === "loading") {
-    return <div>Loading...</div>;
+  console.log('Designs detail:', designs?.map(d => ({
+    id: d?.id,
+    images: d?.images || [],
+    fullImageUrl: d?.images?.[0] || null  // Add optional chaining and fallback
+  })));
+
+  // Near the top of your component
+  console.log('Current session:', session);
+
+  useEffect(() => {
+    const loadDesigns = async () => {
+      try {
+        setLoading(true);
+        const userId = session?.user?.id || 'anonymous';
+        const userDesigns = await getUserDesigns(userId);
+        setDesigns(userDesigns);
+      } catch (error) {
+        console.error('Error loading designs:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    loadDesigns();
+  }, [session?.user?.id]);
+
+  // Only log in development and with safety checks
+  if (process.env.NODE_ENV === 'development') {
+    console.log('Designs loaded:', designs?.length || 0);
+  }
+
+  if (loading && status !== "loading") {
+    return <div>Loading designs...</div>;
   }
 
   return (
@@ -2319,7 +2277,12 @@ export default function LandingPage() {
                         </div>
                       ) : (
                         <button
-                          onClick={handle3DProcessing}
+                          onClick={() => {
+                            console.log('Button clicked');
+                            console.log('selectedDesign:', selectedDesign);
+                            console.log('designs:', designs);
+                            handle3DProcessing();
+                          }}
                           disabled={processing3D}
                           className="flex-1 py-3 px-4 bg-white border border-gray-200 hover:border-gray-300 
                             rounded-xl text-gray-700 font-medium flex items-center justify-center gap-2 

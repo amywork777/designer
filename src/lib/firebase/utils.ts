@@ -1,74 +1,41 @@
 import { db } from './config';
-import { collection, addDoc, serverTimestamp, getDoc, updateDoc, doc, query, where, getDocs, orderBy, deleteDoc } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, getDoc, updateDoc, doc, query, where, getDocs, orderBy, deleteDoc, setDoc } from 'firebase/firestore';
 import { uploadFile, getDesignBasePath, deleteDesignFiles } from './storage';
 
 interface SaveDesignProps {
   imageUrl: string;
-  prompt?: string;
   userId: string;
   mode: 'generated' | 'uploaded' | 'edited';
-  originalDesignId?: string;
-  threeDData?: string;
+  prompt?: string;
+  title?: string;
 }
 
-export async function saveDesignToFirebase({
-  imageUrl,
-  prompt,
-  userId,
-  mode,
-  originalDesignId,
-  threeDData
-}: SaveDesignProps) {
+export async function saveDesignToFirebase(props: SaveDesignProps) {
+  const { imageUrl, userId, mode, prompt, title = 'My Design' } = props;
+  
   try {
-    if (!imageUrl || !userId) {
-      throw new Error('imageUrl and userId are required');
-    }
+    // Create an empty doc to get an auto ID
+    const designRef = doc(collection(db, 'designs'));
+    const designId = designRef.id;
 
-    // Create design document first to get an ID
-    const designData = {
+    // Upload the image to v2 path
+    const uploadedUrl = await uploadFile(imageUrl, userId, designId, 'original.png');
+
+    // Create design document
+    await setDoc(designRef, {
+      id: designId,
+      title,
+      images: [uploadedUrl],
       userId,
       mode,
-      createdAt: serverTimestamp(),
-      ...(prompt && { prompt }),
-      ...(originalDesignId && { originalDesignId }),
-      ...(threeDData && { threeDData }),
-      title: prompt || 'Untitled Design',
-      status: 'active',
-      storagePath: ''
+      prompt,
+      createdAt: new Date().toISOString()
+    });
+
+    return {
+      id: designId,
+      imageUrl: uploadedUrl
     };
-
-    const designDoc = await addDoc(collection(db, 'designs'), designData);
-    const designId = designDoc.id;
-
-    try {
-      // Upload the image to the correct path
-      const { url: finalUrl, path } = await uploadFile(
-        imageUrl,
-        userId,
-        designId,
-        'original'
-      );
-
-      // Update the document with the storage path and URL
-      const updatedData = {
-        imageUrl: finalUrl,
-        storagePath: getDesignBasePath(userId, designId),
-        images: [finalUrl]
-      };
-
-      await updateDoc(doc(db, 'designs', designId), updatedData);
-
-      return {
-        id: designId,
-        ...designData,
-        ...updatedData,
-        createdAt: new Date().toISOString()
-      };
-    } catch (uploadError) {
-      // If upload fails, delete the design document
-      await deleteDoc(doc(db, 'designs', designId));
-      throw uploadError;
-    }
   } catch (error) {
     console.error('Error saving design to Firebase:', error);
     throw error;
@@ -88,7 +55,7 @@ export async function updateDesignWithThreeDData(
   try {
     const uploadTasks = [];
 
-    // Add existing upload tasks
+    // Use the new v2 paths
     if (threeDData.videoUrl) {
       uploadTasks.push(uploadFile(threeDData.videoUrl, userId, designId, 'preview'));
     }
@@ -96,12 +63,11 @@ export async function updateDesignWithThreeDData(
       uploadTasks.push(uploadFile(threeDData.glbUrls[0], userId, designId, 'model'));
     }
     if (threeDData.glbUrls?.[1]) {
-      uploadTasks.push(uploadFile(threeDData.glbUrls[1], userId, designId, 'model_1'));
+      uploadTasks.push(uploadFile(threeDData.glbUrls[1], userId, designId, 'modelAlt'));
     }
     if (threeDData.preprocessedUrl) {
       uploadTasks.push(uploadFile(threeDData.preprocessedUrl, userId, designId, 'preprocessed'));
     }
-    // Add STL upload task
     if (threeDData.stlUrl) {
       uploadTasks.push(uploadFile(threeDData.stlUrl, userId, designId, 'stl'));
     }

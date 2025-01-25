@@ -580,40 +580,17 @@ export default function LandingPage() {
       try {
         setLoading(true);
         const file = files[0];
-
-        const base64Image = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onloadend = () => {
-            if (typeof reader.result === 'string') {
-              resolve(reader.result);
-            } else {
-              reject(new Error('Failed to convert file'));
-            }
-          };
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
-
-        const userId = session?.user?.id || 'anonymous';
+        const base64Image = await preprocessImage(file);
         
-        // Save to Firebase first
-        const savedFirebaseDesign = await saveDesignToFirebase({
+        const savedDesign = await saveDesignToFirebase({
           imageUrl: base64Image,
-          prompt: 'User uploaded design',
-          userId,
-          mode: 'uploaded'
+          userId: session?.user?.id || 'anonymous',
+          mode: 'uploaded',
+          title: file.name,
+          prompt: 'User uploaded design'
         });
 
-        // Create design with Firebase ID
-        const newDesign = {
-          id: savedFirebaseDesign.id,
-          title: 'Uploaded Design',
-          images: [base64Image],
-          prompt: 'User uploaded design'
-        };
-
-        const savedDesign = await addDesign(newDesign, userId);
-        setSelectedDesign(savedDesign.images[0]);
+        setSelectedDesign(savedDesign.imageUrl);
         setShowAnalysis(true);
         setScrollToAnalysis(true);
 
@@ -626,7 +603,7 @@ export default function LandingPage() {
         toast({
           variant: "destructive",
           title: "Error",
-          description: error instanceof Error ? error.message : "Failed to upload image"
+          description: "Failed to upload design"
         });
       } finally {
         setLoading(false);
@@ -1703,7 +1680,10 @@ export default function LandingPage() {
 
   // Update the handle3DProcessing function
   const handle3DProcessing = async () => {
-    if (!selectedDesign) return;
+    console.log('handle3DProcessing called from page.tsx');
+    // Get the current design from selectedDesign
+    const currentDesign = designs.find(d => d.images.includes(selectedDesign));
+    if (!currentDesign) return;
     
     setProcessing3D(true);
     let attempts = 0;

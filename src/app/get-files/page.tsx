@@ -36,7 +36,8 @@ export default function GetFiles() {
           },
           body: JSON.stringify({
             image_url: design.images[0],
-            userId: 'default'  // Replace with actual user ID when auth is implemented
+            userId: session?.user?.id || 'default',
+            designId: design.id
           })
         });
 
@@ -213,6 +214,32 @@ export default function GetFiles() {
         variant: "destructive",
         title: "Error",
         description: error.message || `Failed to download ${type} file`
+      });
+    }
+  };
+
+  const handleSTLConversion = async (glbUrl: string) => {
+    try {
+      setGeneratingSTL(true);
+      const response = await fetch('https://us-central1-taiyaki-test1.cloudfunctions.net/convert_glb_http', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          glbUrl,
+          designId: design?.id,
+          userId: session?.user?.id || 'default'
+        })
+      });
+
+      // Rest of the function...
+    } catch (error) {
+      console.error('Error converting GLB:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.message || "Failed to convert GLB"
       });
     }
   };

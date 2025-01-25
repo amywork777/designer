@@ -54,10 +54,11 @@ Remember: Maintain pure white/transparent background and isometric perspective.`
 
     // Save to Firebase
     const savedDesign = await saveDesignToFirebase({
-      imageUrl,
-      prompt: fullPrompt,
+      imageUrl: imageUrl,
       userId,
-      mode: 'generated'
+      mode: 'generated',
+      prompt: fullPrompt,
+      title: 'AI Generated Design'
     });
 
     return NextResponse.json({ 

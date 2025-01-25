@@ -24,6 +24,7 @@ import { canDownloadFile, recordDownload, getUserSubscription } from '@/lib/fire
 import { motion } from 'framer-motion';
 import Image from 'next/image';
 import { PLAN_LIMITS } from '@/types/subscription';
+import { getUserDesigns } from '@/lib/firebase/designs';
 
 const PRICING = {
   Mini: { PLA: 20, Wood: 40, TPU: 45, Resin: 60, Aluminum: 200 },
@@ -125,8 +126,8 @@ export default function GetItMade() {
   const [isDownloadingSTL, setIsDownloadingSTL] = useState(false);
   const [isDownloadingSTEP, setIsDownloadingSTEP] = useState(false);
   const [downloadLimits, setDownloadLimits] = useState<{ stl: number; step: number } | null>(null);
+  const [design, setDesign] = useState<Design | null>(null);
 
-  const design = designs.find(d => d.id === designId);
   const selectedDesign = design?.images[0];
 
   useEffect(() => {
@@ -170,6 +171,25 @@ export default function GetItMade() {
     fetchLimits();
   }, [session?.user]);
 
+  // Load single design
+  useEffect(() => {
+    const loadDesign = async () => {
+      if (designId && session?.user?.id) {
+        const designs = await getUserDesigns(session.user.id);
+        const found = designs.find(d => d.id === designId);
+        setDesign(found || null);
+      }
+    };
+    loadDesign();
+  }, [designId, session?.user?.id]);
+
+  const handleUpdateDesign = async (updates: Partial<Design>) => {
+    if (!design?.id) return;
+    
+    await updateDesign(design.id, updates);
+    setDesign(prev => prev ? { ...prev, ...updates } : null);
+  };
+
   const handleFinalizeDesign = async () => {
     if (!design?.images[0]) return;
 
@@ -211,7 +231,7 @@ export default function GetItMade() {
         recommendedMaterials: data.recommendedMaterials
       };
 
-      updateDesign(design.id, {
+      await handleUpdateDesign({
         analysis: updatedAnalysis
       });
 
@@ -306,7 +326,7 @@ export default function GetItMade() {
         }
 
         if (data.success && data.video_url) {
-          updateDesign(design.id, {
+          await handleUpdateDesign({
             threeDData: {
               videoUrl: data.video_url,
               glbUrls: data.glb_urls || [],

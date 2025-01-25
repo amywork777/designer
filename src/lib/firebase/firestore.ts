@@ -9,7 +9,8 @@ import {
   getDocs,
   query,
   where,
-  orderBy
+  orderBy,
+  limit
 } from 'firebase/firestore';
 
 export interface Design {
@@ -44,15 +45,45 @@ export async function updateDesign(id: string, updates: Partial<Design>): Promis
 }
 
 export async function getUserDesigns(userId: string): Promise<Design[]> {
-  const q = query(
-    designsCollection,
-    where('userId', '==', userId),
-    orderBy('createdAt', 'desc')
-  );
-  
-  const querySnapshot = await getDocs(q);
-  return querySnapshot.docs.map(doc => ({
-    id: doc.id,
-    ...doc.data()
-  })) as Design[];
+  try {
+    if (!userId || userId === 'anonymous') {
+      return [];
+    }
+
+    const q = query(
+      collection(db, 'designs'),
+      where('userId', '==', userId),
+      orderBy('createdAt', 'desc'),
+      limit(50)
+    );
+    
+    const querySnapshot = await getDocs(q);
+    const designs = querySnapshot.docs.map(doc => {
+      const data = doc.data();
+      // Log the design data in development
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Design data:', {
+          id: doc.id,
+          images: data.images,
+          title: data.title,
+          createdAt: data.createdAt
+        });
+      }
+      return {
+        id: doc.id,
+        ...data
+      };
+    }) as Design[];
+
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`Loaded ${designs.length} designs for user ${userId}`);
+      console.log('Query path:', q._query.path);
+      console.log('Query filters:', q._query.filters);
+    }
+
+    return designs;
+  } catch (error) {
+    console.error('Error fetching designs:', error);
+    return [];
+  }
 } 

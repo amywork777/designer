@@ -1,14 +1,26 @@
 'use client';
 
-import { useState } from 'react';
-import { useDesignStore } from '@/lib/store/designs';
+import { useState, useEffect } from 'react';
+import { getUserDesigns } from '@/lib/firebase/firestore';
 import { ManufacturingAnalysis } from '@/components/ManufacturingAnalysis';
 import { ChevronLeft, Download, Cog, Clock } from 'lucide-react';
 import Link from 'next/link';
+import { useSession } from 'next-auth/react';
 
 export default function DesignHistory() {
-  const { designs } = useDesignStore();
+  const [designs, setDesigns] = useState<Design[]>([]);
+  const { data: session } = useSession();
   const [selectedDesign, setSelectedDesign] = useState<string | null>(null);
+
+  useEffect(() => {
+    const loadDesigns = async () => {
+      if (session?.user?.id) {
+        const userDesigns = await getUserDesigns(session.user.id);
+        setDesigns(userDesigns);
+      }
+    };
+    loadDesigns();
+  }, [session?.user?.id]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-100 via-purple-100 to-blue-50">
