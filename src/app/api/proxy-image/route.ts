@@ -2,34 +2,23 @@ import { NextResponse } from 'next/server';
 
 export async function POST(req: Request) {
   try {
-    const { imageUrl } = await req.json();
+    const { url } = await req.json();
     
-    if (!imageUrl) {
-      return NextResponse.json(
-        { success: false, error: 'No image URL provided' },
-        { status: 400 }
-      );
-    }
-
-    const response = await fetch(imageUrl);
-    if (!response.ok) {
-      throw new Error('Failed to fetch image');
-    }
-
-    const imageBuffer = await response.arrayBuffer();
-    const headers = new Headers();
-    headers.set('Content-Type', response.headers.get('Content-Type') || 'image/png');
-    headers.set('Cache-Control', 'public, max-age=31536000');
-
-    return new NextResponse(imageBuffer, {
-      status: 200,
-      headers
+    const response = await fetch(url);
+    const blob = await response.blob();
+    const arrayBuffer = await blob.arrayBuffer();
+    const base64 = Buffer.from(arrayBuffer).toString('base64');
+    const contentType = response.headers.get('content-type') || 'image/png';
+    
+    return NextResponse.json({
+      success: true,
+      dataUrl: `data:${contentType};base64,${base64}`
     });
   } catch (error) {
     console.error('Proxy error:', error);
-    return NextResponse.json(
-      { success: false, error: 'Failed to proxy image' },
-      { status: 500 }
-    );
+    return NextResponse.json({ 
+      success: false, 
+      error: 'Failed to proxy image' 
+    }, { status: 500 });
   }
 } 

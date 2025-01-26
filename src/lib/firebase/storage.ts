@@ -33,6 +33,27 @@ const CONTENT_TYPES = {
 
 type FileType = keyof typeof FILE_PATHS;
 
+async function fetchImageViaProxy(url: string): Promise<string> {
+  const response = await fetch('/api/proxy-image', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ url })
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch image via proxy');
+  }
+
+  const data = await response.json();
+  if (!data.success || !data.dataUrl) {
+    throw new Error('Invalid proxy response');
+  }
+
+  return data.dataUrl;
+}
+
 export async function uploadFile(
   data: string,
   userId: string,
@@ -42,30 +63,28 @@ export async function uploadFile(
   try {
     console.log(`📤 Uploading ${fileType} for design ${designId}`);
     
-    // Get the correct path and content type
     const path = FILE_PATHS[fileType](userId, designId);
     const contentType = CONTENT_TYPES[fileType];
     const storageRef = ref(storage, path);
 
-    // Handle base64 data
-    const base64Data = data.split(',')[1] || data;
-    const cleanedBase64 = base64Data
-      .replace(/-/g, '+')
-      .replace(/_/g, '/')
-      .replace(/\s/g, '');
+    let base64Data: string;
+    
+    if (data.startsWith('data:')) {
+      // Already a data URL
+      base64Data = data;
+    } else if (data.startsWith('http')) {
+      // Use proxy to fetch image
+      base64Data = await fetchImageViaProxy(data);
+    } else {
+      // Assume it's raw base64, add data URL prefix
+      base64Data = `data:${contentType};base64,${data}`;
+    }
 
-    // Upload the file
-    await uploadString(storageRef, cleanedBase64, 'base64', {
-      contentType
-    });
+    // Upload the full data URL
+    await uploadString(storageRef, base64Data, 'data_url');
 
-    // Get the download URL
     const url = await getDownloadURL(storageRef);
-
-    return {
-      url,
-      path
-    };
+    return { url, path };
   } catch (error) {
     console.error(`❌ Error uploading ${fileType}:`, error);
     throw error;

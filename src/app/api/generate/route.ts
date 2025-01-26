@@ -13,6 +13,13 @@ const STYLE_PROMPTS = {
   geometric: "Create a minimalist 3D model using clean geometric shapes, low-poly design, and modern aesthetic. The model should be: "
 };
 
+async function urlToBase64(url: string): Promise<string> {
+  const response = await fetch(url);
+  const arrayBuffer = await response.arrayBuffer();
+  const base64String = Buffer.from(arrayBuffer).toString('base64');
+  return `data:image/png;base64,${base64String}`;
+}
+
 export async function POST(request: Request) {
   console.log('API route called');
   
@@ -21,7 +28,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const { prompt, style } = await request.json();
+    const { prompt, style, userId } = await request.json();
     console.log('Received prompt:', prompt, 'style:', style);
 
     if (!prompt) {
@@ -42,13 +49,19 @@ export async function POST(request: Request) {
       quality: "standard",
     });
 
-    const tempUserId = 'temp-user-123';
-    
+    const imageUrl = response.data[0]?.url;
+    if (!imageUrl) {
+      throw new Error('No image generated');
+    }
+
+    // Convert to base64 using the same method as generate-design
+    const base64Image = await urlToBase64(imageUrl);
+
+    // Save to Firebase
     const savedDesign = await saveDesignToFirebase({
-      imageUrl: response.data[0].url,
+      imageUrl: base64Image,
       prompt: fullPrompt,
-      style: style, // Save the style with the design
-      userId: tempUserId,
+      userId: userId || 'anonymous',
       mode: 'generated'
     });
 
@@ -56,7 +69,7 @@ export async function POST(request: Request) {
       success: true,
       imageUrl: savedDesign.imageUrl,
       designId: savedDesign.id,
-      prompt: fullPrompt // Return the full prompt for reference
+      prompt: fullPrompt
     });
 
   } catch (error) {

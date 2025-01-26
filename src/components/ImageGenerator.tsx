@@ -4,6 +4,8 @@ import { MessageSquare, PenTool, Camera, X, Save, Sparkles, Check, Trash2 } from
 import { useDropzone } from 'react-dropzone';
 import { motion } from 'framer-motion';
 import { productStore } from '@/lib/store/products';
+import { toast } from '@/components/ui/use-toast';
+import { getServerSession } from "next-auth/next";
 
 interface GeneratedImage {
   id: string;
@@ -91,6 +93,12 @@ const ImageGenerator: React.FC<ImageGeneratorProps> = ({ onImagesGenerated }) =>
     setCurrentStep(1);
 
     try {
+      // Check if user is authenticated
+      const session = await getServerSession();
+      if (!session?.user) {
+        throw new Error('Please sign in to generate images');
+      }
+
       const response = await fetch('/api/generateImage', {
         method: 'POST',
         headers: {
@@ -98,26 +106,39 @@ const ImageGenerator: React.FC<ImageGeneratorProps> = ({ onImagesGenerated }) =>
         },
         body: JSON.stringify({
           prompt: prompt.trim(),
-          image: uploadedImage,
-          type: activeTab === 'sketch' ? 'sketch' : activeTab === 'photo' ? 'inspiration' : undefined
+          style: activeTab === 'sketch' ? 'sketch' : activeTab === 'photo' ? 'inspiration' : undefined
         }),
       });
 
       const data = await response.json();
 
       if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error('Please sign in to generate images');
+        }
         throw new Error(data.error || 'Failed to generate images');
       }
 
-      if (data.success && data.images) {
+      if (data.success && data.imageUrl) {
         setCurrentStep(4);
-        // Append new images to existing ones
-        setGeneratedImages(prevImages => [...prevImages, ...data.images]);
+        const newImage = {
+          id: data.designId,
+          url: data.imageUrl,
+          viewType: 'generated',
+          prompt: prompt.trim(),
+          actions: { edit: true, confirm: true }
+        };
+        setGeneratedImages(prev => [newImage, ...prev]);
       } else {
         throw new Error('Invalid response format');
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: err instanceof Error ? err.message : 'Failed to generate image'
+      });
     } finally {
       setLoading(false);
       setCurrentStep(0);

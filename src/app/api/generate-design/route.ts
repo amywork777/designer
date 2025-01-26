@@ -1,77 +1,121 @@
 import { NextResponse } from 'next/server';
 import OpenAI from 'openai';
-import { saveDesignToFirebase } from '@/lib/firebase/utils';
+import sharp from 'sharp';
 
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
+  apiKey: process.env.OPENAI_API_KEY || ''
 });
 
-const BASE_SETTINGS = `Create a 3D model with these specific requirements:
-- Pure white or transparent background, no environmental elements
-- Isometric view to show depth and dimension
-- Professional 3D rendering with clear details
-- Clean, modern aesthetic
-- High contrast lighting to emphasize depth
-- Sharp, clear edges and surfaces
-`;
+// Add retry logic
+async function retryOperation<T>(
+  operation: () => Promise<T>,
+  maxRetries: number = 3,
+  delay: number = 2000
+): Promise<T> {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await operation();
+    } catch (error) {
+      console.error(`Attempt ${i + 1} failed:`, error);
+      if (i === maxRetries - 1) throw error;
+      await new Promise(resolve => setTimeout(resolve, delay * (i + 1)));
+    }
+  }
+  throw new Error('Max retries reached');
+}
+
+async function processImage(imageUrl: string): Promise<string> {
+  try {
+    let imageBuffer: Buffer;
+
+    if (imageUrl.startsWith('data:image')) {
+      const base64Data = imageUrl.split(',')[1];
+      imageBuffer = Buffer.from(base64Data, 'base64');
+    } else if (imageUrl.startsWith('blob:')) {
+      const response = await fetch(imageUrl);
+      const blob = await response.blob();
+      const arrayBuffer = await blob.arrayBuffer();
+      imageBuffer = Buffer.from(arrayBuffer);
+    } else if (imageUrl.startsWith('http')) {
+      const response = await fetch(imageUrl);
+      const arrayBuffer = await response.arrayBuffer();
+      imageBuffer = Buffer.from(arrayBuffer);
+    } else {
+      throw new Error('Invalid image URL format');
+    }
+
+    // Process image: convert to PNG and remove background
+    const processedBuffer = await sharp(imageBuffer)
+      .png()
+      .resize(1024, 1024, {
+        fit: 'inside',
+        withoutEnlargement: true,
+        background: { r: 255, g: 255, b: 255, alpha: 0 }
+      })
+      .toBuffer();
+
+    return `data:image/png;base64,${processedBuffer.toString('base64')}`;
+  } catch (error) {
+    console.error('Image processing error:', error);
+    throw error;
+  }
+}
 
 export async function POST(req: Request) {
   try {
-    const { prompt, style, originalDescription, userId } = await req.json();
-
-    if (!prompt) {
-      return NextResponse.json({ error: 'Prompt is required' }, { status: 400 });
-    }
-
-    if (!userId) {
-      return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
-    }
-
-    const stylePrompt = style ? `Style: ${style}. ` : '';
-    const fullPrompt = `${BASE_SETTINGS}
-    
-${stylePrompt}
-Design requirements: ${prompt}
-
-Remember: Maintain pure white/transparent background and isometric perspective.`;
-
-    console.log('Sending prompt:', fullPrompt);
-
-    const response = await openai.images.generate({
-      model: "dall-e-3",
-      prompt: fullPrompt,
-      n: 1,
-      size: "1024x1024",
-      quality: "standard",
-      style: "natural"
-    });
-
-    const imageUrl = response.data[0]?.url;
+    const { imageUrl, prompt } = await req.json();
     
     if (!imageUrl) {
-      throw new Error('No image generated');
+      return NextResponse.json({ error: 'No image URL provided' }, { status: 400 });
     }
 
-    // Save to Firebase
-    const savedDesign = await saveDesignToFirebase({
-      imageUrl,
-      prompt: fullPrompt,
-      userId,
-      mode: 'generated'
+    const processedImageUrl = await processImage(imageUrl);
+
+    const response = await retryOperation(async () => {
+      return await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: "Focus only on describing the main 3D object. Ignore any background or environmental elements."
+          },
+          {
+            role: "user",
+            content: [
+              { 
+                type: "text", 
+                text: prompt || "Describe only the main 3D object's key visual elements, ignoring the background." 
+              },
+              { 
+                type: "image_url", 
+                image_url: { 
+                  url: processedImageUrl,
+                  detail: "high"
+                } 
+              }
+            ]
+          }
+        ],
+        max_tokens: 300
+      });
     });
 
+    const description = response.choices[0]?.message?.content;
+    
+    if (!description) {
+      throw new Error('No description generated');
+    }
+
     return NextResponse.json({ 
-      success: true, 
-      imageUrl: savedDesign.imageUrl,
-      designId: savedDesign.id,
-      prompt: fullPrompt
+      success: true,
+      description 
     });
 
   } catch (error: any) {
-    console.error('Generation error:', error);
+    console.error('Analysis error:', error);
     return NextResponse.json({ 
       success: false, 
-      error: error.message || 'Failed to generate image' 
+      error: error.message || 'Failed to analyze image' 
     }, { status: 500 });
   }
 } 

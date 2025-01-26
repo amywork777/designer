@@ -576,15 +576,6 @@ export default function LandingPage() {
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!session?.user?.id) {
-      toast({
-        title: "Error",
-        description: "Please sign in to upload designs",
-        variant: "destructive"
-      });
-      return;
-    }
-
     const files = Array.from(e.target.files || []);
     if (files.length > 0) {
       try {
@@ -604,11 +595,14 @@ export default function LandingPage() {
           reader.readAsDataURL(file);
         });
         
-        // Save to Firebase using UID instead of email
+        // Use anonymous ID if not signed in
+        const userId = session?.user?.id || 'anonymous';
+        
+        // Save to Firebase using UID or anonymous
         const savedFirebaseDesign = await saveDesignToFirebase({
           imageUrl: base64Image,
           prompt: 'User uploaded design',
-          userId: session.user.id,
+          userId: userId,
           mode: 'uploaded'
         });
 
@@ -620,7 +614,7 @@ export default function LandingPage() {
           prompt: 'User uploaded design'
         };
 
-        const savedDesign = await addDesign(newDesign, session.user.id);
+        const savedDesign = await addDesign(newDesign, userId);
         setSelectedDesign(savedDesign.images[0]);
         setShowAnalysis(true);
         setScrollToAnalysis(true);

@@ -303,53 +303,11 @@ interface GenerateResponse {
 }
 
 const handleGenerateDesign = async () => {
-  if (!session?.user?.id) {
-    toast({
-      variant: "destructive",
-      title: "Error",
-      description: "Please sign in to save designs"
-    });
-    return;
-  }
-
-  if (!designPrompt) {
-    toast({
-      variant: "destructive",
-      title: "Error",
-      description: "Please enter a design prompt"
-    });
-    return;
-  }
-
-  setGeneratingDesign(true);
   try {
-    // Build complete prompt including styles and reference image
-    let fullPrompt = designPrompt;
-
-    // Add selected styles if any
-    if (selectedStyles && selectedStyles.length > 0) {
-      fullPrompt += ` Style: ${selectedStyles.join(', ')}. `;
-    }
-
-    // Add reference image analysis if exists
-    if (inspirationImages.length > 0) {
-      const response = await fetch('/api/analyze-design', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          imageUrl: inspirationImages[0],
-          mode: 'reference'
-        })
-      });
-
-      if (response.ok) {
-        const { description } = await response.json();
-        fullPrompt = `Reference image shows: ${description}. Please create a design that: ${fullPrompt}`;
-      }
-    }
-
-    console.log('Sending complete prompt:', fullPrompt);
-
+    setGeneratingDesign(true);
+    
+    const userId = session?.user?.id || 'anonymous';
+    
     const response = await fetch('/api/generate-design', {
       method: 'POST',
       headers: {
@@ -357,8 +315,8 @@ const handleGenerateDesign = async () => {
       },
       body: JSON.stringify({
         prompt: fullPrompt,
-        style: selectedStyles[0], // Add this line to pass the style
-        userId: session?.user?.id || 'anonymous',
+        style: selectedStyles[0],
+        userId: userId,
         n: 1,
         size: "1024x1024"
       }),
@@ -370,32 +328,26 @@ const handleGenerateDesign = async () => {
 
     const data = await response.json();
     
-    if (!data.success || !data.images?.[0]) {
+    if (!data.success || !data.imageUrl) {
       throw new Error('No image generated');
     }
 
-    // Update the editor state with the new image
-    setEditorState(prev => ({
-      ...prev!,
-      imageUrl: data.images[0],
-      originalPrompt: fullPrompt
-    }));
-
-    toast({
-      title: "Success",
-      description: "Design generated successfully"
-    });
-
-    // After successful generation, save to Firebase and reload designs
+    // Save to Firebase
     const savedDesign = await saveDesignToFirebase({
-      imageUrl: data.images[0],
+      imageUrl: data.imageUrl,
       prompt: fullPrompt,
-      userId: session.user.id,
+      userId: userId,
       mode: 'generated'
     });
 
-    await loadUserDesigns(session.user.id);
+    setSelectedDesign(savedDesign.imageUrl);
+    setShowAnalysis(true);
+    setScrollToAnalysis(true);
 
+    toast({
+      title: "Success",
+      description: "Design generated successfully!"
+    });
   } catch (error) {
     console.error('Error generating design:', error);
     toast({
