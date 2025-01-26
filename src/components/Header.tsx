@@ -43,9 +43,6 @@ export default function Header() {
               <Link href="/" className="text-gray-600 hover:text-gray-900">
                 Make
               </Link>
-              <Link href="/about" className="text-gray-600 hover:text-gray-900">
-                About
-              </Link>
             </nav>
 
             {/* Push right section to the end */}
@@ -139,13 +136,6 @@ export default function Header() {
                   onClick={() => setIsMenuOpen(false)}
                 >
                   Make
-                </Link>
-                <Link
-                  href="/about"
-                  className="text-gray-600 hover:text-gray-900 py-2"
-                  onClick={() => setIsMenuOpen(false)}
-                >
-                  About
                 </Link>
                 <button
                   onClick={() => {

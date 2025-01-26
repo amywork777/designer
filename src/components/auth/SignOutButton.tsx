@@ -13,38 +13,24 @@ export function SignOutButton() {
   const router = useRouter();
   const { data: session, status, update } = useSession();
 
-  const onSignOut = async () => {
+  const onSignOut = () => {
     if (isSigningOut) return;
     
-    // Immediately update UI and local state
+    // Immediately update UI state
     setIsSigningOut(true);
     clearDesigns();
     loadUserDesigns(null);
     
-    // Immediately clear session data to update UI
-    await update({
-      ...session,
-      user: null,
-      expires: new Date(0).toISOString(),
-    });
+    // Force immediate session update
+    update(null);
     
-    toast({
-      title: "Signing out...",
-      description: "You will be redirected shortly"
-    });
+    // Redirect immediately
+    window.location.href = '/';
     
-    // Handle actual sign out in the background
-    try {
-      const { success, error } = await handleSignOut();
-      if (!success && error) {
-        console.error('Sign out error:', error);
-      }
-      // Force navigation after cleanup
-      window.location.href = '/';
-    } catch (error) {
-      console.error('Sign out error:', error);
-      window.location.href = '/';
-    }
+    // Handle cleanup in background
+    setTimeout(() => {
+      handleSignOut().catch(console.error);
+    }, 0);
   };
 
   // Don't show button if not signed in

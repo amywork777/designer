@@ -50,7 +50,7 @@ export function PricingDialog({ isOpen, onClose }: PricingDialogProps) {
                 <span>10</span>
               </div>
               <div className="flex justify-between">
-                <span>Advanced Manufacturing Quotes</span>
+                <span>Advanced Mfg Quotes</span>
                 <span>1</span>
               </div>
               <div className="flex justify-between text-gray-400">
@@ -91,7 +91,7 @@ export function PricingDialog({ isOpen, onClose }: PricingDialogProps) {
                 <span>30</span>
               </div>
               <div className="flex justify-between">
-                <span>Advanced Manufacturing Quotes</span>
+                <span>Advanced Mfg Quotes</span>
                 <span>5</span>
               </div>
               <div className="flex justify-between">
@@ -113,31 +113,30 @@ export function PricingDialog({ isOpen, onClose }: PricingDialogProps) {
                 <p className="text-gray-600 text-sm mt-1">Ideal for professionals who need full capabilities</p>
               </div>
               <div className="text-right md:text-left md:mt-6">
-                <span className="text-4xl sm:text-5xl font-bold">$99</span>
-                <span className="text-gray-600 text-sm ml-1">/month/user</span>
+                <span className="text-4xl sm:text-5xl font-bold">Contact Us</span>
               </div>
             </div>
 
             <div className="mt-6 space-y-4">
-              <div className="flex justify-between">
-                <span>3D Model Generations</span>
+              <div className="flex justify-between items-center">
+                <span className="whitespace-nowrap">3D Model Generations</span>
                 <span>Unlimited</span>
               </div>
-              <div className="flex justify-between">
-                <span>3D Printing Orders</span>
+              <div className="flex justify-between items-center">
+                <span className="whitespace-nowrap">3D Printing Orders</span>
                 <span>Unlimited</span>
               </div>
-              <div className="flex justify-between">
-                <span>STL File Downloads</span>
+              <div className="flex justify-between items-center">
+                <span className="whitespace-nowrap">STL File Downloads</span>
                 <span>Unlimited</span>
               </div>
-              <div className="flex justify-between">
-                <span>Advanced Manufacturing Quotes</span>
-                <span>10</span>
+              <div className="flex justify-between items-center">
+                <span className="whitespace-nowrap">Advanced Mfg Quotes</span>
+                <span>Custom</span>
               </div>
-              <div className="flex justify-between">
-                <span>Professional CAD Files (.STEP)</span>
-                <span>10</span>
+              <div className="flex justify-between items-center">
+                <span className="whitespace-nowrap">CAD Files (.STEP)</span>
+                <span>Custom</span>
               </div>
             </div>
 
