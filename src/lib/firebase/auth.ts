@@ -69,8 +69,6 @@ export async function signUpWithEmail(email: string, password: string) {
     }
 
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-    await sendEmailVerification(userCredential.user);
-    await upsertSubscription(userCredential.user.uid, 'free');
     
     return { user: userCredential.user, error: null };
   } catch (error: any) {

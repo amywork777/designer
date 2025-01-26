@@ -26,10 +26,34 @@ import Image from 'next/image';
 import { PLAN_LIMITS } from '@/types/subscription';
 
 const PRICING = {
-  Mini: { PLA: 20, Wood: 40, TPU: 45, Resin: 60, Aluminum: 200 },
-  Small: { PLA: 35, Wood: 55, TPU: 60, Resin: 80, Aluminum: 'contact us' },
-  Medium: { PLA: 60, Wood: 125, TPU: 150, Resin: 200, Aluminum: 'contact us' },
-  Large: { PLA: 'contact us', Wood: 'contact us', TPU: 'contact us', Resin: 'contact us', Aluminum: 'contact us' }
+  Mini: { 
+    PLA: 15, 
+    'Wood-PLA': 25, 
+    TPU: 25, 
+    Resin: 35, 
+    Aluminum: 120 
+  },
+  Small: { 
+    PLA: 25, 
+    'Wood-PLA': 35, 
+    TPU: 40, 
+    Resin: 60, 
+    Aluminum: 'contact' 
+  },
+  Medium: { 
+    PLA: 40, 
+    'Wood-PLA': 65, 
+    TPU: 85, 
+    Resin: 120, 
+    Aluminum: 'contact' 
+  },
+  Large: { 
+    PLA: 'contact', 
+    'Wood-PLA': 'contact', 
+    TPU: 'contact', 
+    Resin: 'contact', 
+    Aluminum: 'contact' 
+  }
 } as const;
 
 type SizeType = keyof typeof SIZE_OPTIONS;
@@ -125,6 +149,7 @@ export default function GetItMade() {
   const [isDownloadingSTL, setIsDownloadingSTL] = useState(false);
   const [isDownloadingSTEP, setIsDownloadingSTEP] = useState(false);
   const [downloadLimits, setDownloadLimits] = useState<{ stl: number; step: number } | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
 
   const design = designs.find(d => d.id === designId);
   const selectedDesign = design?.images[0];
@@ -449,20 +474,19 @@ export default function GetItMade() {
   }, [selectedType, selectedSize, is3DPrinting]);
 
   const calculateTotal = () => {
-    // Add a check for pricing
-    if (!pricing || !pricing.price) {
+    // Get the base price from PRICING object based on current selections
+    const basePrice = PRICING[selectedSize]?.[selectedType];
+    
+    // If basePrice is not a number (e.g., 'contact us'), return early
+    if (typeof basePrice !== 'number') {
       return 'Contact us';
     }
+
+    // Calculate total (base price × quantity)
+    const total = basePrice * quantity;
     
-    // Check if it's a "contact us" price
-    if (pricing.price === 'contact us' || typeof pricing.price !== 'string') {
-      return 'Contact us';
-    }
-    
-    const basePrice = Number(pricing.price.replace('$', ''));
-    if (isNaN(basePrice)) return 'N/A';
-    
-    return `$${(basePrice * quantity).toFixed(2)}`;
+    // Format the total with dollar sign
+    return `$${total.toFixed(2)}`;
   };
 
   const getButtonText = useCallback(() => {
@@ -493,6 +517,37 @@ export default function GetItMade() {
 
   // Debugging log
   console.log('Current selections:', { selectedType, selectedSize });
+
+  const handlePreviewClick = async () => {
+    setIsGenerating(true);
+    
+    try {
+      // If user is not signed in, still allow preview but show a prompt
+      if (!session?.user) {
+        toast({
+          title: "Sign in recommended",
+          description: "Create an account to save your designs",
+          duration: 5000,
+        });
+      }
+      
+      // Generate preview for all users
+      await generatePreview();
+      
+      // Navigate to preview page
+      router.push('/preview');
+      
+    } catch (error) {
+      console.error('Preview generation error:', error);
+      toast({
+        variant: "destructive",
+        title: "Error generating preview",
+        description: "Please try again"
+      });
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -709,15 +764,15 @@ export default function GetItMade() {
                   </div>
                 ) : (
                   <Button
-                    onClick={process3DPreview}
-                    disabled={processing3D}
+                    onClick={handlePreviewClick}
+                    disabled={isGenerating}
                     className="w-full mt-4 font-dm-sans font-medium text-sm rounded-[10px] bg-black text-white hover:bg-gray-800 
                       disabled:bg-gray-400 flex items-center justify-center gap-2 px-4 py-2 sm:py-3"
                   >
-                    {processing3D ? (
+                    {isGenerating ? (
                       <>
                         <Loader2 className="w-4 h-4 animate-spin" />
-                        Processing...
+                        Generating...
                       </>
                     ) : (
                       <>
@@ -871,13 +926,15 @@ export default function GetItMade() {
               <div className="space-y-4">
                 <div className="flex justify-between items-center text-sm">
                   <span className="text-gray-600">Base Price:</span>
-                  <span className="font-medium">{is3DPrinting() ? '$15' : 'Contact'}</span>
+                  <span className="font-medium">
+                    {typeof PRICING[selectedSize]?.[selectedType] === 'number' 
+                      ? `$${PRICING[selectedSize][selectedType]}` 
+                      : 'Contact us'}
+                  </span>
                 </div>
                 <div className="flex justify-between items-center text-sm">
                   <span className="text-gray-600">Quantity:</span>
-                  <span className="font-dm-sans font-medium">
-                    {quantity}
-                  </span>
+                  <span className="font-dm-sans font-medium">{quantity}</span>
                 </div>
                 <div className="flex justify-between items-center text-sm">
                   <span className="text-gray-600">Estimated Delivery:</span>
@@ -915,4 +972,10 @@ export default function GetItMade() {
       />
     </div>
   );
+}
+
+async function generatePreview() {
+  // Add your preview generation logic here
+  // This should work for both signed-in and unsigned users
+  return new Promise(resolve => setTimeout(resolve, 1000));
 } 
