@@ -788,9 +788,9 @@ export default function GetItMade() {
                   <Card className="bg-white rounded-[10px] shadow-sm border">
                     <CardContent className="p-4">
                       <div className="text-center space-y-4">
-                        <h3 className="text-center text-[20px] text-gray-700">
+                        <div className="text-base font-medium text-gray-900 mb-4">
                           Get STL for 3D printing and STEP for CAD editing
-                        </h3>
+                        </div>
 
                         <div className="space-y-4">
                           <div>

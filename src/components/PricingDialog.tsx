@@ -1,11 +1,74 @@
 import { X } from 'lucide-react';
+import { loadStripe } from '@stripe/stripe-js';
+import { useSession } from 'next-auth/react';
+import { useToast } from '@/components/ui/use-toast';
 
 interface PricingDialogProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
+const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
+
 export function PricingDialog({ isOpen, onClose }: PricingDialogProps) {
+  const { data: session } = useSession();
+  const { toast } = useToast();
+
+  const handleSubscription = async (priceId?: string) => {
+    if (!session?.user) {
+      toast({
+        title: "Sign in required",
+        description: "Please sign in to continue with subscription",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!priceId) {
+      // Handle free tier
+      onClose();
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/create-subscription', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          priceId,
+          userId: session.user.id,
+          email: session.user.email,
+        }),
+      });
+
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to create subscription');
+      }
+
+      const stripe = await loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
+      if (!stripe) throw new Error('Stripe failed to initialize');
+
+      const { error } = await stripe.redirectToCheckout({
+        sessionId: data.sessionId
+      });
+      
+      if (error) {
+        throw error;
+      }
+    } catch (error) {
+      console.error('Subscription error:', error);
+      toast({
+        title: "Error",
+        description: "Failed to start subscription",
+        variant: "destructive",
+      });
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -59,7 +122,10 @@ export function PricingDialog({ isOpen, onClose }: PricingDialogProps) {
               </div>
             </div>
 
-            <button className="w-full mt-6 sm:mt-8 bg-black text-white rounded-xl py-3 hover:opacity-90 transition-opacity">
+            <button 
+              onClick={() => handleSubscription()}
+              className="w-full mt-6 sm:mt-8 bg-black text-white rounded-xl py-3 hover:opacity-90 transition-opacity"
+            >
               Get Started
             </button>
           </div>
@@ -100,7 +166,10 @@ export function PricingDialog({ isOpen, onClose }: PricingDialogProps) {
               </div>
             </div>
 
-            <button className="w-full mt-6 sm:mt-8 bg-white text-black border border-gray-200 rounded-xl py-3 hover:bg-black hover:text-white hover:border-black transition-all">
+            <button 
+              onClick={() => handleSubscription('price_1QkuRJCLoBz9jXRlN4dr0KfA')}
+              className="w-full mt-6 sm:mt-8 bg-black text-white rounded-xl py-3 hover:opacity-90 transition-opacity"
+            >
               Get Started
             </button>
           </div>

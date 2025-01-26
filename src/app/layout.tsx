@@ -3,6 +3,8 @@ import { Providers } from '@/components/Providers';
 import Header from '@/components/Header';
 import { Viewport } from 'next';
 import { PricingProvider } from '@/contexts/PricingContext';
+import { headers } from 'next/headers';
+import { getServerSession } from 'next-auth';
 
 export const viewport: Viewport = {
   width: 'device-width',
@@ -24,14 +26,14 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <PricingProvider>
-          <Providers>
+        <Providers>
+          <PricingProvider>
             <Header />
             <main className="min-h-screen">
               {children}
             </main>
-          </Providers>
-        </PricingProvider>
+          </PricingProvider>
+        </Providers>
       </body>
     </html>
   );

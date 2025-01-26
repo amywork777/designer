@@ -1,50 +1,39 @@
 import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
-import { headers } from 'next/headers';
 
-const stripe = process.env.STRIPE_SECRET_KEY 
-  ? new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2023-10-16' })
-  : null;
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: '2023-10-16',
+});
+
+// Ensure we have a valid URL by constructing it properly
+function getAbsoluteUrl(path: string): string {
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3001';
+  // Remove trailing slashes from base and leading slashes from path
+  const cleanBase = baseUrl.replace(/\/+$/, '');
+  const cleanPath = path.replace(/^\/+/, '');
+  return `${cleanBase}/${cleanPath}`;
+}
 
 export async function POST(req: Request) {
-  if (!stripe) {
-    console.error('Stripe is not configured');
-    return NextResponse.json(
-      { error: 'Stripe is not configured' },
-      { status: 500 }
-    );
-  }
-
   try {
-    const body = await req.json();
-    console.log('Received request body:', body);
+    const { priceId, userId, email } = await req.json();
 
-    const { priceId, userId } = body;
-
-    if (!priceId) {
+    if (!priceId || !userId || !email) {
       return NextResponse.json(
-        { error: 'Price ID is required' },
+        { error: 'Missing required fields' },
         { status: 400 }
       );
     }
 
-    if (!userId) {
-      return NextResponse.json(
-        { error: 'User ID is required' },
-        { status: 400 }
-      );
-    }
+    const successUrl = getAbsoluteUrl('dashboard');
+    const cancelUrl = getAbsoluteUrl('');
 
-    // Get the host from headers
-    const headersList = headers();
-    const host = headersList.get('host');
-    const protocol = process.env.NODE_ENV === 'development' ? 'http' : 'https';
-    const baseUrl = `${protocol}://${host}`;
-
-    console.log('Creating Stripe session with:', { priceId, userId, baseUrl });
+    console.log('Creating session with URLs:', {
+      successUrl: `${successUrl}?session_id={CHECKOUT_SESSION_ID}`,
+      cancelUrl
+    });
 
     const session = await stripe.checkout.sessions.create({
-      mode: 'subscription',
       payment_method_types: ['card'],
       line_items: [
         {
@@ -52,8 +41,10 @@ export async function POST(req: Request) {
           quantity: 1,
         },
       ],
-      success_url: `${baseUrl}/account?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${baseUrl}/pricing`,
+      mode: 'subscription',
+      success_url: `${successUrl}?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: cancelUrl,
+      customer_email: email,
       metadata: {
         userId,
       },
@@ -62,18 +53,25 @@ export async function POST(req: Request) {
           userId,
         },
       },
-      allow_promotion_codes: true,
     });
 
-    console.log('Session created:', session.id);
-
     return NextResponse.json({ sessionId: session.id });
-  } catch (err) {
-    console.error('Stripe subscription error:', err);
+  } catch (error: any) {
+    console.error('Stripe API error:', {
+      message: error.message,
+      type: error.type,
+      code: error.code,
+      param: error.param
+    });
+    
     return NextResponse.json(
       { 
-        error: err instanceof Error ? err.message : 'Error creating subscription',
-        details: process.env.NODE_ENV === 'development' ? err : undefined
+        error: 'Failed to create subscription',
+        details: process.env.NODE_ENV === 'development' ? {
+          message: error.message,
+          code: error.code,
+          param: error.param
+        } : undefined
       },
       { status: 500 }
     );
