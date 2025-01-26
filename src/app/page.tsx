@@ -546,6 +546,7 @@ export default function LandingPage() {
   const [referenceImage, setReferenceImage] = useState<string | null>(null);
   // Add state for selected styles if not already present
   const [selectedStyles, setSelectedStyles] = useState<string[]>([]);
+  const [designPrompt, setDesignPrompt] = useState<string>('');
 
   // Load user designs when session changes
   useEffect(() => {
@@ -1784,20 +1785,23 @@ export default function LandingPage() {
     if (!file) return;
 
     try {
-      // Create local URL for preview only
       const localUrl = URL.createObjectURL(file);
-      
-      // Add to inspiration images array
       setInspirationImages(prev => [...prev, localUrl]);
 
-      // Analyze image for prompt enhancement
       try {
         const description = await analyzeImageForEdit(localUrl);
-        setDesignPrompt(prev => prev + ' ' + description);
+        setDesignPrompt(prev => {
+          const newPrompt = prev ? `${prev} ${description}` : description;
+          return newPrompt.trim();
+        });
       } catch (error) {
         console.error('Error analyzing reference image:', error);
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "Failed to analyze reference image"
+        });
       }
-
     } catch (error) {
       console.error('Error handling reference image:', error);
       toast({
