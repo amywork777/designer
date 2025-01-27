@@ -24,6 +24,8 @@ import { canDownloadFile, recordDownload, getUserSubscription } from '@/lib/fire
 import { motion } from 'framer-motion';
 import Image from 'next/image';
 import { PLAN_LIMITS } from '@/types/subscription';
+import { process3DPreview } from "@/lib/firebase/utils";
+import { updateDesign } from "@/lib/firebase/designs";
 
 const PRICING = {
   Mini: { 
@@ -296,7 +298,7 @@ export default function GetItMade() {
   const MAX_RETRIES = 3;
   const RETRY_DELAY = 1000; // 1 second delay between attempts
 
-  const process3DPreview = async () => {
+  const handle3DProcessing = async () => {
     if (!design || !session?.user?.id) {
       toast({
         title: "Error",
@@ -307,25 +309,30 @@ export default function GetItMade() {
     }
 
     try {
+      setProcessing3D(true);
       const merged3DData = await process3DPreview(design, session.user.id, setProcessing3D);
       
-      // Update local store with the merged data
-      updateDesign(design.id, {
-        threeDData: merged3DData,
-        has3DPreview: true
-      });
+      if (merged3DData) {
+        // Update local store with the merged data
+        updateDesign(design.id, {
+          threeDData: merged3DData,
+          has3DPreview: true
+        });
 
-      toast({
-        title: "Success",
-        description: "3D preview generated successfully"
-      });
+        toast({
+          title: "Success",
+          description: "3D preview generated successfully"
+        });
+      }
     } catch (error) {
-      console.error('Error getting 3D files:', error);
+      console.error('Error processing 3D:', error);
       toast({
         title: "Error",
-        description: "Failed to load 3D preview",
+        description: "Failed to generate 3D preview",
         variant: "destructive"
       });
+    } finally {
+      setProcessing3D(false);
     }
   };
 
@@ -764,12 +771,12 @@ export default function GetItMade() {
                   </div>
                 ) : (
                   <Button
-                    onClick={handlePreviewClick}
-                    disabled={isGenerating}
+                    onClick={handle3DProcessing}
+                    disabled={processing3D}
                     className="w-full mt-4 font-dm-sans font-medium text-sm rounded-[10px] bg-black text-white hover:bg-gray-800 
                       disabled:bg-gray-400 flex items-center justify-center gap-2 px-4 py-2 sm:py-3"
                   >
-                    {isGenerating ? (
+                    {processing3D ? (
                       <>
                         <Loader2 className="w-4 h-4 animate-spin" />
                         Generating...
