@@ -183,4 +183,31 @@ export async function updateUserSubscription(
   return subscriptionData;
 }
 
-export const upsertSubscription = updateUserSubscription; 
+export const upsertSubscription = updateUserSubscription;
+
+export async function getSubscription(userId: string) {
+  const subscriptionRef = doc(db, 'subscriptions', userId);
+  const subscriptionSnap = await getDoc(subscriptionRef);
+  
+  if (subscriptionSnap.exists()) {
+    return subscriptionSnap.data();
+  }
+  
+  return {
+    tier: 'free',
+    stripeSubscriptionId: null,
+    currentPeriodEnd: null
+  };
+}
+
+export async function resetUserQuotas(userId: string) {
+  const subscriptionRef = doc(db, 'subscriptions', userId);
+  
+  await setDoc(subscriptionRef, {
+    quotesUsed: 0,
+    counters: {
+      stl: 0,
+      step: 0
+    }
+  }, { merge: true });
+} 

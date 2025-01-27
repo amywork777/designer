@@ -1,8 +1,8 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
-import { getUserSubscription } from '@/lib/firebase/subscriptions';
+import { getUserSubscription, getSubscription, resetUserQuotas } from '@/lib/firebase/subscriptions';
 import type { SubscriptionTier } from '@/lib/firebase/subscriptions';
 
 interface SubscriptionContextType {
@@ -22,21 +22,38 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   const [tier, setTier] = useState<SubscriptionTier>('free');
   const [isLoading, setIsLoading] = useState(true);
 
-  const refreshSubscription = async () => {
+  const refreshSubscription = useCallback(async () => {
     if (session?.user?.id) {
-      try {
-        const sub = await getUserSubscription(session.user.id);
-        setTier(sub.tier);
-      } catch (error) {
-        console.error('Error fetching subscription:', error);
+      console.log('🔍 Fetching subscription for user:', session.user.id);
+      const newSubscription = await getSubscription(session.user.id);
+      console.log('📦 Subscription data:', newSubscription);
+      
+      setTier(newSubscription.tier);
+      console.log('🏷️ Current tier:', newSubscription.tier);
+      
+      // Only reset quotas if:
+      // 1. User just upgraded to pro (no previous stripeSubscriptionId)
+      // 2. New billing period started (currentPeriodEnd changed)
+      const shouldResetQuotas = 
+        newSubscription.tier === 'pro' && (
+          !newSubscription.stripeSubscriptionId || // New subscription
+          Date.now() > newSubscription.currentPeriodEnd * 1000 // New billing period
+        );
+      
+      if (shouldResetQuotas) {
+        console.log('🔄 Resetting quotas - new subscription or billing period');
+        await resetUserQuotas(session.user.id);
+        console.log('✅ Quotas reset complete');
       }
+    } else {
+      console.log('❌ No user ID available in session');
     }
     setIsLoading(false);
-  };
+  }, [session?.user?.id]);
 
   useEffect(() => {
     refreshSubscription();
-  }, [session]);
+  }, [session, refreshSubscription]);
 
   return (
     <SubscriptionContext.Provider value={{ tier, isLoading, refreshSubscription }}>

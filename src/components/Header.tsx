@@ -7,6 +7,7 @@ import { useState } from 'react';
 import SignInPopup from './SignInPopup';
 import { usePricing } from '@/contexts/PricingContext';
 import { useDesignStore } from '@/lib/store/designs';
+import { useSubscription } from "@/contexts/SubscriptionContext";
 
 export default function Header() {
   const { data: session } = useSession();
@@ -14,6 +15,7 @@ export default function Header() {
   const { openPricing } = usePricing();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const { clearDesigns, loadUserDesigns } = useDesignStore();
+  const { tier } = useSubscription();
 
   const handleSignOut = async () => {
     clearDesigns();
@@ -74,6 +76,11 @@ export default function Header() {
                       {session.user?.name || session.user?.email?.split('@')[0] || 'User'}
                     </span>
                   </div>
+                  {tier === 'pro' && (
+                    <span className="px-2 py-1 text-xs font-semibold text-white rounded-full bg-gradient-to-r from-indigo-500 to-purple-500">
+                      PRO
+                    </span>
+                  )}
                   <button
                     onClick={handleSignOut}
                     className="py-1.5 sm:py-2 px-3 sm:px-4 bg-black text-white text-sm font-dm-sans font-medium rounded-xl 

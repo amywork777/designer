@@ -2,6 +2,8 @@ import { X } from 'lucide-react';
 import { loadStripe } from '@stripe/stripe-js';
 import { useSession } from 'next-auth/react';
 import { useToast } from '@/components/ui/use-toast';
+import { useSubscription } from '@/contexts/SubscriptionContext';
+import { useEffect } from 'react';
 
 // Initialize Stripe once at the top level
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
@@ -14,6 +16,20 @@ interface PricingDialogProps {
 export function PricingDialog({ isOpen, onClose }: PricingDialogProps) {
   const { data: session } = useSession();
   const { toast } = useToast();
+  const { refreshSubscription } = useSubscription();
+
+  useEffect(() => {
+    // Check for success parameter in URL
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('subscription_success') === 'true') {
+      refreshSubscription();
+      toast({
+        title: "Welcome to Pro! 🎉",
+        description: "Your account has been upgraded. Enjoy unlimited downloads!",
+        duration: 5000,
+      });
+    }
+  }, []);
 
   const handleSubscription = async (priceId?: string) => {
     if (!session?.user) {
