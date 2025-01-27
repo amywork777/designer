@@ -20,7 +20,7 @@ const SUBSCRIPTIONS_COLLECTION = 'subscriptions';
 export type SubscriptionTier = 'free' | 'pro' | 'business';
 
 interface SubscriptionData {
-  tier: SubscriptionTier;
+  planType: PlanType;
   stripeSubscriptionId?: string | null;
   currentPeriodEnd?: number | null;
   updatedAt: any; // FirebaseTimestamp
@@ -31,7 +31,7 @@ interface SubscriptionData {
   quotesUsed: number;
 }
 
-// Get user's subscription
+// Get user's subscription with proper type checking
 export async function getUserSubscription(userId: string): Promise<SubscriptionData> {
   const subscriptionRef = doc(db, SUBSCRIPTIONS_COLLECTION, userId);
   const subscriptionSnap = await getDoc(subscriptionRef);
@@ -39,7 +39,7 @@ export async function getUserSubscription(userId: string): Promise<SubscriptionD
   if (!subscriptionSnap.exists()) {
     // Initialize free tier subscription
     const initialData: SubscriptionData = {
-      tier: 'free',
+      planType: 'free',  // Using planType
       stripeSubscriptionId: null,
       currentPeriodEnd: null,
       updatedAt: serverTimestamp(),
@@ -54,7 +54,15 @@ export async function getUserSubscription(userId: string): Promise<SubscriptionD
     return initialData;
   }
   
-  return subscriptionSnap.data() as SubscriptionData;
+  const data = subscriptionSnap.data();
+  // Ensure we have a valid plan type
+  const planType = (data.planType || 'free') as PlanType;
+  
+  return {
+    ...data,
+    planType,  // Ensure planType is set
+    downloadCounts: data.downloadCounts || { stl: 0, step: 0 }
+  } as SubscriptionData;
 }
 
 // Record a new download and increment counter
@@ -83,16 +91,23 @@ export async function recordDownload(
   }
 }
 
-// Check if user can download file type
+// Check download limits with proper type safety
 export async function canDownloadFile(
   userId: string, 
   fileType: 'stl' | 'step'
 ): Promise<{ allowed: boolean; remaining: number }> {
   const subscription = await getUserSubscription(userId);
-  if (!subscription) return { allowed: false, remaining: 0 };
-
-  const limits = PLAN_LIMITS[subscription.tier];
-  const currentCount = subscription.downloadCounts?.[fileType] || 0;
+  
+  // Ensure we have a valid plan type
+  const planType = (subscription?.planType || 'free') as PlanType;
+  const limits = PLAN_LIMITS[planType];
+  
+  if (!limits) {
+    console.error('Invalid plan type:', planType);
+    return { allowed: false, remaining: 0 };
+  }
+  
+  const currentCount = subscription?.downloadCounts?.[fileType] || 0;
   const limit = fileType === 'stl' ? limits.stlDownloads : limits.stepDownloads;
   
   return {
@@ -113,7 +128,7 @@ export async function updateSubscriptionPlan(
   if (!snapshot.empty) {
     const docRef = doc(db, SUBSCRIPTIONS_COLLECTION, snapshot.docs[0].id);
     await updateDoc(docRef, {
-      tier: newPlanType,
+      planType: newPlanType,
       currentPeriodStart: new Date(),
       currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
       updatedAt: serverTimestamp()
@@ -140,46 +155,30 @@ export async function resetMonthlyCounters(userId: string): Promise<void> {
   }
 }
 
+// Update subscription with proper plan type
 export async function updateUserSubscription(
   userId: string,
-  tier: SubscriptionTier,
+  planType: PlanType,
   stripeSubscriptionId: string | null,
   currentPeriodEnd: number | null
 ) {
-  console.log('📝 Starting subscription update in Firebase:', {
-    userId,
-    tier,
-    stripeSubscriptionId
-  });
-
+  console.log('📝 Updating subscription:', { userId, planType });
+  
   const subscriptionRef = doc(db, SUBSCRIPTIONS_COLLECTION, userId);
   
   const subscriptionData: Partial<SubscriptionData> = {
-    tier,
+    planType,
     stripeSubscriptionId,
     currentPeriodEnd,
     updatedAt: serverTimestamp(),
   };
 
-  if (tier === 'pro') {
-    console.log('🔄 Resetting counters for pro subscription');
-    subscriptionData.downloadCounts = {
-      stl: 0,
-      step: 0
-    };
+  if (planType === 'pro') {
+    subscriptionData.downloadCounts = { stl: 0, step: 0 };
     subscriptionData.quotesUsed = 0;
   }
 
   await setDoc(subscriptionRef, subscriptionData, { merge: true });
-  
-  console.log('✅ Firebase subscription update complete:', {
-    userId,
-    tier,
-    stripeSubscriptionId,
-    counters: subscriptionData.downloadCounts,
-    quotesUsed: subscriptionData.quotesUsed
-  });
-  
   return subscriptionData;
 }
 
@@ -194,7 +193,7 @@ export async function getSubscription(userId: string) {
   }
   
   return {
-    tier: 'free',
+    planType: 'free',
     stripeSubscriptionId: null,
     currentPeriodEnd: null
   };

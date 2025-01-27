@@ -339,11 +339,20 @@ export function needs3DProcessing(design: any): boolean {
 }
 
 export async function process3DPreview(design: any, userId: string, setProcessing3D?: (state: boolean) => void) {
-  if (!design?.images?.[0]) return;
+  if (!design?.images?.[0]) {
+    console.error('❌ No image found in design:', design);
+    return;
+  }
   
   setProcessing3D?.(true);
   
   try {
+    console.log('🚀 Starting 3D processing with:', {
+      imageUrl: design.images[0],
+      userId,
+      designId: design.id
+    });
+
     const response = await fetch('https://us-central1-taiyaki-test1.cloudfunctions.net/process_3d', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -354,20 +363,27 @@ export async function process3DPreview(design: any, userId: string, setProcessin
       })
     });
 
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('❌ Server error:', errorText);
+      throw new Error(`Server error: ${response.status} - ${errorText}`);
+    }
+
     const data = await response.json();
+    console.log('📦 Raw response:', data);
     
     if (data.success && data.video_url) {
-      console.log('Got successful response:', data);
+      console.log('✅ Got successful response:', data);
       
-      // Use URLs directly without base64 conversion
       const merged3DData = await updateDesignWithThreeDData(design.id, userId, {
         videoUrl: data.video_url,
         glbUrls: data.glb_urls || [],
         preprocessedUrl: data.preprocessed_url,
-        stlUrl: data.stl_url
+        stlUrl: data.stl_url,
+        timestamp: Date.now()
       });
 
-      console.log('Updated Firestore with:', merged3DData);
+      console.log('📝 Updated Firestore with:', merged3DData);
       return merged3DData;
     }
     throw new Error('Processing failed or no video URL returned');

@@ -1738,10 +1738,10 @@ export default function LandingPage() {
 
   // Update the handle3DProcessing function
   const handle3DProcessing = async () => {
-    if (!selectedDesign) {
+    if (!selectedDesign || !session?.user?.id) {
       toast({
         title: "Error",
-        description: "Please select a design first",
+        description: "Please sign in to generate 3D preview",
         variant: "destructive"
       });
       return;
@@ -1749,16 +1749,20 @@ export default function LandingPage() {
     
     try {
       setProcessing3D(true);
-      const userId = session?.user?.id || 'anonymous';
       const currentDesign = designs.find(d => d.images.includes(selectedDesign));
       
       if (!currentDesign) {
         throw new Error('No design found');
       }
 
-      const merged3DData = await process3DPreview(currentDesign, userId, setProcessing3D);
+      console.log('🎯 Processing design:', currentDesign);
+
+      // Use the imported process3DPreview from utils.ts
+      const merged3DData = await process3DPreview(currentDesign, session.user.id, setProcessing3D);
       
       if (merged3DData) {
+        console.log('✅ Got 3D data:', merged3DData);
+        
         // Update local store with the merged data
         updateDesign(currentDesign.id, {
           threeDData: merged3DData,
@@ -1771,10 +1775,10 @@ export default function LandingPage() {
         });
       }
     } catch (error) {
-      console.error('Error processing 3D:', error);
+      console.error('Error getting 3D files:', error);
       toast({
         title: "Error",
-        description: "Failed to generate 3D preview",
+        description: "Failed to load 3D preview",
         variant: "destructive"
       });
     } finally {

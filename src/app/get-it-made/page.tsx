@@ -23,7 +23,7 @@ import SignInPopup from '@/components/SignInPopup';
 import { canDownloadFile, recordDownload, getUserSubscription } from '@/lib/firebase/subscriptions';
 import { motion } from 'framer-motion';
 import Image from 'next/image';
-import { PLAN_LIMITS } from '@/types/subscription';
+import { PLAN_LIMITS, PlanType, UserSubscription } from '@/types/subscription';
 import { process3DPreview } from "@/lib/firebase/utils";
 import { updateDesign } from "@/lib/firebase/designs";
 
@@ -152,6 +152,7 @@ export default function GetItMade() {
   const [isDownloadingSTEP, setIsDownloadingSTEP] = useState(false);
   const [downloadLimits, setDownloadLimits] = useState<{ stl: number; step: number } | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [subscription, setSubscription] = useState(session?.user?.subscription);
 
   const design = designs.find(d => d.id === designId);
   const selectedDesign = design?.images[0];
@@ -338,13 +339,33 @@ export default function GetItMade() {
 
   const fetchDownloadLimits = async () => {
     if (session?.user) {
-      const subscription = await getUserSubscription(session.user.id);
-      if (subscription) {
-        const limits = PLAN_LIMITS[subscription.planType];
-        const used = subscription.downloadCounts || { stl: 0, step: 0 };
-        setDownloadLimits({
-          stl: limits.stlDownloads === Infinity ? Infinity : limits.stlDownloads - used.stl,
-          step: limits.stepDownloads === Infinity ? Infinity : limits.stepDownloads - used.step
+      try {
+        const subscription = await getUserSubscription(session.user.id);
+        console.log('📊 Fetching subscription:', subscription);
+        
+        if (subscription) {
+          // Use planType instead of tier
+          const planType = subscription.planType || 'free';
+          const limits = PLAN_LIMITS[planType];
+          console.log('🎯 Limits for plan:', planType, limits);
+          
+          const used = subscription.downloadCounts || { stl: 0, step: 0 };
+          console.log('📈 Used downloads:', used);
+          
+          setDownloadLimits({
+            stl: limits.stlDownloads === Infinity ? Infinity : limits.stlDownloads - used.stl,
+            step: limits.stepDownloads === Infinity ? Infinity : limits.stepDownloads - used.step
+          });
+
+          // Also update subscription state
+          setSubscription(subscription);
+        }
+      } catch (error) {
+        console.error('Error fetching download limits:', error);
+        toast({
+          title: "Error",
+          description: "Failed to fetch download limits",
+          variant: "destructive"
         });
       }
     }
@@ -366,6 +387,12 @@ export default function GetItMade() {
     }
 
     try {
+      console.log('🚀 Starting download:', {
+        type,
+        glbUrl: design.threeDData.glbUrls[0],
+        designId: design.id
+      });
+
       const { allowed, remaining } = await canDownloadFile(session.user.id, type);
       
       if (!allowed) {
@@ -383,24 +410,35 @@ export default function GetItMade() {
         setIsDownloadingSTEP(true);
       }
 
+      const payload = { 
+        glbUrl: design.threeDData.glbUrls[0],
+        designId: design.id,
+        type
+      };
+      
+      console.log('📦 Sending payload:', payload);
+
       const response = await fetch('/api/convert-glb', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          glbUrl: design.threeDData.glbUrls[0],
-          designId: design.id
-        })
+        headers: { 
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload)
       });
+
+      // Log the response status immediately
+      console.log('📥 Response status:', response.status);
 
       if (!response.ok) {
         const errorData = await response.json();
+        console.log('❌ Error data:', errorData);
         throw new Error(errorData.details || errorData.error || 'Failed to convert file');
       }
 
       const blob = await response.blob();
+      console.log('✅ Got blob:', blob);
 
       await recordDownload(session.user.id, design.id, type);
-      
       await fetchDownloadLimits();
 
       const url = window.URL.createObjectURL(blob);
@@ -420,11 +458,11 @@ export default function GetItMade() {
       });
 
     } catch (error: any) {
-      console.error(`Error downloading ${type}:`, error);
+      console.error('Error downloading', type, ':', error);
       toast({
         variant: "destructive",
         title: "Error",
-        description: error.message
+        description: error.message || `Failed to download ${type.toUpperCase()} file`
       });
     } finally {
       if (type === 'stl') {
@@ -554,6 +592,33 @@ export default function GetItMade() {
     } finally {
       setIsGenerating(false);
     }
+  };
+
+  // Update the display of remaining downloads
+  const getDownloadLimitDisplay = (type: 'stl' | 'step') => {
+    // If no subscription exists, use free plan limits
+    if (!subscription) {
+      return `${PLAN_LIMITS['free'][type === 'stl' ? 'stlDownloads' : 'stepDownloads']} downloads available`;
+    }
+
+    // Ensure we have a valid plan type, default to 'free'
+    const planType = subscription.planType || 'free';
+    
+    // Get the limits for this plan
+    const planLimits = PLAN_LIMITS[planType as keyof typeof PLAN_LIMITS] || PLAN_LIMITS['free'];
+    
+    // Get the specific limit for this file type
+    const limit = type === 'stl' ? planLimits.stlDownloads : planLimits.stepDownloads;
+    
+    // Get used downloads with fallback to 0
+    const used = subscription.downloadCounts?.[type] || 0;
+    
+    // Return appropriate message
+    if (limit === Infinity) {
+      return 'Unlimited downloads available';
+    }
+    
+    return `${limit - used}/${limit} downloads remaining this month`;
   };
 
   if (isLoading) {
@@ -821,10 +886,7 @@ export default function GetItMade() {
                             </Button>
                             {session?.user && downloadLimits && (
                               <div className="text-sm text-center text-gray-600 mt-2">
-                                {downloadLimits.stl === Infinity ? 
-                                  'Unlimited downloads available' : 
-                                  `${downloadLimits.stl}/${PLAN_LIMITS[session?.user.planType || 'free'].stlDownloads} downloads remaining this month`
-                                }
+                                {getDownloadLimitDisplay('stl')}
                               </div>
                             )}
                           </div>
@@ -850,10 +912,7 @@ export default function GetItMade() {
                             </Button>
                             {session?.user && downloadLimits && (
                               <div className="text-sm text-center text-gray-600 mt-2">
-                                {downloadLimits.step === Infinity ? 
-                                  'Unlimited downloads available' : 
-                                  `${downloadLimits.step}/${PLAN_LIMITS[session?.user.planType || 'free'].stepDownloads} downloads remaining this month`
-                                }
+                                {getDownloadLimitDisplay('step')}
                               </div>
                             )}
                           </div>
