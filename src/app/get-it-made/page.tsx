@@ -300,10 +300,10 @@ export default function GetItMade() {
   const RETRY_DELAY = 1000; // 1 second delay between attempts
 
   const handle3DProcessing = async () => {
-    if (!design || !session?.user?.id) {
+    if (!design) {
       toast({
         title: "Error",
-        description: "Please sign in to generate 3D preview",
+        description: "No design selected",
         variant: "destructive"
       });
       return;
@@ -311,7 +311,10 @@ export default function GetItMade() {
 
     try {
       setProcessing3D(true);
-      const merged3DData = await process3DPreview(design, session.user.id, setProcessing3D);
+      // Use anonymous for userId if not signed in
+      const userId = session?.user?.id || 'anonymous';
+      
+      const merged3DData = await process3DPreview(design, userId, setProcessing3D);
       
       if (merged3DData) {
         // Update local store with the merged data
