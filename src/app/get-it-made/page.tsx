@@ -881,12 +881,9 @@ export default function GetItMade() {
                                 </>
                               )}
                             </Button>
-                            {session?.user && downloadLimits && (
+                            {!session?.user && (
                               <div className="text-sm text-center text-gray-600 mt-2">
-                                {downloadLimits.stl === Infinity ? 
-                                  'Unlimited downloads available' : 
-                                  `${downloadLimits.stl}/${PLAN_LIMITS[session?.user.planType || 'free'].stlDownloads} downloads remaining this month`
-                                }
+                                Sign in to download files
                               </div>
                             )}
                           </div>
@@ -906,16 +903,13 @@ export default function GetItMade() {
                               ) : (
                                 <>
                                   <FileDown className="mr-2 h-4 w-4" />
-                                  Download STEP File
+                                  Purchase STEP File - $20 (24-48h delivery)
                                 </>
                               )}
                             </Button>
-                            {session?.user && downloadLimits && (
+                            {!session?.user && (
                               <div className="text-sm text-center text-gray-600 mt-2">
-                                {downloadLimits.step === Infinity ? 
-                                  'Unlimited downloads available' : 
-                                  `${downloadLimits.step}/${PLAN_LIMITS[session?.user.planType || 'free'].stepDownloads} downloads remaining this month`
-                                }
+                                Sign in to purchase files
                               </div>
                             )}
                           </div>

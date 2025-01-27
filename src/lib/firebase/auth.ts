@@ -134,15 +134,21 @@ export async function handlePasswordReset(email: string) {
   }
 }
 
-export async function handleSignOut() {
+export const handleSignOut = async () => {
   try {
-    await Promise.all([
-      firebaseSignOut(auth),
-      nextAuthSignOut()
-    ]);
-    return { success: true, error: null };
-  } catch (error: any) {
-    console.error('Sign out error:', error);
-    return handleAuthError(error);
+    // Get the current path before signing out
+    const currentPath = window.location.pathname;
+    
+    // Sign out from both NextAuth and Firebase
+    await signOut({ 
+      redirect: false // Prevent NextAuth's default redirect
+    });
+    
+    // Redirect to the same path
+    window.location.href = currentPath;
+    
+  } catch (error) {
+    console.error('Error signing out:', error);
+    throw error;
   }
-}
+};

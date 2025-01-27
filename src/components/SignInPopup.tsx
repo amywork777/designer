@@ -11,72 +11,30 @@ interface SignInPopupProps {
   onClose: () => void;
 }
 
-interface AuthError {
-  code: string;
-  message: string;
-  suggestion?: 'signup' | 'retry';
-}
-
-interface AuthResult {
-  user: any;
-  error: AuthError | null;
-}
-
-// Add this helper function to get user-friendly error messages
-function getAuthErrorMessage(error: any): string {
-  // Firebase error codes
-  if (typeof error.code === 'string') {
-    switch (error.code) {
-      case 'auth/invalid-credential':
-        return 'Invalid email or password. Please check your credentials and try again.';
-      case 'auth/invalid-email':
-        return 'Please enter a valid email address';
-      case 'auth/user-disabled':
-        return 'This account has been disabled';
-      case 'auth/user-not-found':
-        return 'No account found with this email. Please sign up first.';
-      case 'auth/wrong-password':
-        return 'Incorrect password';
-      case 'auth/email-already-in-use':
-        return 'An account already exists with this email';
-      case 'auth/weak-password':
-        return 'Password should be at least 6 characters';
-      case 'auth/network-request-failed':
-        return 'Network error - please check your connection';
-      case 'auth/too-many-requests':
-        return 'Too many attempts - please try again later';
-      default:
-        console.error('Unhandled auth error code:', error.code);
-        return 'An error occurred during authentication. Please try again.';
-    }
-  }
-  
-  // NextAuth or other errors
-  console.error('Non-Firebase auth error:', error);
-  return error.message || 'An unexpected error occurred';
-}
-
 export default function SignInPopup({ isOpen, onClose }: SignInPopupProps) {
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [verifyPassword, setVerifyPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [authResult, setAuthResult] = useState<AuthResult | null>(null);
   const { toast } = useToast();
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsLoading(true);
     setErrorMessage(null);
-    setAuthResult(null);
+    
+    if (isSignUp && password !== verifyPassword) {
+      setErrorMessage("Passwords don't match");
+      return;
+    }
+
+    setIsLoading(true);
 
     try {
       const result = isSignUp 
         ? await signUpWithEmail(email, password)
         : await signInWithEmail(email, password);
-      
-      setAuthResult(result);
 
       if (result.error) {
         setErrorMessage(result.error.message);
@@ -84,7 +42,6 @@ export default function SignInPopup({ isOpen, onClose }: SignInPopupProps) {
         return;
       }
 
-      // If Firebase succeeds, do NextAuth
       const nextAuthResult = await signIn('credentials', {
         email,
         password,
@@ -111,48 +68,11 @@ export default function SignInPopup({ isOpen, onClose }: SignInPopupProps) {
     }
   };
 
-  // Add password validation for sign up
-  const validatePassword = (password: string): string | null => {
-    if (password.length < 6) {
-      return 'Password must be at least 6 characters';
-    }
-    return null;
-  };
-
-  // Add email validation
-  const validateEmail = (email: string): string | null => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      return 'Please enter a valid email address';
-    }
-    return null;
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    // Validate inputs before submission
-    const emailError = validateEmail(email);
-    if (emailError) {
-      toast({
-        variant: "destructive",
-        title: "Invalid Email",
-        description: emailError
-      });
-      return;
-    }
-
-    const passwordError = validatePassword(password);
-    if (passwordError) {
-      toast({
-        variant: "destructive",
-        title: "Invalid Password",
-        description: passwordError
-      });
-      return;
-    }
-
-    await handleAuth(e);
+  const handleToggleSignUp = () => {
+    setIsSignUp(!isSignUp);
+    setPassword('');
+    setVerifyPassword('');
+    setErrorMessage(null);
   };
 
   if (!isOpen) return null;
@@ -183,14 +103,6 @@ export default function SignInPopup({ isOpen, onClose }: SignInPopupProps) {
             <p className="text-red-600 text-center text-sm font-medium">
               {errorMessage}
             </p>
-            {authResult?.error?.suggestion === 'signup' && (
-              <button
-                onClick={() => setIsSignUp(true)}
-                className="mt-2 text-blue-600 hover:text-blue-800 text-sm font-medium underline block w-full text-center"
-              >
-                Create an account
-              </button>
-            )}
           </div>
         )}
 
@@ -215,9 +127,20 @@ export default function SignInPopup({ isOpen, onClose }: SignInPopupProps) {
               className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 
                 font-inter placeholder:text-gray-400"
             />
+            {isSignUp && (
+              <input
+                type="password"
+                value={verifyPassword}
+                onChange={(e) => setVerifyPassword(e.target.value)}
+                placeholder="Verify password"
+                required
+                minLength={6}
+                className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 
+                  font-inter placeholder:text-gray-400"
+              />
+            )}
           </div>
 
-          {/* Add password requirements hint for sign up */}
           {isSignUp && (
             <p className="text-sm text-gray-500 mt-2">
               Password must be at least 6 characters long
@@ -240,7 +163,7 @@ export default function SignInPopup({ isOpen, onClose }: SignInPopupProps) {
           <div className="text-center">
             <button
               type="button"
-              onClick={() => setIsSignUp(!isSignUp)}
+              onClick={handleToggleSignUp}
               className="text-gray-600 hover:text-gray-900 font-dm-sans font-medium transition-colors"
             >
               {isSignUp 
