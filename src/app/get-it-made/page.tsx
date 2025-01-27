@@ -303,7 +303,11 @@ export default function GetItMade() {
     if (!design) {
       toast({
         title: "Error",
+<<<<<<< HEAD
         description: "No design selected",
+=======
+        description: "Please select a design first",
+>>>>>>> temp-changes
         variant: "destructive"
       });
       return;
@@ -311,7 +315,10 @@ export default function GetItMade() {
 
     try {
       setProcessing3D(true);
+<<<<<<< HEAD
       // Use anonymous for userId if not signed in
+=======
+>>>>>>> temp-changes
       const userId = session?.user?.id || 'anonymous';
       
       const merged3DData = await process3DPreview(design, userId, setProcessing3D);

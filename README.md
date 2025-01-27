@@ -37,7 +37,7 @@ An AI-powered platform for designing and iterating on product concepts. Generate
    npm run dev
    ```
 
-4. Open [http://localhost:3000](http://localhost:3000) in your browser.
+4. Open [http://localhost:3002](http://localhost:3002) in your browser.
 
 ## Deployment
 

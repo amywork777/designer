@@ -1,40 +1,54 @@
-import { signOut, useSession } from "next-auth/react";
+import { signOut } from "next-auth/react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useDesignStore } from '@/lib/store/designs';
 import { handleSignOut } from "@/lib/firebase/auth";
 import { useToast } from "@/components/ui/use-toast";
-import { useRouter } from "next/navigation";
+import { cleanupUserData } from "@/lib/firebase/utils";
+import { useSession } from "next-auth/react";
 
 export function SignOutButton() {
   const [isSigningOut, setIsSigningOut] = useState(false);
   const { clearDesigns, loadUserDesigns } = useDesignStore();
   const { toast } = useToast();
-  const router = useRouter();
-  const { data: session, status, update } = useSession();
+  const { data: session } = useSession();
 
-  const onSignOut = () => {
+  const onSignOut = async () => {
     if (isSigningOut) return;
     
-    // Immediately update UI state
     setIsSigningOut(true);
-    clearDesigns();
-    loadUserDesigns(null);
     
-    // Force immediate session update
-    update(null);
-    
-    // Redirect immediately
-    window.location.href = '/';
-    
-    // Handle cleanup in background
-    setTimeout(() => {
-      handleSignOut().catch(console.error);
-    }, 0);
-  };
+    try {
+      // Clean up user data first
+      if (session?.user?.id) {
+        await cleanupUserData(session.user.id);
+      }
 
-  // Don't show button if not signed in
-  if (status !== 'authenticated') return null;
+      // Clear local data
+      clearDesigns();
+      loadUserDesigns(null);
+      
+      // Clear any cached files or data
+      localStorage.clear();
+      sessionStorage.clear();
+      
+      // Sign out from Firebase
+      await handleSignOut();
+      
+      // Sign out from NextAuth
+      await signOut({
+        callbackUrl: new URL('/', window.location.origin).toString(),
+      });
+    } catch (error) {
+      console.error('Sign out error:', error);
+      toast({
+        variant: "destructive",
+        title: "Error signing out",
+        description: "Please try again"
+      });
+      setIsSigningOut(false);
+    }
+  };
 
   return (
     <Button 

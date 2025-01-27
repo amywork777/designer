@@ -599,23 +599,29 @@ export default function LandingPage() {
           reader.onerror = reject;
           reader.readAsDataURL(file);
         });
-
-        if (!session?.user?.id) {
-          throw new Error('Please sign in to save designs');
-        }
-
+        
+        // Use anonymous ID if not signed in
+        const userId = session?.user?.id || 'anonymous';
+        
         // Save to Firebase
-        const savedDesign = await saveDesignToFirebase({
+        const savedFirebaseDesign = await saveDesignToFirebase({
           imageUrl: base64Image,
           prompt: 'User uploaded design',
-          userId: session.user.id,
+          userId: userId,
           mode: 'uploaded'
         });
 
-        // Reload designs from Firebase
-        await loadUserDesigns(session.user.id);
+        // Create design with Firebase ID
+        const newDesign = {
+          id: savedFirebaseDesign.id,
+          title: 'Uploaded Design',
+          images: [base64Image],
+          prompt: 'User uploaded design',
+          createdAt: new Date().toISOString()
+        };
 
-        setSelectedDesign(savedDesign.imageUrl);
+        const savedDesign = await addDesign(newDesign, userId);
+        setSelectedDesign(savedDesign.images[0]);
         setShowAnalysis(true);
         setScrollToAnalysis(true);
 
@@ -624,11 +630,11 @@ export default function LandingPage() {
           description: "Design uploaded successfully!"
         });
       } catch (error) {
-        console.error('Upload failed:', error);
+        console.error('Upload error:', error);
         toast({
           variant: "destructive",
           title: "Error",
-          description: error instanceof Error ? error.message : "Failed to upload image"
+          description: "Failed to upload design. Please try again."
         });
       } finally {
         setLoading(false);
@@ -661,7 +667,6 @@ export default function LandingPage() {
           return;
         }
 
-        // Convert to base64
         const base64Image = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
           reader.onloadend = () => {
@@ -675,8 +680,9 @@ export default function LandingPage() {
           reader.readAsDataURL(file);
         });
 
-        // Save to Firebase first
+        // Use anonymous ID if not signed in
         const userId = session?.user?.id || 'anonymous';
+        
         const savedDesign = await saveDesignToFirebase({
           imageUrl: base64Image,
           prompt: 'User uploaded design',
@@ -684,20 +690,16 @@ export default function LandingPage() {
           mode: 'uploaded'
         });
 
-        // Create new design for local store
         const newDesign = {
           id: savedDesign.id,
           title: 'Uploaded Design',
-          images: [savedDesign.imageUrl],
-          createdAt: new Date().toISOString(),
-          prompt: ''
+          images: [base64Image],
+          prompt: 'User uploaded design',
+          createdAt: new Date().toISOString()
         };
 
-        // Add to local store
-        addDesign(newDesign, userId);
-        
-        // Update UI
-        setSelectedDesign(savedDesign.imageUrl);
+        await addDesign(newDesign, userId);
+        setSelectedDesign(base64Image);
         setShowAnalysis(true);
         setScrollToAnalysis(true);
 
@@ -706,11 +708,11 @@ export default function LandingPage() {
           description: "Design uploaded successfully!"
         });
       } catch (error) {
-        console.error('Upload failed:', error);
+        console.error('Drop error:', error);
         toast({
           variant: "destructive",
           title: "Error",
-          description: error instanceof Error ? error.message : "Failed to upload image"
+          description: "Failed to upload design. Please try again."
         });
       } finally {
         setLoading(false);
@@ -1750,12 +1752,42 @@ export default function LandingPage() {
     try {
       setProcessing3D(true);
       const userId = session?.user?.id || 'anonymous';
-      const currentDesign = designs.find(d => d.images.includes(selectedDesign));
+      
+      // Find the current design by checking both the ID and images array
+      const currentDesign = designs.find(d => 
+        d.id === selectedDesign || 
+        d.images.includes(selectedDesign)
+      );
       
       if (!currentDesign) {
-        throw new Error('No design found');
-      }
+        // Create a temporary design object if not found
+        const tempDesign = {
+          id: 'temp-' + Date.now(),
+          images: [selectedDesign],
+          title: 'Temporary Design',
+          prompt: 'User uploaded design',
+          createdAt: new Date().toISOString()
+        };
+        
+        const merged3DData = await process3DPreview(tempDesign, userId, setProcessing3D);
+        
+        if (merged3DData) {
+          toast({
+            title: "Success",
+            description: "3D preview generated successfully"
+          });
+        }
+      } else {
+        const merged3DData = await process3DPreview(currentDesign, userId, setProcessing3D);
+        
+        if (merged3DData) {
+          // Update local store with the merged data
+          updateDesign(currentDesign.id, {
+            threeDData: merged3DData,
+            has3DPreview: true
+          });
 
+<<<<<<< HEAD
       console.log('🎯 Processing design:', currentDesign);
 
       // Use the imported process3DPreview from utils.ts
@@ -1774,6 +1806,13 @@ export default function LandingPage() {
           title: "Success",
           description: "3D preview generated successfully"
         });
+=======
+          toast({
+            title: "Success",
+            description: "3D preview generated successfully"
+          });
+        }
+>>>>>>> temp-changes
       }
     } catch (error) {
       console.error('Error processing 3D:', error);

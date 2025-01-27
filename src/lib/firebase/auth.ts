@@ -136,10 +136,8 @@ export async function handlePasswordReset(email: string) {
 
 export async function handleSignOut() {
   try {
-    await Promise.all([
-      firebaseSignOut(auth),
-      nextAuthSignOut()
-    ]);
+    // Only sign out from Firebase here
+    await firebaseSignOut(auth);
     return { success: true, error: null };
   } catch (error: any) {
     console.error('Sign out error:', error);
