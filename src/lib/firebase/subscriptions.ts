@@ -9,26 +9,40 @@ import {
   doc,
   serverTimestamp,
   increment,
-  arrayUnion 
+  arrayUnion,
+  setDoc,
+  getDoc
 } from 'firebase/firestore';
 import { PLAN_LIMITS, PlanType, UserSubscription } from '@/types/subscription';
 
 const SUBSCRIPTIONS_COLLECTION = 'subscriptions';
 
+export type SubscriptionTier = 'free' | 'pro' | 'business';
+
+interface SubscriptionData {
+  tier: SubscriptionTier;
+  stripeSubscriptionId?: string | null;
+  currentPeriodEnd?: number | null;
+  updatedAt: any; // FirebaseTimestamp
+  downloadCounts: {
+    stl: number;
+    step: number;
+  };
+  quotesUsed: number;
+}
+
 // Get user's subscription
-export async function getUserSubscription(userId: string): Promise<UserSubscription | null> {
-  const subscriptionRef = collection(db, SUBSCRIPTIONS_COLLECTION);
-  const q = query(subscriptionRef, where('userId', '==', userId));
-  const snapshot = await getDocs(q);
+export async function getUserSubscription(userId: string): Promise<SubscriptionData> {
+  const subscriptionRef = doc(db, SUBSCRIPTIONS_COLLECTION, userId);
+  const subscriptionSnap = await getDoc(subscriptionRef);
   
-  if (snapshot.empty) {
-    // Create a free tier subscription if none exists
-    const newSubscription: UserSubscription = {
-      userId,
-      planType: 'free',
-      currentPeriodStart: new Date(),
-      currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-      downloads: [],
+  if (!subscriptionSnap.exists()) {
+    // Initialize free tier subscription
+    const initialData: SubscriptionData = {
+      tier: 'free',
+      stripeSubscriptionId: null,
+      currentPeriodEnd: null,
+      updatedAt: serverTimestamp(),
       downloadCounts: {
         stl: 0,
         step: 0
@@ -36,31 +50,11 @@ export async function getUserSubscription(userId: string): Promise<UserSubscript
       quotesUsed: 0
     };
     
-    await addDoc(subscriptionRef, {
-      ...newSubscription,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
-    });
-    
-    return newSubscription;
+    await setDoc(subscriptionRef, initialData);
+    return initialData;
   }
   
-  const data = snapshot.docs[0].data();
-  
-  // Ensure downloadCounts exists even for existing subscriptions
-  if (!data.downloadCounts) {
-    data.downloadCounts = {
-      stl: 0,
-      step: 0
-    };
-    // Update the document with default counts
-    await updateDoc(snapshot.docs[0].ref, {
-      downloadCounts: data.downloadCounts,
-      updatedAt: serverTimestamp()
-    });
-  }
-  
-  return data as UserSubscription;
+  return subscriptionSnap.data() as SubscriptionData;
 }
 
 // Record a new download and increment counter
@@ -97,7 +91,7 @@ export async function canDownloadFile(
   const subscription = await getUserSubscription(userId);
   if (!subscription) return { allowed: false, remaining: 0 };
 
-  const limits = PLAN_LIMITS[subscription.planType];
+  const limits = PLAN_LIMITS[subscription.tier];
   const currentCount = subscription.downloadCounts?.[fileType] || 0;
   const limit = fileType === 'stl' ? limits.stlDownloads : limits.stepDownloads;
   
@@ -119,7 +113,7 @@ export async function updateSubscriptionPlan(
   if (!snapshot.empty) {
     const docRef = doc(db, SUBSCRIPTIONS_COLLECTION, snapshot.docs[0].id);
     await updateDoc(docRef, {
-      planType: newPlanType,
+      tier: newPlanType,
       currentPeriodStart: new Date(),
       currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
       updatedAt: serverTimestamp()
@@ -144,4 +138,49 @@ export async function resetMonthlyCounters(userId: string): Promise<void> {
       updatedAt: serverTimestamp()
     });
   }
-} 
+}
+
+export async function updateUserSubscription(
+  userId: string,
+  tier: SubscriptionTier,
+  stripeSubscriptionId: string | null,
+  currentPeriodEnd: number | null
+) {
+  console.log('📝 Starting subscription update in Firebase:', {
+    userId,
+    tier,
+    stripeSubscriptionId
+  });
+
+  const subscriptionRef = doc(db, SUBSCRIPTIONS_COLLECTION, userId);
+  
+  const subscriptionData: Partial<SubscriptionData> = {
+    tier,
+    stripeSubscriptionId,
+    currentPeriodEnd,
+    updatedAt: serverTimestamp(),
+  };
+
+  if (tier === 'pro') {
+    console.log('🔄 Resetting counters for pro subscription');
+    subscriptionData.downloadCounts = {
+      stl: 0,
+      step: 0
+    };
+    subscriptionData.quotesUsed = 0;
+  }
+
+  await setDoc(subscriptionRef, subscriptionData, { merge: true });
+  
+  console.log('✅ Firebase subscription update complete:', {
+    userId,
+    tier,
+    stripeSubscriptionId,
+    counters: subscriptionData.downloadCounts,
+    quotesUsed: subscriptionData.quotesUsed
+  });
+  
+  return subscriptionData;
+}
+
+export const upsertSubscription = updateUserSubscription; 

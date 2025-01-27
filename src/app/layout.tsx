@@ -5,6 +5,9 @@ import { Viewport } from 'next';
 import { PricingProvider } from '@/contexts/PricingContext';
 import { headers } from 'next/headers';
 import { getServerSession } from 'next-auth';
+import { SubscriptionProvider } from '@/contexts/SubscriptionContext';
+import { SubscriptionSuccessHandler } from '@/components/SubscriptionSuccessHandler';
+import { SessionProvider } from "next-auth/react";
 
 export const viewport: Viewport = {
   width: 'device-width',
@@ -26,14 +29,19 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <Providers>
-          <PricingProvider>
-            <Header />
-            <main className="min-h-screen">
-              {children}
-            </main>
-          </PricingProvider>
-        </Providers>
+        <SessionProvider>
+          <SubscriptionProvider>
+            <SubscriptionSuccessHandler />
+            <Providers>
+              <PricingProvider>
+                <Header />
+                <main className="min-h-screen">
+                  {children}
+                </main>
+              </PricingProvider>
+            </Providers>
+          </SubscriptionProvider>
+        </SessionProvider>
       </body>
     </html>
   );
