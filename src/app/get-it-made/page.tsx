@@ -26,6 +26,8 @@ import Image from 'next/image';
 import { PLAN_LIMITS } from '@/types/subscription';
 import { process3DPreview } from "@/lib/firebase/utils";
 import { updateDesign } from "@/lib/firebase/designs";
+import { loadStripe } from '@stripe/stripe-js';
+import { PRODUCT_PRICING, STEP_FILE_PRICE } from '@/lib/constants/pricing';
 
 const PRICING = {
   Mini: { 
@@ -127,6 +129,9 @@ type ManufacturingType = keyof (typeof MANUFACTURING_GROUPS['3D_PRINTING']['opti
 type PricingType = {
   price: string;
 };
+
+// Initialize Stripe
+const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
 
 export default function GetItMade() {
   const { designs, updateDesign } = useDesignStore();
@@ -269,29 +274,58 @@ export default function GetItMade() {
 
   const handleProceed = async () => {
     if (!session?.user) {
-      // Redirect to sign in if not authenticated
-      router.push('/auth/signin');
+      setShowSignInPopup(true);
       return;
     }
 
-    if (!selectedSize || !selectedType) {
+    const pricing = PRODUCT_PRICING[selectedSize]?.[selectedType];
+    
+    if (!pricing || typeof pricing === 'string') {
+      toast({
+        title: "Contact Required",
+        description: "Please contact us for a custom quote",
+      });
       return;
     }
 
-    const isCustomQuote = typeof getPriceAndDelivery().price !== 'number';
+    try {
+      const stripe = await stripePromise;
+      if (!stripe) throw new Error('Stripe failed to initialize');
 
-    if (isCustomQuote) {
-      // Handle custom quote request
-      router.push(`/request-quote?designId=${design.id}&size=${selectedSize}&material=${selectedType}&quantity=${quantity}`);
-    } else {
-      // Handle direct checkout
-      try {
-        // You can add your checkout logic here
-        router.push(`/checkout?designId=${design.id}&size=${selectedSize}&material=${selectedType}&quantity=${quantity}`);
-      } catch (error) {
-        console.error('Checkout error:', error);
-        // Handle error appropriately
+      const response = await fetch('/api/create-checkout-session', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          priceId: pricing.priceId,
+          quantity: quantity,
+          userId: session.user.id,
+          metadata: {
+            size: selectedSize,
+            material: selectedType,
+            designId: designId // assuming you have this from props or state
+          }
+        }),
+      });
+
+      const { sessionId } = await response.json();
+      const result = await stripe.redirectToCheckout({ sessionId });
+
+      if (result.error) {
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: result.error.message
+        });
       }
+    } catch (error) {
+      console.error('Checkout error:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to initiate checkout"
+      });
     }
   };
 
@@ -358,82 +392,87 @@ export default function GetItMade() {
       return;
     }
 
-    if (!design?.threeDData?.glbUrls?.[0]) {
-      toast({
-        title: "Error",
-        description: "No 3D model available for download",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    try {
-      const { allowed, remaining } = await canDownloadFile(session.user.id, type);
-      
-      if (!allowed) {
+    if (type === 'stl') {
+      if (!design?.threeDData?.glbUrls?.[0]) {
         toast({
-          title: "Download limit reached",
-          description: `You've reached your ${type.toUpperCase()} download limit for this month.`,
-          variant: "destructive"
+          variant: "destructive",
+          title: "Error",
+          description: "No 3D model available for download"
         });
         return;
       }
 
-      if (type === 'stl') {
-        setIsDownloadingSTL(true);
-      } else {
-        setIsDownloadingSTEP(true);
-      }
+      try {
+        console.log('Starting conversion for GLB:', design.threeDData.glbUrls[0]);
+        
+        const response = await fetch('/api/convert-glb', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            glbUrl: design.threeDData.glbUrls[0],
+            designId: design.id
+          })
+        });
 
-      const response = await fetch('/api/convert-glb', {
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.details || errorData.error || 'Failed to convert file');
+        }
+
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${design.name || 'design'}.stl`;
+        document.body.appendChild(a);
+        a.click();
+        
+        // Cleanup
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+
+        toast({
+          title: "Success",
+          description: "STL file downloaded successfully"
+        });
+      } catch (error) {
+        console.error('Error downloading STL:', error);
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: error instanceof Error ? error.message : "Failed to download STL file"
+        });
+      }
+      return;
+    }
+
+    // STEP file purchase flow
+    try {
+      const response = await fetch('/api/step-file', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          glbUrl: design.threeDData.glbUrls[0],
-          designId: design.id
-        })
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          designId: design?.id,
+          designName: design?.name || 'Untitled'
+        }),
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.details || errorData.error || 'Failed to convert file');
+      const data = await response.json();
+      
+      if (data.error || !data.url) {
+        throw new Error(data.error || 'No checkout URL received');
       }
 
-      const blob = await response.blob();
-
-      await recordDownload(session.user.id, design.id, type);
-      
-      await fetchDownloadLimits();
-
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${design.id}.${type}`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-
-      toast({
-        title: "Success",
-        description: `${type.toUpperCase()} file downloaded successfully${
-          remaining === Infinity ? '' : `. ${remaining - 1} downloads remaining this month`
-        }`
-      });
-
-    } catch (error: any) {
-      console.error(`Error downloading ${type}:`, error);
+      window.open(data.url, '_blank');
+    } catch (error) {
+      console.error('Checkout error:', error);
       toast({
         variant: "destructive",
         title: "Error",
-        description: error.message
+        description: error instanceof Error ? error.message : "Failed to initiate checkout"
       });
-    } finally {
-      if (type === 'stl') {
-        setIsDownloadingSTL(false);
-      } else {
-        setIsDownloadingSTEP(false);
-      }
     }
   };
 
@@ -966,9 +1005,9 @@ export default function GetItMade() {
                     }}
                   >
                     <option value="Mini">Mini - Up to 2 x 2 x 2"</option>
-                    <option value="Small">Small - Up to 4 x 4 x 4"</option>
-                    <option value="Medium">Medium - Up to 8 x 8 x 8"</option>
-                    <option value="Large">Large - Up to 12 x 12 x 12"</option>
+                    <option value="Small">Small - Up to 3.5 x 3.5 x 3.5"</option>
+                    <option value="Medium">Medium - Up to 5 x 5 x 5"</option>
+                    <option value="Large">Large - Up to 10 x 10 x 10"</option>
                     <option value="Custom">Custom Size</option>
                   </select>
                 </div>
