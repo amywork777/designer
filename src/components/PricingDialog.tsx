@@ -3,12 +3,13 @@ import { loadStripe } from '@stripe/stripe-js';
 import { useSession } from 'next-auth/react';
 import { useToast } from '@/components/ui/use-toast';
 
+// Initialize Stripe once at the top level
+const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
+
 interface PricingDialogProps {
   isOpen: boolean;
   onClose: () => void;
 }
-
-const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
 
 export function PricingDialog({ isOpen, onClose }: PricingDialogProps) {
   const { data: session } = useSession();
@@ -16,6 +17,7 @@ export function PricingDialog({ isOpen, onClose }: PricingDialogProps) {
 
   const handleSubscription = async (priceId?: string) => {
     if (!session?.user) {
+      console.log('Subscription attempted without session');
       toast({
         title: "Sign in required",
         description: "Please sign in to continue with subscription",
@@ -25,12 +27,18 @@ export function PricingDialog({ isOpen, onClose }: PricingDialogProps) {
     }
 
     if (!priceId) {
-      // Handle free tier
+      console.log('Free tier selected, closing dialog');
       onClose();
       return;
     }
 
     try {
+      console.log('Starting subscription process:', {
+        priceId,
+        userId: session.user.id,
+        email: session.user.email
+      });
+
       const response = await fetch('/api/create-subscription', {
         method: 'POST',
         headers: {
@@ -43,27 +51,51 @@ export function PricingDialog({ isOpen, onClose }: PricingDialogProps) {
         }),
       });
 
+      console.log('Subscription API response status:', response.status);
       const data = await response.json();
       
       if (!response.ok) {
+        console.error('Subscription creation failed:', {
+          status: response.status,
+          data
+        });
         throw new Error(data.error || 'Failed to create subscription');
       }
 
-      const stripe = await loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
-      if (!stripe) throw new Error('Stripe failed to initialize');
+      if (!data.sessionId) {
+        console.error('Missing session ID in response:', data);
+        throw new Error('No session ID returned from server');
+      }
 
+      console.log('Successfully created checkout session:', data.sessionId);
+
+      const stripe = await stripePromise;
+      if (!stripe) {
+        console.error('Stripe failed to initialize');
+        throw new Error('Failed to initialize Stripe');
+      }
+
+      console.log('Redirecting to Stripe checkout...');
       const { error } = await stripe.redirectToCheckout({
         sessionId: data.sessionId
       });
       
       if (error) {
+        console.error('Stripe redirect error:', {
+          type: error.type,
+          message: error.message
+        });
         throw error;
       }
-    } catch (error) {
-      console.error('Subscription error:', error);
+    } catch (error: any) {
+      console.error('Subscription error:', {
+        message: error.message,
+        stack: error.stack,
+        type: error.type
+      });
       toast({
         title: "Error",
-        description: "Failed to start subscription",
+        description: error.message || "Failed to start subscription",
         variant: "destructive",
       });
     }
