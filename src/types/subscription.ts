@@ -8,13 +8,13 @@ export interface PlanLimits {
 
 export const PLAN_LIMITS: Record<PlanType, PlanLimits> = {
   free: {
-    stlDownloads: 10,  // Free/Hobbyist tier
-    stepDownloads: 0,
+    stlDownloads: 10,    // 10 STL downloads for free tier
+    stepDownloads: 0,    // No STEP downloads for free tier
     manufacturingQuotes: 1
   },
   pro: {
-    stlDownloads: 30,
-    stepDownloads: 3,
+    stlDownloads: 30,    // 30 STL downloads for pro tier
+    stepDownloads: 3,    // 3 STEP downloads for pro tier
     manufacturingQuotes: 5
   },
   business: {

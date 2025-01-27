@@ -152,6 +152,7 @@ export default function GetItMade() {
   const [isDownloadingSTEP, setIsDownloadingSTEP] = useState(false);
   const [downloadLimits, setDownloadLimits] = useState<{ stl: number; step: number } | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [subscription, setSubscription] = useState<SubscriptionData | null>(null);
 
   const design = designs.find(d => d.id === designId);
   const selectedDesign = design?.images[0];
@@ -184,9 +185,17 @@ export default function GetItMade() {
     async function fetchLimits() {
       if (session?.user) {
         const subscription = await getUserSubscription(session.user.id);
+        console.log('📊 Fetching subscription:', subscription);
+        
         if (subscription) {
-          const limits = PLAN_LIMITS[subscription.planType];
+          // Use tier instead of planType
+          const tier = subscription.tier || 'free';
+          const limits = PLAN_LIMITS[tier];
+          console.log('🎯 Limits for tier:', tier, limits);
+          
           const used = subscription.downloadCounts || { stl: 0, step: 0 };
+          console.log('📈 Used downloads:', used);
+          
           setDownloadLimits({
             stl: limits.stlDownloads === Infinity ? Infinity : limits.stlDownloads - used.stl,
             step: limits.stepDownloads === Infinity ? Infinity : limits.stepDownloads - used.step
@@ -195,6 +204,16 @@ export default function GetItMade() {
       }
     }
     fetchLimits();
+  }, [session?.user]);
+
+  useEffect(() => {
+    async function fetchSubscription() {
+      if (session?.user) {
+        const sub = await getUserSubscription(session.user.id);
+        setSubscription(sub);
+      }
+    }
+    fetchSubscription();
   }, [session?.user]);
 
   const handleFinalizeDesign = async () => {
@@ -339,9 +358,17 @@ export default function GetItMade() {
   const fetchDownloadLimits = async () => {
     if (session?.user) {
       const subscription = await getUserSubscription(session.user.id);
+      console.log('📊 Fetching subscription:', subscription);
+      
       if (subscription) {
-        const limits = PLAN_LIMITS[subscription.planType];
+        // Use tier instead of planType
+        const tier = subscription.tier || 'free';
+        const limits = PLAN_LIMITS[tier];
+        console.log('🎯 Limits for tier:', tier, limits);
+        
         const used = subscription.downloadCounts || { stl: 0, step: 0 };
+        console.log('📈 Used downloads:', used);
+        
         setDownloadLimits({
           stl: limits.stlDownloads === Infinity ? Infinity : limits.stlDownloads - used.stl,
           step: limits.stepDownloads === Infinity ? Infinity : limits.stepDownloads - used.step
@@ -823,7 +850,7 @@ export default function GetItMade() {
                               <div className="text-sm text-center text-gray-600 mt-2">
                                 {downloadLimits.stl === Infinity ? 
                                   'Unlimited downloads available' : 
-                                  `${downloadLimits.stl}/${PLAN_LIMITS[session?.user.planType || 'free'].stlDownloads} downloads remaining this month`
+                                  `${downloadLimits.stl}/${PLAN_LIMITS[subscription?.tier || 'free'].stlDownloads} downloads remaining this month`
                                 }
                               </div>
                             )}
@@ -852,7 +879,7 @@ export default function GetItMade() {
                               <div className="text-sm text-center text-gray-600 mt-2">
                                 {downloadLimits.step === Infinity ? 
                                   'Unlimited downloads available' : 
-                                  `${downloadLimits.step}/${PLAN_LIMITS[session?.user.planType || 'free'].stepDownloads} downloads remaining this month`
+                                  `${downloadLimits.step}/${PLAN_LIMITS[subscription?.tier || 'free'].stepDownloads} downloads remaining this month`
                                 }
                               </div>
                             )}
