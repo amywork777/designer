@@ -299,10 +299,10 @@ export default function GetItMade() {
   const RETRY_DELAY = 1000; // 1 second delay between attempts
 
   const handle3DProcessing = async () => {
-    if (!design || !session?.user?.id) {
+    if (!design) {
       toast({
         title: "Error",
-        description: "Please sign in to generate 3D preview",
+        description: "Please select a design first",
         variant: "destructive"
       });
       return;
@@ -310,7 +310,9 @@ export default function GetItMade() {
 
     try {
       setProcessing3D(true);
-      const merged3DData = await process3DPreview(design, session.user.id, setProcessing3D);
+      const userId = session?.user?.id || 'anonymous';
+      
+      const merged3DData = await process3DPreview(design, userId, setProcessing3D);
       
       if (merged3DData) {
         // Update local store with the merged data
@@ -553,6 +555,66 @@ export default function GetItMade() {
       });
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length > 0) {
+      try {
+        setLoading(true);
+        const file = files[0];
+        
+        const base64Image = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            if (typeof reader.result === 'string') {
+              resolve(reader.result);
+            } else {
+              reject(new Error('Failed to convert file'));
+            }
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        
+        // Use anonymous ID if not signed in
+        const userId = session?.user?.id || 'anonymous';
+        
+        // Save to Firebase using UID or anonymous
+        const savedFirebaseDesign = await saveDesignToFirebase({
+          imageUrl: base64Image,
+          prompt: 'User uploaded design',
+          userId: userId,
+          mode: 'uploaded'
+        });
+
+        // Create design with Firebase ID
+        const newDesign = {
+          id: savedFirebaseDesign.id,
+          title: 'Uploaded Design',
+          images: [base64Image],
+          prompt: 'User uploaded design'
+        };
+
+        const savedDesign = await addDesign(newDesign, userId);
+        setSelectedDesign(savedDesign.images[0]);
+        setShowAnalysis(true);
+
+        toast({
+          title: "Success",
+          description: "Design uploaded successfully!"
+        });
+      } catch (error) {
+        console.error('Error uploading design:', error);
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "Failed to upload design"
+        });
+      } finally {
+        setLoading(false);
+      }
     }
   };
 

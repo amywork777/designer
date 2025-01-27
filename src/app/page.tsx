@@ -600,21 +600,29 @@ export default function LandingPage() {
           reader.readAsDataURL(file);
         });
 
-        if (!session?.user?.id) {
-          throw new Error('Please sign in to save designs');
-        }
-
-        // Save to Firebase
+        // Use anonymous ID if not signed in
+        const userId = session?.user?.id || 'anonymous';
+        
+        // Save to Firebase using UID or anonymous
         const savedDesign = await saveDesignToFirebase({
           imageUrl: base64Image,
           prompt: 'User uploaded design',
-          userId: session.user.id,
+          userId: userId,
           mode: 'uploaded'
         });
 
-        // Reload designs from Firebase
-        await loadUserDesigns(session.user.id);
+        // Create new design for local store
+        const newDesign = {
+          id: savedDesign.id,
+          title: 'Uploaded Design',
+          images: [savedDesign.imageUrl],
+          createdAt: new Date().toISOString(),
+          prompt: ''
+        };
 
+        // Add to local store
+        addDesign(newDesign, userId);
+        
         setSelectedDesign(savedDesign.imageUrl);
         setShowAnalysis(true);
         setScrollToAnalysis(true);
