@@ -71,23 +71,33 @@ export async function recordDownload(
   designId: string,
   fileType: 'stl' | 'step'
 ): Promise<void> {
-  const subscriptionRef = collection(db, SUBSCRIPTIONS_COLLECTION);
-  const q = query(subscriptionRef, where('userId', '==', userId));
-  const snapshot = await getDocs(q);
-  
-  if (!snapshot.empty) {
-    const docRef = doc(db, SUBSCRIPTIONS_COLLECTION, snapshot.docs[0].id);
-    const downloadRecord = {
-      designId,
-      fileType,
-      downloadedAt: new Date(),
-    };
+  try {
+    console.log('📝 Recording download:', { userId, designId, fileType });
+    
+    const subscriptionRef = doc(db, SUBSCRIPTIONS_COLLECTION, userId);
+    
+    // Get current counts
+    const subscriptionSnap = await getDoc(subscriptionRef);
+    const currentData = subscriptionSnap.data();
+    const currentCount = currentData?.downloadCounts?.[fileType] || 0;
+    
+    console.log('Current download count:', currentCount);
 
-    await updateDoc(docRef, {
-      downloads: arrayUnion(downloadRecord),
+    // Update the document with new download count
+    await updateDoc(subscriptionRef, {
       [`downloadCounts.${fileType}`]: increment(1),
-      updatedAt: serverTimestamp()
+      updatedAt: serverTimestamp(),
+      downloads: arrayUnion({
+        designId,
+        fileType,
+        downloadedAt: new Date()
+      })
     });
+
+    console.log('✅ Download recorded successfully');
+  } catch (error) {
+    console.error('❌ Error recording download:', error);
+    throw error;
   }
 }
 

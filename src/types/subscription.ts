@@ -33,12 +33,14 @@ export interface DownloadRecord {
 export interface UserSubscription {
   userId: string;
   planType: PlanType;
-  currentPeriodStart: Date;
-  currentPeriodEnd: Date;
+  tier?: PlanType; // For backwards compatibility
+  stripeSubscriptionId?: string | null;
+  currentPeriodEnd?: number | null;
   downloads: DownloadRecord[];  // Array of downloads in the subscription document
   downloadCounts: {
     stl: number;
     step: number;
   };
   quotesUsed: number;
+  updatedAt: any;
 } 

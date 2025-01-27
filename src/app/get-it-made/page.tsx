@@ -596,30 +596,38 @@ export default function GetItMade() {
 
   // Update the display of remaining downloads
   const getDownloadLimitDisplay = (type: 'stl' | 'step') => {
-    // If no subscription exists, use free plan limits
     if (!subscription) {
       return `${PLAN_LIMITS['free'][type === 'stl' ? 'stlDownloads' : 'stepDownloads']} downloads available`;
     }
 
-    // Ensure we have a valid plan type, default to 'free'
+    // Get the current plan limits
     const planType = subscription.planType || 'free';
+    const planLimits = PLAN_LIMITS[planType];
     
-    // Get the limits for this plan
-    const planLimits = PLAN_LIMITS[planType as keyof typeof PLAN_LIMITS] || PLAN_LIMITS['free'];
-    
-    // Get the specific limit for this file type
-    const limit = type === 'stl' ? planLimits.stlDownloads : planLimits.stepDownloads;
-    
-    // Get used downloads with fallback to 0
+    // Get the actual used downloads from Firebase
     const used = subscription.downloadCounts?.[type] || 0;
-    
-    // Return appropriate message
+    const limit = type === 'stl' ? planLimits.stlDownloads : planLimits.stepDownloads;
+
     if (limit === Infinity) {
       return 'Unlimited downloads available';
     }
     
-    return `${limit - used}/${limit} downloads remaining this month`;
+    // Show remaining downloads
+    const remaining = limit - used;
+    return `${remaining}/${limit} downloads remaining this month`;
   };
+
+  // Add this effect to refresh subscription data after downloads
+  useEffect(() => {
+    const refreshSubscription = async () => {
+      if (session?.user?.id) {
+        const updatedSub = await getUserSubscription(session.user.id);
+        setSubscription(updatedSub);
+      }
+    };
+
+    refreshSubscription();
+  }, [session?.user?.id]); // Add any other dependencies that should trigger a refresh
 
   if (isLoading) {
     return (
