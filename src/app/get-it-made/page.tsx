@@ -157,6 +157,7 @@ export default function GetItMade() {
   const [isDownloadingSTEP, setIsDownloadingSTEP] = useState(false);
   const [downloadLimits, setDownloadLimits] = useState<{ stl: number; step: number } | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const paymentStatus = searchParams.get('payment');
 
   const design = designs.find(d => d.id === designId);
   const selectedDesign = design?.images[0];
@@ -201,6 +202,16 @@ export default function GetItMade() {
     }
     fetchLimits();
   }, [session?.user]);
+
+  useEffect(() => {
+    if (paymentStatus === 'success') {
+      toast({
+        title: "Purchase Successful",
+        description: "Your STEP file purchase was successful. We'll process and deliver it within 24-48 hours.",
+        duration: 5000
+      });
+    }
+  }, [paymentStatus]);
 
   const handleFinalizeDesign = async () => {
     if (!design?.images[0]) return;
@@ -278,20 +289,30 @@ export default function GetItMade() {
       return;
     }
 
-    const pricing = PRODUCT_PRICING[selectedSize]?.[selectedType];
+    const materialMap: Record<string, string> = {
+      'WOOD_PLA': 'Wood-PLA',
+      'PLA': 'PLA',
+      'TPU': 'TPU',
+      'RESIN': 'Resin',
+      'ALUMINUM': 'Aluminum'
+    };
+
+    const mappedMaterial = materialMap[selectedType];
+    const pricing = PRODUCT_PRICING[selectedSize]?.[mappedMaterial];
     
-    if (!pricing || typeof pricing === 'string') {
+    // Handle quote requests
+    if (selectedSize === 'Custom' || !pricing || typeof pricing === 'string') {
+      // Here you can implement the quote request logic
       toast({
-        title: "Contact Required",
-        description: "Please contact us for a custom quote",
+        title: "Quote Requested",
+        description: "We'll contact you shortly with a custom quote.",
       });
+      // You might want to save this to your database or send an email
       return;
     }
 
+    // Regular checkout flow continues here...
     try {
-      const stripe = await stripePromise;
-      if (!stripe) throw new Error('Stripe failed to initialize');
-
       const response = await fetch('/api/create-checkout-session', {
         method: 'POST',
         headers: {
@@ -299,32 +320,30 @@ export default function GetItMade() {
         },
         body: JSON.stringify({
           priceId: pricing.priceId,
+          amount: pricing.price,
           quantity: quantity,
-          userId: session.user.id,
           metadata: {
             size: selectedSize,
-            material: selectedType,
-            designId: designId // assuming you have this from props or state
+            material: mappedMaterial,
+            designId: design?.id,
+            productId: pricing.productId
           }
         }),
       });
 
-      const { sessionId } = await response.json();
-      const result = await stripe.redirectToCheckout({ sessionId });
-
-      if (result.error) {
-        toast({
-          variant: "destructive",
-          title: "Error",
-          description: result.error.message
-        });
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to create checkout session');
       }
+
+      window.location.href = data.url;
     } catch (error) {
       console.error('Checkout error:', error);
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Failed to initiate checkout"
+        description: error instanceof Error ? error.message : "Failed to initiate checkout"
       });
     }
   };
@@ -455,7 +474,14 @@ export default function GetItMade() {
         },
         body: JSON.stringify({
           designId: design?.id,
-          designName: design?.name || 'Untitled'
+          designName: design?.name || 'Untitled',
+          design: {
+            images: design?.images || [],
+            threeDData: design?.threeDData || {},
+            analysis: design?.analysis || {},
+            dimensions: design?.dimensions || {},
+            created: design?.created || new Date().toISOString(),
+          }
         }),
       });
 
@@ -522,37 +548,56 @@ export default function GetItMade() {
   }, [selectedType, selectedSize, is3DPrinting]);
 
   const calculateTotal = () => {
-    // Get the base price from PRICING object based on current selections
-    const basePrice = PRICING[selectedSize]?.[selectedType];
+    // Map UI material names to pricing structure names
+    const materialMap: Record<string, string> = {
+      'WOOD_PLA': 'Wood-PLA',
+      'PLA': 'PLA',
+      'TPU': 'TPU',
+      'RESIN': 'Resin',
+      'ALUMINUM': 'Aluminum'
+    };
+
+    const mappedMaterial = materialMap[selectedType];
+    const pricing = PRODUCT_PRICING[selectedSize]?.[mappedMaterial];
     
-    // If basePrice is not a number (e.g., 'contact us'), return early
-    if (typeof basePrice !== 'number') {
+    if (!pricing || typeof pricing === 'string') {
       return 'Contact us';
     }
 
-    // Calculate total (base price × quantity)
-    const total = basePrice * quantity;
-    
-    // Format the total with dollar sign
+    const total = pricing.price * quantity;
     return `$${total.toFixed(2)}`;
   };
 
   const getButtonText = useCallback(() => {
-    const pricing = getPriceAndDelivery();
-    
-    // If price is Contact or total is N/A, show quote button
-    if (pricing.price === 'Contact' || calculateTotal() === 'N/A') {
+    // Always show "Submit for Quote" for Custom size
+    if (selectedSize === 'Custom') {
+      return 'Submit for a Quote';
+    }
+
+    const materialMap: Record<string, string> = {
+      'WOOD_PLA': 'Wood-PLA',
+      'PLA': 'PLA',
+      'TPU': 'TPU',
+      'RESIN': 'Resin',
+      'ALUMINUM': 'Aluminum'
+    };
+
+    const mappedMaterial = materialMap[selectedType];
+    const pricing = PRODUCT_PRICING[selectedSize]?.[mappedMaterial];
+
+    // Show "Submit for Quote" if pricing is 'contact' or undefined
+    if (!pricing || typeof pricing === 'string') {
       return 'Submit for a Quote';
     }
 
     // If any required selections are missing, show complete selections
-    if (!selectedSize || !selectedType || pricing.price === '(Select options)') {
+    if (!selectedSize || !selectedType) {
       return 'Complete Selections Above';
     }
 
     // If we have a valid price, show checkout button
     return 'Proceed to Checkout';
-  }, [getPriceAndDelivery, selectedSize, selectedType, calculateTotal]);
+  }, [selectedSize, selectedType]);
 
   // Debug log to track state changes
   useEffect(() => {
@@ -1029,9 +1074,24 @@ export default function GetItMade() {
                 <div className="flex justify-between items-center text-sm">
                   <span className="text-gray-600">Base Price:</span>
                   <span className="font-medium">
-                    {typeof PRICING[selectedSize]?.[selectedType] === 'number' 
-                      ? `$${PRICING[selectedSize][selectedType]}` 
-                      : 'Contact us'}
+                    {(() => {
+                      // Map UI material names to pricing structure names
+                      const materialMap: Record<string, string> = {
+                        'WOOD_PLA': 'Wood-PLA',
+                        'PLA': 'PLA',
+                        'TPU': 'TPU',
+                        'RESIN': 'Resin',
+                        'ALUMINUM': 'Aluminum'
+                      };
+
+                      const mappedMaterial = materialMap[selectedType];
+                      const pricing = PRODUCT_PRICING[selectedSize]?.[mappedMaterial];
+                      
+                      if (!pricing || typeof pricing === 'string') {
+                        return 'Contact us';
+                      }
+                      return `$${pricing.price.toFixed(2)}`;
+                    })()}
                   </span>
                 </div>
                 <div className="flex justify-between items-center text-sm">

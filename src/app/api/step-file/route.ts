@@ -26,6 +26,13 @@ export async function POST(req: Request) {
       );
     }
 
+    // Log the incoming data
+    console.log('Creating STEP file purchase:', {
+      designId,
+      designName,
+      userId: session.user.id
+    });
+
     const checkoutSession = await stripe.checkout.sessions.create({
       mode: 'payment',
       payment_method_types: ['card'],
@@ -36,18 +43,24 @@ export async function POST(req: Request) {
             name: 'STEP File Purchase',
             description: `STEP file for ${designName || 'Design'}`
           },
-          unit_amount: 2000, // $20.00
+          unit_amount: 2000,
         },
         quantity: 1
       }],
       metadata: {
         type: 'step_file',
-        designId,
+        designId: designId,
         userId: session.user.id,
-        designName
       },
-      success_url: `${process.env.NEXT_PUBLIC_APP_URL}/orders?session_id={CHECKOUT_SESSION_ID}`,
+      success_url: `${process.env.NEXT_PUBLIC_APP_URL}/order-success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/get-it-made`,
+      customer_email: session.user.email
+    });
+
+    // Log the created session
+    console.log('Checkout session created:', {
+      sessionId: checkoutSession.id,
+      metadata: checkoutSession.metadata
     });
 
     return NextResponse.json({ url: checkoutSession.url });

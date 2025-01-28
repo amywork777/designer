@@ -40,7 +40,7 @@
     "react-dom": "^19.0.0",
     "react-dropzone": "^14.3.5",
     "replicate": "^1.0.1",
-    "resend": "^4.0.1",
+    "resend": "^4.1.1",
     "sharp": "^0.30.7",
     "sonner": "^1.7.1",
     "stripe": "^17.5.0",
