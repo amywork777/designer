@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { ManufacturingAnalysis } from '@/components/ManufacturingAnalysis';
 import { Package, Lock, Check, Sparkles, Download, Info as InfoIcon, DollarSign, ArrowRight, Loader2, FileDown, ChevronDown, ChevronRight, X, Upload, ArrowLeft } from 'lucide-react';
@@ -130,7 +130,7 @@ type PricingType = {
 // Initialize Stripe
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
 
-export default function GetItMade() {
+function GetItMadeContent() {
   const { designs, updateDesign } = useDesignStore();
   const { toast } = useToast();
   const searchParams = useSearchParams();
@@ -1221,4 +1221,19 @@ async function generatePreview() {
   // Add your preview generation logic here
   // This should work for both signed-in and unsigned users
   return new Promise(resolve => setTimeout(resolve, 1000));
+}
+
+export default function GetItMade() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4" />
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    }>
+      <GetItMadeContent />
+    </Suspense>
+  );
 } 
