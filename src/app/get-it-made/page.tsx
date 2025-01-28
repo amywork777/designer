@@ -466,21 +466,52 @@ export default function GetItMade() {
       return;
     }
 
-    const userEmail = session?.user?.email;
-    
-    if (!userEmail) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "User email not found"
-      });
+    if (type === 'stl') {
+      try {
+        setIsDownloadingSTL(true);
+        const response = await fetch('/api/convert-glb', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            glbUrl: design.threeDData.glbUrls[0],
+            designId: design.id
+          })
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Conversion failed');
+        }
+
+        // Get the STL file as a blob and create a download link
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${design.name || 'design'}.stl`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+
+      } catch (error) {
+        console.error('Download error:', error);
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: error instanceof Error ? error.message : "Failed to download STL file"
+        });
+      } finally {
+        setIsDownloadingSTL(false);
+      }
       return;
     }
 
+    // STEP file handling remains the same...
     if (type === 'step') {
       try {
         setIsDownloadingSTEP(true);
-        const stepFilePrice = 20; // Fixed price for STEP files
+        const stepFilePrice = 20;
         const response = await fetch('/api/step-file', {
           method: 'POST',
           headers: {
@@ -498,7 +529,7 @@ export default function GetItMade() {
               userEmail: session.user.email
             },
             email: session.user.email,
-            amount_total: stepFilePrice * 100, // Convert to cents for Stripe
+            amount_total: stepFilePrice * 100,
           }),
         });
 
@@ -506,27 +537,6 @@ export default function GetItMade() {
         if (data.error || !data.url) {
           throw new Error(data.error || 'No checkout URL received');
         }
-
-        // Send order confirmation email
-        await fetch('/api/send-order-email', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            orderType: 'STEP_FILE',
-            orderDetails: {
-              email: session.user.email,
-              metadata: {
-                designId: design?.id,
-                orderType: 'STEP_FILE',
-                userEmail: session.user.email
-              },
-              amount_total: stepFilePrice * 100
-            },
-            sessionId: data.sessionId
-          })
-        });
 
         window.open(data.url, '_blank');
       } catch (error) {
@@ -540,100 +550,6 @@ export default function GetItMade() {
         setIsDownloadingSTEP(false);
       }
       return;
-    }
-
-    // 3D order handling
-    try {
-      setIsDownloadingSTL(true);
-
-      const materialMap = {
-        'WOOD_PLA': 'Wood-PLA',
-        'PLA': 'PLA',
-        'TPU': 'TPU',
-        'RESIN': 'Resin',
-        'ALUMINUM': 'Aluminum'
-      };
-
-      const mappedMaterial = materialMap[selectedType];
-      const priceInfo = priceIdMap[selectedSize]?.[mappedMaterial];
-
-      if (!priceInfo) {
-        throw new Error('Invalid price configuration');
-      }
-
-      // Create checkout session using the working structure from handleProceed
-      const checkoutResponse = await fetch('/api/create-3d-printing-checkout', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          priceId: priceInfo.id,
-          amount: priceInfo.amount * quantity,
-          quantity,
-          customer_email: userEmail,
-          metadata: {
-            orderType: '3D_MANUFACTURING',
-            type: '3d_print',
-            designId: design?.id,
-            material: selectedType,
-            size: selectedSize,
-            quantity: quantity,
-            userEmail: userEmail
-          }
-        })
-      });
-
-      const checkoutData = await checkoutResponse.json();
-      if (!checkoutData.success || !checkoutData.url) {
-        throw new Error(checkoutData.error || 'Failed to create checkout session');
-      }
-
-      // Then handle the file conversion
-      const response = await fetch('/api/convert-glb', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          glbUrl: design.threeDData.glbUrls[0],
-          designId: design.id,
-          format: 'stl'
-        })
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to convert file');
-      }
-
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${design.name || design.id}.stl`;
-      document.body.appendChild(a);
-      a.click();
-      
-      // Cleanup
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-
-      // Redirect to checkout
-      window.location.href = checkoutData.url;
-
-      toast({
-        title: "Success",
-        description: "STL file downloaded successfully"
-      });
-
-    } catch (error) {
-      console.error('Download error:', error);
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to download STL file"
-      });
-    } finally {
-      setIsDownloadingSTL(false);
     }
   };
 

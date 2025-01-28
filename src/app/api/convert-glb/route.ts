@@ -1,54 +1,63 @@
 import { NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
+import { getStorage, ref, getDownloadURL } from 'firebase/storage';
+import { app } from '@/lib/firebase/config';
+
+const BLENDER_SERVICE_URL = 'https://blender-service-815257559066.us-central1.run.app';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {
   try {
-    const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
     const { glbUrl, designId } = await req.json();
+    console.log('Starting GLB conversion with URL:', glbUrl);
 
-    if (!glbUrl) {
-      return NextResponse.json({ error: 'GLB URL is required' }, { status: 400 });
-    }
-
-    // Call the conversion service
-    const response = await fetch('https://us-central1-taiyaki-test1.cloudfunctions.net/convert_to_stl', {
+    // Call Blender service
+    const response = await fetch(BLENDER_SERVICE_URL, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        glbUrl,
-        designId,
-        userId: session.user.id
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        glbUrl: glbUrl,
+        designId: designId
       })
     });
 
     if (!response.ok) {
-      const error = await response.text();
-      console.error('Conversion service error:', error);
-      return NextResponse.json({ error: 'Failed to convert file' }, { status: 500 });
+      const errorText = await response.text();
+      console.error('Blender service error:', errorText);
+      throw new Error(errorText);
     }
 
-    // Get the STL file as a blob
-    const stlBlob = await response.blob();
+    // Get the response which contains the Firebase Storage URL
+    const data = await response.json();
+    console.log('Received response:', data);
 
-    // Return the STL file
-    return new NextResponse(stlBlob, {
+    if (!data.stlUrl) {
+      throw new Error('No STL URL in response');
+    }
+
+    // Download the STL from Firebase Storage
+    const stlResponse = await fetch(data.stlUrl);
+    if (!stlResponse.ok) {
+      throw new Error('Failed to download STL from storage');
+    }
+
+    const stlData = await stlResponse.arrayBuffer();
+    console.log('Downloaded STL size:', stlData.byteLength);
+    
+    return new NextResponse(stlData, {
       headers: {
-        'Content-Type': 'application/sla',
-        'Content-Disposition': `attachment; filename="${designId}.stl"`
+        'Content-Type': 'application/octet-stream',
+        'Content-Disposition': `attachment; filename="${designId}.stl"`,
+        'Content-Length': stlData.byteLength.toString()
       }
     });
 
-  } catch (error) {
-    console.error('Convert GLB error:', error);
-    return NextResponse.json(
-      { error: 'Failed to convert GLB to STL' },
-      { status: 500 }
-    );
+  } catch (error: any) {
+    console.error('Conversion error:', error);
+    return NextResponse.json({ 
+      error: 'Failed to convert GLB to STL',
+      details: error.message 
+    }, { status: 500 });
   }
 }

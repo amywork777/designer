@@ -241,57 +241,45 @@ export default function GetFiles() {
       return;
     }
   
-    // STL file handling
-    try {
-      setIsDownloadingSTL(true);
-      
-      // Always convert from GLB to ensure latest version
-      const response = await fetch('/api/convert-glb', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          glbUrl: design.threeDData.glbUrls[0],
-          designId: design.id,
-          format: 'stl'
-        })
-      });
+    if (type === 'stl') {
+      try {
+        setIsDownloadingSTL(true);
+        const response = await fetch('/api/convert-glb', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            glbUrl: design.threeDData.glbUrls[0],
+            designId: design.id
+          })
+        });
   
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to convert file');
-      }
-  
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${design.name || design.id}.stl`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-  
-      // Update the design with the new STL URL
-      updateDesign(design.id, {
-        threeDData: {
-          ...design.threeDData,
-          stlUrl: url
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Conversion failed');
         }
-      });
   
-      toast({
-        title: "Success",
-        description: "STL file downloaded successfully"
-      });
-    } catch (error) {
-      console.error('Download error:', error);
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to download STL file"
-      });
-    } finally {
-      setIsDownloadingSTL(false);
+        // Get the STL file as a blob and create a download link
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${design.name || 'design'}.stl`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+  
+      } catch (error) {
+        console.error('Download error:', error);
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: error instanceof Error ? error.message : "Failed to download STL file"
+        });
+      } finally {
+        setIsDownloadingSTL(false);
+      }
+      return;
     }
   };
 
