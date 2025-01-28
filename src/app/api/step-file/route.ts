@@ -17,7 +17,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const { designId, designName } = await req.json();
+    const { designId, designName, customerEmail, metadata } = await req.json();
     
     if (!designId) {
       return NextResponse.json(
@@ -51,6 +51,7 @@ export async function POST(req: Request) {
         type: 'step_file',
         designId: designId,
         userId: session.user.id,
+        orderType: 'STEP_FILE'
       },
       success_url: `${process.env.NEXT_PUBLIC_APP_URL}/order-success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/get-it-made`,
@@ -63,9 +64,33 @@ export async function POST(req: Request) {
       metadata: checkoutSession.metadata
     });
 
+    // Send order confirmation email
+    const emailResponse = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/send-order-email`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        orderType: 'STEP_FILE',
+        orderDetails: {
+          metadata: {
+            designId,
+            fileType: 'step',
+            orderType: 'STEP_FILE'
+          },
+          amount_total: 2000,
+          email: session.user.email,
+          userEmail: session.user.email
+        },
+        sessionId: checkoutSession.id
+      })
+    });
+
+    if (!emailResponse.ok) {
+      console.error('Failed to send order confirmation email');
+    }
+
     return NextResponse.json({ url: checkoutSession.url });
   } catch (error) {
-    console.error('Stripe error:', error);
+    console.error('Error creating checkout session:', error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Failed to create checkout session' },
       { status: 500 }
