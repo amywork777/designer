@@ -28,16 +28,23 @@ interface RequestBody {
 }
 
 export async function POST(request: Request) {
+  console.log('4. EditImage API called');
   try {
     const { imageUrl, prompt } = await request.json();
+    console.log('5. Request parsed', {
+      hasImageUrl: !!imageUrl,
+      promptLength: prompt?.length
+    });
 
     if (!imageUrl || !prompt) {
+      console.log('6. Missing required fields');
       return NextResponse.json(
         { success: false, error: 'Image URL and prompt are required' },
         { status: 400 }
       );
     }
 
+    console.log('7. Starting Vision analysis');
     const visionResponse = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
@@ -63,6 +70,10 @@ export async function POST(request: Request) {
         }
       ],
       max_tokens: 500
+    });
+
+    console.log('8. Vision analysis completed', {
+      hasContent: !!visionResponse.choices[0]?.message?.content
     });
 
     const currentDesign = visionResponse.choices[0]?.message?.content;
