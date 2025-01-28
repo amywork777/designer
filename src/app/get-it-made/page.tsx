@@ -856,14 +856,6 @@ export default function GetItMade() {
     }
   };
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="w-8 h-8 animate-spin" />
-      </div>
-    );
-  }
-
   if (!designId || !design) {
     return (
       <div className="container max-w-7xl mx-auto px-4 py-8">
@@ -880,32 +872,27 @@ export default function GetItMade() {
           </Button>
         </div>
 
-        <h1 className="text-3xl font-bold mb-4">Get It Made</h1>
-        <p className="text-gray-600 mb-8">Upload your design or create one to get started</p>
-        
-        <div className="bg-white rounded-2xl p-12 text-center">
-          <div className="mb-6">
-            <Image
-              src="/taiyaki-logo.svg"
-              alt="Taiyaki Logo"
-              width={60}
-              height={60}
-              className="mx-auto"
-            />
-          </div>
-          <h2 className="text-2xl font-bold mb-4">Ready to make your design?</h2>
-          <p className="text-gray-600 mb-8">
+        <div className="flex flex-col items-center justify-center py-12">
+          <img 
+            src="/images/taiyaki.svg"
+            alt="Taiyaki Logo"
+            className="w-24 h-24 mb-4" 
+          />
+          <h2 className="text-2xl font-bold text-center mb-2">
+            Ready to make your design?
+          </h2>
+          <p className="text-gray-600 text-center">
             Upload your design file or create a new one to get started with manufacturing
           </p>
-          <div className="flex justify-center gap-4">
-            <Button variant="default" asChild>
-              <Link href="/create">Create Design</Link>
-            </Button>
-            <Button variant="outline" asChild>
-              <Link href="/upload">Upload Design</Link>
-            </Button>
-          </div>
         </div>
+      </div>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="w-8 h-8 animate-spin" />
       </div>
     );
   }

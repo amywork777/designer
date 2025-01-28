@@ -32,6 +32,8 @@ export function LogoutButton() {
         title: "Error",
         description: "Failed to log out. Please try again."
       });
+      // Still redirect on error
+      window.location.href = '/';
     }
   };
 

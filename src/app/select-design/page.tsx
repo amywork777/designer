@@ -20,6 +20,7 @@ import { SIZES } from '@/lib/types/sizes';
 import { saveDesignToFirebase } from '@/lib/firebase/utils';
 import { MATERIAL_OPTIONS } from '@/lib/constants/materials';
 import { process3DPreview } from "@/lib/firebase/utils";
+import { SignOutButton } from "@/components/auth/SignOutButton";
 
 const PROGRESS_STEPS = [
   {
@@ -1773,12 +1774,7 @@ export default function LandingPage() {
                   )}
                   <span className="text-black">{session.user?.name}</span>
                 </div>
-                <button
-                  onClick={() => signIn("google")}
-                  className="px-4 py-2 text-black hover:text-gray-900"
-                >
-                  Sign Out
-                </button>
+                <SignOutButton /> {/* Replace the button with SignOutButton component */}
               </div>
             ) : (
               <button
