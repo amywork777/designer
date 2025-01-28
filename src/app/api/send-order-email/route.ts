@@ -23,6 +23,18 @@ export async function POST(req: Request) {
       orderType || orderDetails.metadata?.orderType || orderDetails.metadata?.fileType
     );
 
+    const formatAddress = (shippingDetails: any) => {
+      if (!shippingDetails?.address) return 'No shipping details provided';
+      const addr = shippingDetails.address;
+      return `
+        ${shippingDetails.name}
+        ${addr.line1}
+        ${addr.line2 ? addr.line2 + '\n' : ''}
+        ${addr.city}, ${addr.state} ${addr.postal_code}
+        ${addr.country}
+      `.trim();
+    };
+
     // Admin notification email
     const mailOptions = {
       from: process.env.EMAIL_USER,
@@ -57,31 +69,41 @@ ${orderDetails.shipping_details ? JSON.stringify(orderDetails.shipping_details, 
       
       if (isStepFile) {
         customerEmailHTML = `
-          <h1>Thank you for your order!</h1>
-          <p>Order Details:</p>
-          <ul>
-            <li>Total: $${(orderDetails.amount_total / 100).toFixed(2)}</li>
-            <li>Design ID: ${orderDetails.metadata.designId}</li>
-          </ul>
-          <p>Your STEP file conversion will begin shortly. We'll email you the converted files when ready.</p>
+          <div style="font-family: system-ui, -apple-system, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h1 style="color: #111827; font-size: 24px; font-weight: 600; margin-bottom: 16px;">Thank you for your order!</h1>
+            <div style="background-color: white; border-radius: 8px; padding: 24px; margin-bottom: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+              <h2 style="color: #111827; font-size: 18px; font-weight: 500; margin-bottom: 16px;">Order Details</h2>
+              <ul style="list-style: none; padding: 0; margin: 0;">
+                <li style="margin-bottom: 8px;"><strong>Total:</strong> $${(orderDetails.amount_total / 100).toFixed(2)}</li>
+                <li style="margin-bottom: 8px;"><strong>Design ID:</strong> ${orderDetails.metadata.designId}</li>
+              </ul>
+            </div>
+            <p style="color: #4B5563; line-height: 1.5;">Your STEP file conversion will begin shortly. We'll email you the converted files when ready.</p>
+          </div>
         `;
       } else {
         customerEmailHTML = `
-          <h1>Thank you for your order!</h1>
-          <p>Order Details:</p>
-          <ul>
-            <li>Total: $${(orderDetails.amount_total / 100).toFixed(2)}</li>
-            <li>Design ID: ${orderDetails.metadata.designId}</li>
-            <li>Material: ${orderDetails.metadata.material}</li>
-            <li>Size: ${orderDetails.metadata.size}</li>
-            <li>Quantity: ${orderDetails.metadata.quantity}</li>
-            ${orderDetails.metadata.comments ? `<li>Comments: ${orderDetails.metadata.comments}</li>` : ''}
-          </ul>
-          ${orderDetails.shipping_details ? `
-            <h2>Shipping Details:</h2>
-            <p>${JSON.stringify(orderDetails.shipping_details, null, 2)}</p>
-          ` : ''}
-          <p>Your 3D printed item will be manufactured and shipped soon. Please await shipping confirmation.</p>
+          <div style="font-family: system-ui, -apple-system, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h1 style="color: #111827; font-size: 24px; font-weight: 600; margin-bottom: 16px;">Thank you for your order!</h1>
+            <div style="background-color: white; border-radius: 8px; padding: 24px; margin-bottom: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+              <h2 style="color: #111827; font-size: 18px; font-weight: 500; margin-bottom: 16px;">Order Details</h2>
+              <ul style="list-style: none; padding: 0; margin: 0;">
+                <li style="margin-bottom: 8px;"><strong>Total:</strong> $${(orderDetails.amount_total / 100).toFixed(2)}</li>
+                <li style="margin-bottom: 8px;"><strong>Design ID:</strong> ${orderDetails.metadata.designId}</li>
+                <li style="margin-bottom: 8px;"><strong>Material:</strong> ${orderDetails.metadata.material}</li>
+                <li style="margin-bottom: 8px;"><strong>Size:</strong> ${orderDetails.metadata.size}</li>
+                <li style="margin-bottom: 8px;"><strong>Quantity:</strong> ${orderDetails.metadata.quantity}</li>
+                ${orderDetails.metadata.comments ? `<li style="margin-bottom: 8px;"><strong>Comments:</strong> ${orderDetails.metadata.comments}</li>` : ''}
+              </ul>
+            </div>
+            ${orderDetails.shipping_details ? `
+              <div style="background-color: white; border-radius: 8px; padding: 24px; margin-bottom: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                <h2 style="color: #111827; font-size: 18px; font-weight: 500; margin-bottom: 16px;">Shipping Details</h2>
+                <pre style="white-space: pre-wrap; font-family: system-ui, -apple-system, sans-serif; margin: 0;">${formatAddress(orderDetails.shipping_details)}</pre>
+              </div>
+            ` : ''}
+            <p style="color: #4B5563; line-height: 1.5;">Your 3D printed item will be manufactured and shipped soon. Please await shipping confirmation.</p>
+          </div>
         `;
       }
 
