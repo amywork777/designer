@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { 
   CheckCircle2, Clock, Package, DollarSign, 
-  AlertTriangle, ArrowRight, MessageSquare 
+  AlertTriangle, ArrowRight, MessageSquare,
+  Loader2
 } from 'lucide-react';
 import { toast } from "@/components/ui/use-toast";
 
@@ -17,7 +18,7 @@ interface DesignFeeDetails {
   sessionId?: string;
 }
 
-export default function OrderConfirmation() {
+function OrderConfirmationContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [designFeeDetails, setDesignFeeDetails] = useState<DesignFeeDetails | null>(null);
@@ -148,5 +149,20 @@ export default function OrderConfirmation() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function OrderConfirmation() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4" />
+          <p className="text-gray-600">Loading order details...</p>
+        </div>
+      </div>
+    }>
+      <OrderConfirmationContent />
+    </Suspense>
   );
 } 
