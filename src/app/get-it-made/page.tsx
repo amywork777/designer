@@ -285,7 +285,7 @@ export default function GetItMade() {
       setShowSignInPopup(true);
       return;
     }
-
+  
     try {
       const materialMap = {
         'WOOD_PLA': 'Wood-PLA',
@@ -294,50 +294,72 @@ export default function GetItMade() {
         'RESIN': 'Resin',
         'ALUMINUM': 'Aluminum'
       };
-
+  
       const mappedMaterial = materialMap[selectedType];
-      const price = PRICING[selectedSize]?.[mappedMaterial];
-      
-      if (!price || price === 'contact') {
-        throw new Error('Invalid price configuration');
+      const priceValue = PRICING[selectedSize]?.[mappedMaterial];
+  
+      // Handle quote requests
+      if (selectedSize === 'Custom' || selectedSize === 'Large' || !priceValue || priceValue === 'contact') {
+        const response = await fetch('/api/send-quote-email', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            material: selectedType,
+            designId: design?.id,
+            quantity: quantity,
+            size: selectedSize,
+            comments: document.querySelector('textarea')?.value || '',
+            userEmail: session.user.email
+          })
+        });
+  
+        if (!response.ok) {
+          throw new Error('Failed to send quote request');
+        }
+  
+        window.location.href = '/quote-confirmation';
+        return;
       }
-
+  
+      // Fixed price checkout
       const priceIdMap = {
         'Mini': {
-          'PLA': 'price_1QkuTaCLoBz9jXRl5CTGjfg6',
-          'Wood-PLA': 'price_1QkuTkCLoBz9jXRl5pAllj5t',
-          'TPU': 'price_1QkuTuCLoBz9jXRlZQmZJQEP',
-          'Resin': 'price_1QkubLCLoBz9jXRloTQJe1MR',
-          'Aluminum': 'price_1QkubeCLoBz9jXRlItlRenu8'
+          'PLA': { id: 'price_1QkuTaCLoBz9jXRl5CTGjfg6', amount: 15 },
+          'Wood-PLA': { id: 'price_1QkuTkCLoBz9jXRl5pAllj5t', amount: 25 },
+          'TPU': { id: 'price_1QkuTuCLoBz9jXRlZQmZJQEP', amount: 25 },
+          'Resin': { id: 'price_1QkubLCLoBz9jXRloTQJe1MR', amount: 35 },
+          'Aluminum': { id: 'price_1QkubeCLoBz9jXRlItlRenu8', amount: 120 }
         },
         'Small': {
-          'PLA': 'price_1QkucDCLoBz9jXRliYf1Nu2t',
-          'Wood-PLA': 'price_1QkudGCLoBz9jXRlBlLOEmoR',
-          'TPU': 'price_1QkudZCLoBz9jXRlYWCkQn1x',
-          'Resin': 'price_1QkudkCLoBz9jXRlj64JmYUe'
+          'PLA': { id: 'price_1QkucDCLoBz9jXRliYf1Nu2t', amount: 25 },
+          'Wood-PLA': { id: 'price_1QkudGCLoBz9jXRlBlLOEmoR', amount: 35 },
+          'TPU': { id: 'price_1QkudZCLoBz9jXRlYWCkQn1x', amount: 40 },
+          'Resin': { id: 'price_1QkudkCLoBz9jXRlj64JmYUe', amount: 60 }
         },
         'Medium': {
-          'PLA': 'price_1QkugECLoBz9jXRlcZs4TqKk',
-          'Wood-PLA': 'price_1QkugTCLoBz9jXRlbEKnaOPF',
-          'TPU': 'price_1QkuggCLoBz9jXRloWTRcK3f',
-          'Resin': 'price_1QkugtCLoBz9jXRlJV4a1gWg'
+          'PLA': { id: 'price_1QkugECLoBz9jXRlcZs4TqKk', amount: 40 },
+          'Wood-PLA': { id: 'price_1QkugTCLoBz9jXRlbEKnaOPF', amount: 65 },
+          'TPU': { id: 'price_1QkuggCLoBz9jXRloWTRcK3f', amount: 85 },
+          'Resin': { id: 'price_1QkugtCLoBz9jXRlJV4a1gWg', amount: 120 }
         }
       };
-
-      const priceId = priceIdMap[selectedSize]?.[mappedMaterial];
-      
-      if (!priceId) {
+  
+      const priceInfo = priceIdMap[selectedSize]?.[mappedMaterial];
+  
+      if (!priceInfo) {
         throw new Error('Invalid price configuration');
       }
-
+  
       const response = await fetch('/api/create-3d-printing-checkout', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          priceId,
-          amount: price,
+          priceId: priceInfo.id,
+          amount: priceInfo.amount * quantity,
           quantity,
           metadata: {
             orderType: '3D_MANUFACTURING',
@@ -346,15 +368,21 @@ export default function GetItMade() {
             size: selectedSize,
             quantity: quantity,
             comments: document.querySelector('textarea')?.value || ''
-          }
+          },
+          shipping_address_collection: {
+            allowed_countries: ['US'],
+          },
+          shipping_options: [{
+            shipping_rate: 'shr_1Qm46VCLoBz9jXRlIIuopjNw'
+          }]
         })
       });
-
+  
       const data = await response.json();
-      if (data.error || !data.url) {
-        throw new Error(data.error || 'No checkout URL received');
+      if (!data.success || !data.url) {
+        throw new Error(data.error || 'Failed to create checkout session');
       }
-
+  
       window.location.href = data.url;
     } catch (error) {
       console.error('Checkout error:', error);
@@ -365,7 +393,6 @@ export default function GetItMade() {
       });
     }
   };
-
   const MAX_RETRIES = 3;
   const RETRY_DELAY = 1000; // 1 second delay between attempts
 
