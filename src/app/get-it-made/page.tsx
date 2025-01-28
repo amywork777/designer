@@ -480,6 +480,7 @@ export default function GetItMade() {
     if (type === 'step') {
       try {
         setIsDownloadingSTEP(true);
+        const stepFilePrice = 20; // Fixed price for STEP files
         const response = await fetch('/api/step-file', {
           method: 'POST',
           headers: {
@@ -493,8 +494,11 @@ export default function GetItMade() {
             metadata: {
               designId: design?.id,
               fileType: type,
-              orderType: 'STEP_FILE'
-            }
+              orderType: 'STEP_FILE',
+              userEmail: session.user.email
+            },
+            email: session.user.email,
+            amount_total: stepFilePrice * 100, // Convert to cents for Stripe
           }),
         });
 
@@ -502,6 +506,27 @@ export default function GetItMade() {
         if (data.error || !data.url) {
           throw new Error(data.error || 'No checkout URL received');
         }
+
+        // Send order confirmation email
+        await fetch('/api/send-order-email', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            orderType: 'STEP_FILE',
+            orderDetails: {
+              email: session.user.email,
+              metadata: {
+                designId: design?.id,
+                orderType: 'STEP_FILE',
+                userEmail: session.user.email
+              },
+              amount_total: stepFilePrice * 100
+            },
+            sessionId: data.sessionId
+          })
+        });
 
         window.open(data.url, '_blank');
       } catch (error) {
