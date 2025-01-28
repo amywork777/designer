@@ -11,7 +11,6 @@ import {
   AuthError 
 } from 'firebase/auth';
 import { signOut as nextAuthSignOut } from "next-auth/react";
-import { upsertSubscription } from './subscriptions';
 
 function handleAuthError(error: any) {
   const errorMap: Record<string, { message: string, suggestion: 'signup' | 'signin' | 'retry' }> = {
@@ -100,7 +99,6 @@ export async function signInWithGoogle() {
     
     // Check if this is a new user
     if (userCredential.user.metadata.creationTime === userCredential.user.metadata.lastSignInTime) {
-      await upsertSubscription(userCredential.user.uid, 'free');
     }
     
     return { user: userCredential.user, error: null };

@@ -2,37 +2,45 @@
 
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Download, Package, AlertTriangle, Loader2, Factory } from 'lucide-react';
+import { Download, Package, AlertTriangle, Loader2, Factory, Info as InfoIcon } from 'lucide-react'; 
+// ^ I added InfoIcon for the "Creative Guidelines" heading if needed.
 import { useDesignStore } from '@/lib/store/designs';
 import Link from 'next/link';
-import { useToast } from "@/components/ui/use-toast";
+import { useToast } from '@/components/ui/use-toast';
 import { useSession } from 'next-auth/react';
-import { get3DFilesForDesign } from '@/lib/firebase/utils';
-import { updateDesignWithThreeDData } from '@/lib/firebase/utils';
-import { process3DPreview } from '@/lib/firebase/utils';
-import { verify3DData } from '@/lib/firebase/utils';
+import {
+  get3DFilesForDesign,
+  updateDesignWithThreeDData,
+  process3DPreview,
+} from '@/lib/firebase/utils';
 import SignInPopup from '@/components/SignInPopup';
 
 export default function GetFiles() {
   const searchParams = useSearchParams();
   const designId = searchParams.get('designId');
+  
+  // Global designs store
   const { designs, updateDesign } = useDesignStore();
-  const design = designs.find(d => d.id === designId);
+  const design = designs.find((d) => d.id === designId);
+
+  // UI + session states
   const [processing3D, setProcessing3D] = useState(false);
-  const { toast } = useToast();
-  const { data: session } = useSession();
   const [showSignInPopup, setShowSignInPopup] = useState(false);
   const [filesUnlocked, setFilesUnlocked] = useState(false);
   const [isDownloadingSTL, setIsDownloadingSTL] = useState(false);
 
-  // Trigger processing of 3D files on mount or when design/user changes
+  // Hooks
+  const { toast } = useToast();
+  const { data: session } = useSession();
+
+  // On mount or when design/user changes, process the 3D files.
   useEffect(() => {
     if (design?.id && session?.user?.id) {
       process3DFiles();
     }
   }, [design?.id, session?.user?.id]);
 
-  // Log current design data for debugging
+  // Debug: log current design data
   useEffect(() => {
     if (design && session?.user?.id) {
       console.log('Current design data:', {
@@ -131,6 +139,7 @@ export default function GetFiles() {
         const errorData = await response.json();
         throw new Error(errorData.details || errorData.error || 'Conversion failed');
       }
+
       // Get the STL data
       const stlBuffer = await response.arrayBuffer();
       const stlBlob = new Blob([stlBuffer], { type: 'application/octet-stream' });
@@ -140,7 +149,6 @@ export default function GetFiles() {
       const updatedData = await updateDesignWithThreeDData(design.id, userId, {
         stlUrl: URL.createObjectURL(stlBlob),
       });
-
       updateDesign(design.id, {
         threeDData: {
           ...design.threeDData,
@@ -162,7 +170,7 @@ export default function GetFiles() {
     }
   }
 
-  // Handle STL or STEP download
+  // Download either STL or STEP
   async function handleDownload(type: 'stl' | 'step') {
     if (!session?.user) {
       setShowSignInPopup(true);
@@ -245,14 +253,14 @@ export default function GetFiles() {
     }
   }
 
-  // Callback after sign-in
-  const handleSignInSuccess = () => {
+  // After sign-in callback
+  function handleSignInSuccess() {
     setShowSignInPopup(false);
     toast({
       title: 'Success!',
       description: 'Successfully signed in',
     });
-  };
+  }
 
   // If no design in store, show "not found"
   if (!design) {
@@ -302,11 +310,9 @@ export default function GetFiles() {
       <div className="container max-w-7xl mx-auto px-4 py-8">
         <div className="bg-white rounded-xl shadow-lg p-6">
           <div className="flex justify-between items-start mb-6">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">
-                {design?.title || 'Design Preview'}
-              </h1>
-            </div>
+            <h1 className="text-2xl font-bold text-gray-900">
+              {design?.title || 'Design Preview'}
+            </h1>
           </div>
 
           {/* Original Design Preview */}
@@ -354,8 +360,7 @@ export default function GetFiles() {
                         key={index}
                         href={url}
                         download={`model_${index + 1}.glb`}
-                        className="flex-1 px-4 py-2 bg-blue-500 text-white rounded-lg 
-                          hover:bg-blue-600 transition-colors text-center"
+                        className="flex-1 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-center"
                       >
                         Download Model {index + 1}
                       </a>
@@ -371,8 +376,7 @@ export default function GetFiles() {
             <button
               onClick={handle3DProcessing}
               disabled={processing3D}
-              className="mt-6 w-full px-4 py-2 bg-blue-500 text-white rounded-lg 
-                hover:bg-blue-600 disabled:bg-gray-400 transition-colors"
+              className="mt-6 w-full px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-400 transition-colors"
             >
               {processing3D ? 'Processing...' : 'Generate 3D Preview'}
             </button>
@@ -387,19 +391,13 @@ export default function GetFiles() {
           </h3>
           <div className="space-y-4">
             <p className="text-gray-700">
-              Our team will optimize your design for the best possible manufacturing outcome
-              while maintaining its creative integrity.
+              Our team will optimize your design for the best possible manufacturing
+              outcome while maintaining its creative integrity.
             </p>
             <ul className="space-y-2 text-gray-600">
-              <li className="flex items-start gap-2">
-                • We&apos;ll preserve all key design elements and artistic details
-              </li>
-              <li className="flex items-start gap-2">
-                • Minor adjustments may be made to ensure structural stability
-              </li>
-              <li className="flex items-start gap-2">
-                • Material-specific optimizations will be applied as needed
-              </li>
+              <li>• We’ll preserve all key design elements and artistic details</li>
+              <li>• Minor adjustments may be made to ensure structural stability</li>
+              <li>• Material-specific optimizations will be applied as needed</li>
             </ul>
           </div>
         </div>
@@ -422,8 +420,8 @@ export default function GetFiles() {
                   <p className="font-medium">3D Preview Required</p>
                 </div>
                 <p className="text-sm text-amber-600 mb-3">
-                  Please generate a 3D preview before downloading the STL file. This helps ensure
-                  your model is properly prepared for 3D printing.
+                  Please generate a 3D preview before downloading the STL file. 
+                  This helps ensure your model is properly prepared for 3D printing.
                 </p>
                 <button
                   onClick={handle3DProcessing}
@@ -472,8 +470,7 @@ export default function GetFiles() {
             </button>
           </div>
 
-          {/* (Optional) Placeholder for STEP File or other second-column content */}
-          {/* If you do NOT want a second column, you can remove this <div>. */}
+          {/* Second Column — "Get It Made" Example */}
           <div className="mt-8 md:mt-0 bg-gray-50 rounded-lg p-6">
             <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
               <InfoIcon className="w-5 h-5 text-blue-500" />
@@ -481,7 +478,7 @@ export default function GetFiles() {
             </h3>
             <div className="space-y-4">
               <p className="text-gray-700">
-                If you&apos;re not ready to download the files, you can get your design made by our team.
+                If you’re not ready to download the files, you can get your design made by our team.
               </p>
               <Link
                 href={`/get-it-made?designId=${design.id}`}
