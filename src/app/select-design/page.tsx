@@ -321,7 +321,7 @@ const handleGenerateDesign = async () => {
       },
       body: JSON.stringify({
         prompt: fullPrompt,
-        style: selectedStyles[0], // Add this line to pass the style
+        style: selectedStyles[0],
         userId: session?.user?.id || 'anonymous',
         n: 1,
         size: "1024x1024"
@@ -329,7 +329,8 @@ const handleGenerateDesign = async () => {
     });
 
     if (!response.ok) {
-      throw new Error('Failed to generate design');
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || 'Failed to generate design');
     }
 
     const data = await response.json();
