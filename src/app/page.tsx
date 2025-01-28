@@ -753,14 +753,17 @@ export default function LandingPage() {
         fullPrompt += `, in a ${selectedStyle} style`;
       }
   
-      const response = await fetch('/api/generate', {
+      const response = await fetch('/api/generate-design', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           prompt: fullPrompt,
-          style: selectedStyle
+          style: selectedStyle,
+          userId: session?.user?.id || 'anonymous',
+          n: 1,
+          size: "1024x1024"
         }),
       });
   
@@ -2172,16 +2175,6 @@ export default function LandingPage() {
                                   >
                                     <Download className="w-5 h-5" />
                                   </button>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setShowEditDialog(true);
-                                    }}
-                                    className="p-2 bg-white border border-gray-200 hover:border-gray-300 rounded-xl text-gray-700 transition-all duration-200"
-                                    aria-label="Edit design"
-                                  >
-                                    <Edit className="w-5 h-5" />
-                                  </button>
                                 </div>
                               </div>
                             </div>
@@ -2338,10 +2331,13 @@ export default function LandingPage() {
                   </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center py-12 text-center">
-                    <img 
+                    <Image 
                       src="/images/taiyaki.svg"
                       alt="Taiyaki Logo"
-                      className="w-16 h-16 text-gray-400 mb-4 [filter:grayscale(100%)_opacity(40%)]" // Increased from w-12 h-12
+                      width={64}
+                      height={64}
+                      className="w-16 h-16 text-gray-400 mb-4 [filter:grayscale(100%)_opacity(40%)]"
+                      priority
                     />
                     <p className="font-dm-sans font-medium text-gray-900 mb-2">
                       Upload a design or generate one to get started

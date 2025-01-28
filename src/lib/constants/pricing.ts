@@ -2,73 +2,73 @@ export const PRODUCT_PRICING = {
   Mini: {
     PLA: { 
       price: 15, 
-      priceId: 'price_1QkuTaCLoBz9jXRl5CTGjfg6',
-      productId: 'prod_ReCtp2U1cQliV6'
+      priceId: 'price_1QmGnoCLoBz9jXRliwBcAA5a',
+      productId: 'prod_Rfc1ekO1Ms6Rgf'
     },
     'Wood-PLA': { 
       price: 25, 
-      priceId: 'price_1QkuTkCLoBz9jXRl5pAllj5t',
-      productId: 'prod_ReCtAhyBpJYXOC'
+      priceId: 'price_1QmGo3CLoBz9jXRlsXKVMcKD',
+      productId: 'prod_Rfc21SByDSX3dl'
     },
     TPU: { 
       price: 25, 
-      priceId: 'price_1QkuTuCLoBz9jXRlZQmZJQEP',
-      productId: 'prod_ReCty79A6dtHPN'
+      priceId: 'price_1QmGopCLoBz9jXRlZ9Jyt8ZK',
+      productId: 'prod_Rfc2qUqgyFYtop'
     },
     Resin: { 
       price: 35, 
-      priceId: 'price_1QkubLCLoBz9jXRloTQJe1MR',
-      productId: 'prod_ReD1V1OxR4E0jF'
+      priceId: 'price_1QmGp5CLoBz9jXRlzLV86Psp',
+      productId: 'prod_Rfc3yvefcxeQkd'
     },
     Aluminum: { 
       price: 120, 
-      priceId: 'price_1QkubeCLoBz9jXRlItlRenu8',
-      productId: 'prod_ReD1xO1MjtkUYF'
+      priceId: 'price_1QmGpQCLoBz9jXRlqWq1VLPn',
+      productId: 'prod_Rfc34pzZ4NYmZO'
     }
   },
   Small: {
     PLA: { 
       price: 25, 
-      priceId: 'price_1QkucDCLoBz9jXRliYf1Nu2t',
-      productId: 'prod_ReD21bKGSTvP0C'
+      priceId: 'price_1QmGpfCLoBz9jXRlBcrkWyUj',
+      productId: 'prod_Rfc3wYiZBl5FsT'
     },
     'Wood-PLA': { 
       price: 35, 
-      priceId: 'price_1QkudGCLoBz9jXRlBlLOEmoR',
-      productId: 'prod_ReD3FGz05uBf7l'
+      priceId: 'price_1QmGqFCLoBz9jXRlXFN6fM0x',
+      productId: 'prod_Rfc4RwYVAddJft'
     },
     TPU: { 
       price: 40, 
-      priceId: 'price_1QkudZCLoBz9jXRlYWCkQn1x',
-      productId: 'prod_ReD3BTavF7pmke'
+      priceId: 'price_1QmGqTCLoBz9jXRlKqwjXSsK',
+      productId: 'prod_Rfc4eU9kXXB5gH'
     },
     Resin: { 
       price: 60, 
-      priceId: 'price_1QkudkCLoBz9jXRlj64JmYUe',
-      productId: 'prod_ReD3I1SvN23gjE'
+      priceId: 'price_1QmGqkCLoBz9jXRl4fAPPF3Q',
+      productId: 'prod_Rfc4u90wD3XFnE'
     },
     Aluminum: 'contact'
   },
   Medium: {
     PLA: { 
       price: 40, 
-      priceId: 'price_1QkugECLoBz9jXRlcZs4TqKk',
-      productId: 'prod_ReD6w8PBX61NKn'
+      priceId: 'price_1QmGquCLoBz9jXRlh9SG2fqs',
+      productId: 'prod_Rfc5UFb9wvUONF'
     },
     'Wood-PLA': { 
       price: 65, 
-      priceId: 'price_1QkugTCLoBz9jXRlbEKnaOPF',
-      productId: 'prod_ReD6uH27cVeb8q'
+      priceId: 'price_1QmGr6CLoBz9jXRlDM7kHo2H',
+      productId: 'prod_Rfc5zbsUt6X4b6'
     },
     TPU: { 
       price: 85, 
-      priceId: 'price_1QkuggCLoBz9jXRloWTRcK3f',
-      productId: 'prod_ReD6J0ljrKtrCP'
+      priceId: 'price_1QmGrICLoBz9jXRlwC2icqio',
+      productId: 'prod_Rfc5YDREbMRl1b'
     },
     Resin: { 
       price: 120, 
-      priceId: 'price_1QkugtCLoBz9jXRlJV4a1gWg',
-      productId: 'prod_ReD7u7v3pfZ79s'
+      priceId: 'price_1QmGrTCLoBz9jXRl2F14HMZa',
+      productId: 'prod_Rfc5a9lUkvNR3H'
     },
     Aluminum: 'contact'
   },
@@ -83,6 +83,8 @@ export const PRODUCT_PRICING = {
 
 export const STEP_FILE_PRICE = {
   price: 20,
-  priceId: 'price_1QlwZTCLoBz9jXRlNH0lwrEO',
-  productId: 'prod_RfH78KLdSEUjqR'
-}; 
+  priceId: 'price_1QmGnTCLoBz9jXRl0BaVM0NX',
+  productId: 'prod_Rfc1OSaDQzwM8E'
+};
+
+export const SHIPPING_RATE = 'shr_1QmGrqCLoBz9jXRlBqFySsDC'; 

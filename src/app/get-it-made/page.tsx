@@ -326,23 +326,23 @@ function GetItMadeContent() {
       // Fixed price checkout
       const priceIdMap = {
         'Mini': {
-          'PLA': { id: 'price_1QkuTaCLoBz9jXRl5CTGjfg6', amount: 15 },
-          'Wood-PLA': { id: 'price_1QkuTkCLoBz9jXRl5pAllj5t', amount: 25 },
-          'TPU': { id: 'price_1QkuTuCLoBz9jXRlZQmZJQEP', amount: 25 },
-          'Resin': { id: 'price_1QkubLCLoBz9jXRloTQJe1MR', amount: 35 },
-          'Aluminum': { id: 'price_1QkubeCLoBz9jXRlItlRenu8', amount: 120 }
+          'PLA': { id: 'price_1QmGnoCLoBz9jXRliwBcAA5a', amount: 15 },
+          'Wood-PLA': { id: 'price_1QmGo3CLoBz9jXRlsXKVMcKD', amount: 25 },
+          'TPU': { id: 'price_1QmGopCLoBz9jXRlZ9Jyt8ZK', amount: 25 },
+          'Resin': { id: 'price_1QmGp5CLoBz9jXRlzLV86Psp', amount: 35 },
+          'Aluminum': { id: 'price_1QmGpQCLoBz9jXRlqWq1VLPn', amount: 120 }
         },
         'Small': {
-          'PLA': { id: 'price_1QkucDCLoBz9jXRliYf1Nu2t', amount: 25 },
-          'Wood-PLA': { id: 'price_1QkudGCLoBz9jXRlBlLOEmoR', amount: 35 },
-          'TPU': { id: 'price_1QkudZCLoBz9jXRlYWCkQn1x', amount: 40 },
-          'Resin': { id: 'price_1QkudkCLoBz9jXRlj64JmYUe', amount: 60 }
+          'PLA': { id: 'price_1QmGpfCLoBz9jXRlBcrkWyUj', amount: 25 },
+          'Wood-PLA': { id: 'price_1QmGqFCLoBz9jXRlXFN6fM0x', amount: 35 },
+          'TPU': { id: 'price_1QmGqTCLoBz9jXRlKqwjXSsK', amount: 40 },
+          'Resin': { id: 'price_1QmGqkCLoBz9jXRl4fAPPF3Q', amount: 60 }
         },
         'Medium': {
-          'PLA': { id: 'price_1QkugECLoBz9jXRlcZs4TqKk', amount: 40 },
-          'Wood-PLA': { id: 'price_1QkugTCLoBz9jXRlbEKnaOPF', amount: 65 },
-          'TPU': { id: 'price_1QkuggCLoBz9jXRloWTRcK3f', amount: 85 },
-          'Resin': { id: 'price_1QkugtCLoBz9jXRlJV4a1gWg', amount: 120 }
+          'PLA': { id: 'price_1QmGquCLoBz9jXRlh9SG2fqs', amount: 40 },
+          'Wood-PLA': { id: 'price_1QmGr6CLoBz9jXRlDM7kHo2H', amount: 65 },
+          'TPU': { id: 'price_1QmGrICLoBz9jXRlwC2icqio', amount: 85 },
+          'Resin': { id: 'price_1QmGrTCLoBz9jXRl2F14HMZa', amount: 120 }
         }
       };
   
@@ -374,7 +374,7 @@ function GetItMadeContent() {
             allowed_countries: ['US'],
           },
           shipping_options: [{
-            shipping_rate: 'shr_1Qm46VCLoBz9jXRlIIuopjNw'
+            shipping_rate: 'shr_1QmGrqCLoBz9jXRlBqFySsDC'
           }]
         })
       });
@@ -765,7 +765,7 @@ function GetItMadeContent() {
             allowed_countries: ['US'],
           },
           shipping_options: [{
-            shipping_rate: 'shr_1Qm46VCLoBz9jXRlIIuopjNw'
+            shipping_rate: 'shr_1QmGrqCLoBz9jXRlBqFySsDC'
           }],
           metadata: {
             orderType: '3D_MANUFACTURING',
