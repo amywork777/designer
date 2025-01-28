@@ -286,12 +286,6 @@ export default function GetItMade() {
       return;
     }
 
-    const buttonText = getButtonText();
-
-    if (buttonText === 'Submit for a Quote') {
-      return;
-    }
-
     try {
       const materialMap = {
         'WOOD_PLA': 'Wood-PLA',
@@ -302,21 +296,49 @@ export default function GetItMade() {
       };
 
       const mappedMaterial = materialMap[selectedType];
-      const priceInfo = PRODUCT_PRICING[selectedSize]?.[mappedMaterial];
+      const price = PRICING[selectedSize]?.[mappedMaterial];
       
-      if (!priceInfo || typeof priceInfo === 'string') {
+      if (!price || price === 'contact') {
         throw new Error('Invalid price configuration');
       }
 
-      const response = await fetch('/api/create-checkout-session', {
+      const priceIdMap = {
+        'Mini': {
+          'PLA': 'price_1QkuTaCLoBz9jXRl5CTGjfg6',
+          'Wood-PLA': 'price_1QkuTkCLoBz9jXRl5pAllj5t',
+          'TPU': 'price_1QkuTuCLoBz9jXRlZQmZJQEP',
+          'Resin': 'price_1QkubLCLoBz9jXRloTQJe1MR',
+          'Aluminum': 'price_1QkubeCLoBz9jXRlItlRenu8'
+        },
+        'Small': {
+          'PLA': 'price_1QkucDCLoBz9jXRliYf1Nu2t',
+          'Wood-PLA': 'price_1QkudGCLoBz9jXRlBlLOEmoR',
+          'TPU': 'price_1QkudZCLoBz9jXRlYWCkQn1x',
+          'Resin': 'price_1QkudkCLoBz9jXRlj64JmYUe'
+        },
+        'Medium': {
+          'PLA': 'price_1QkugECLoBz9jXRlcZs4TqKk',
+          'Wood-PLA': 'price_1QkugTCLoBz9jXRlbEKnaOPF',
+          'TPU': 'price_1QkuggCLoBz9jXRloWTRcK3f',
+          'Resin': 'price_1QkugtCLoBz9jXRlJV4a1gWg'
+        }
+      };
+
+      const priceId = priceIdMap[selectedSize]?.[mappedMaterial];
+      
+      if (!priceId) {
+        throw new Error('Invalid price configuration');
+      }
+
+      const response = await fetch('/api/create-3d-printing-checkout', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          priceId: priceInfo.priceId,
-          amount: priceInfo.price,
-          quantity: quantity,
+          priceId,
+          amount: price,
+          quantity,
           metadata: {
             orderType: '3D_MANUFACTURING',
             designId: design?.id,
