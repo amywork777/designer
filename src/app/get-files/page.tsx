@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Download, Package, AlertTriangle, Loader2, Factory, Info as InfoIcon } from 'lucide-react'; 
 // ^ I added InfoIcon for the "Creative Guidelines" heading if needed.
@@ -15,7 +15,7 @@ import {
 } from '@/lib/firebase/utils';
 import SignInPopup from '@/components/SignInPopup';
 
-export default function GetFiles() {
+function GetFilesContent() {
   const searchParams = useSearchParams();
   const designId = searchParams.get('designId');
   
@@ -395,7 +395,7 @@ export default function GetFiles() {
               outcome while maintaining its creative integrity.
             </p>
             <ul className="space-y-2 text-gray-600">
-              <li>• We’ll preserve all key design elements and artistic details</li>
+              <li>• We'll preserve all key design elements and artistic details</li>
               <li>• Minor adjustments may be made to ensure structural stability</li>
               <li>• Material-specific optimizations will be applied as needed</li>
             </ul>
@@ -478,7 +478,7 @@ export default function GetFiles() {
             </h3>
             <div className="space-y-4">
               <p className="text-gray-700">
-                If you’re not ready to download the files, you can get your design made by our team.
+                If you're not ready to download the files, you can get your design made by our team.
               </p>
               <Link
                 href={`/get-it-made?designId=${design.id}`}
@@ -501,5 +501,20 @@ export default function GetFiles() {
         />
       )}
     </div>
+  );
+}
+
+export default function GetFiles() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4" />
+          <p className="text-gray-600">Loading design...</p>
+        </div>
+      </div>
+    }>
+      <GetFilesContent />
+    </Suspense>
   );
 }
