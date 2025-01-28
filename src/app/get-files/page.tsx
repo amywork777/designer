@@ -295,7 +295,14 @@ export default function GetFiles() {
   }, []);
 
   if (!design) {
-    return <div>Design not found</div>;
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <h2 className="text-xl font-semibold mb-2">Design not found</h2>
+          <p className="text-gray-600">Please select a valid design</p>
+        </div>
+      </div>
+    );
   }
 
   return (
