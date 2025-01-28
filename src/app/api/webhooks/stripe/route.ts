@@ -16,108 +16,99 @@ const transporter = nodemailer.createTransport({
 });
 
 export async function POST(req: Request) {
-  const body = await req.text();
-  const sig = headers().get('stripe-signature');
-
-  let event;
-
   try {
-    event = stripe.webhooks.constructEvent(body, sig!, endpointSecret);
-  } catch (err: any) {
-    console.error('Webhook signature verification failed:', err.message);
-    return new Response(`Webhook Error: ${err.message}`, { status: 400 });
-  }
+    const event = await verifyStripeWebhookEvent(req);
+    const session = event.data.object;
+    const metadata = session.metadata || {};
+    
+    // Get all relevant data
+    const email = session.email;
+    const userEmail = metadata.userEmail;
+    const comments = metadata.comments;
+    const quantity = metadata.quantity;
+    const shippingDetails = session.shipping_details;
 
-  try {
-    if (event.type === 'checkout.session.completed') {
-      const session = event.data.object as Stripe.Checkout.Session;
-      const metadata = session.metadata || {};
-      
-      console.log('Webhook received - Session:', {
-        id: session.id,
-        metadata,
-        customerEmail: session.customer_email,
-        shipping: session.shipping
-      });
-      
-      // Prepare email content based on order type
-      let orderDetails = '';
-      if (metadata.orderType === 'STEP_FILE') {
-        orderDetails = `
-New STEP File Order
-------------------
-Design ID: ${metadata.designId}
-Customer Email: ${session.customer_email}
-Amount: $${(session.amount_total! / 100).toFixed(2)}
-Order ID: ${session.id}
-        `;
-      } else {
-        orderDetails = `
-New 3D Manufacturing Order
--------------------------
+    // Combine emails, removing duplicates and nulls
+    const emailAddresses = [...new Set([email, userEmail].filter(Boolean))];
+    
+    if (emailAddresses.length === 0) {
+      console.error('No email addresses found in session:', session);
+      return NextResponse.json({ received: true });
+    }
+
+    const orderDetails = `
+Order Details:
+-------------
+Order Type: ${metadata.orderType}
+Session ID: ${session.id}
+Customer Email: ${emailAddresses.join(', ')}
+Amount: $${(session.amount_total / 100).toFixed(2)}
+
 Design ID: ${metadata.designId}
 Material: ${metadata.material}
 Size: ${metadata.size}
-Quantity: ${metadata.quantity}
-Comments: ${metadata.comments || 'None'}
-Customer Email: ${session.customer_email}
-Amount: $${(session.amount_total! / 100).toFixed(2)}
-Order ID: ${session.id}
+Quantity: ${quantity}
+Comments: ${comments || 'None'}
 
-Shipping Address:
-${session.shipping?.name}
-${session.shipping?.address?.line1}
-${session.shipping?.address?.line2 || ''}
-${session.shipping?.address?.city}, ${session.shipping?.address?.state} ${session.shipping?.address?.postal_code}
-United States
-        `;
-      }
+Shipping Details:
+${shippingDetails ? JSON.stringify(shippingDetails, null, 2) : 'No shipping details provided'}
+`;
 
-      try {
-        console.log('Attempting to send email with details:', orderDetails);
-        
-        // Send order notification email
+    try {
+      console.log('Attempting to send email with details:', orderDetails);
+      
+      // Send order notification email to admin
+      await transporter.sendMail({
+        from: process.env.EMAIL_USER,
+        to: 'taiyaki.orders@gmail.com',
+        subject: `New Order - ${metadata.orderType === 'STEP_FILE' ? 'STEP File' : '3D Manufacturing'}`,
+        text: orderDetails,
+      });
+      
+      // Send customer confirmation email using nodemailer to all email addresses
+      const customerEmailHTML = `
+        <h1>Thank you for your order!</h1>
+        <p>Order Details:</p>
+        <ul>
+          <li>Order ID: ${session.id}</li>
+          <li>Total: $${(session.amount_total / 100).toFixed(2)}</li>
+          ${metadata.material ? `<li>Material: ${metadata.material}</li>` : ''}
+          ${metadata.size ? `<li>Size: ${metadata.size}</li>` : ''}
+          ${quantity ? `<li>Quantity: ${quantity}</li>` : ''}
+          ${comments ? `<li>Comments: ${comments}</li>` : ''}
+        </ul>
+        ${shippingDetails ? `
+        <h2>Shipping Details:</h2>
+        <p>${JSON.stringify(shippingDetails, null, 2)}</p>
+        ` : ''}
+        <p>
+          ${metadata.orderType === 'STEP_FILE' 
+            ? 'Your STEP file will be processed and delivered within 1-2 business days.'
+            : 'We will begin processing your manufacturing order right away. Please await shipping confirmation.'}
+        </p>
+      `;
+
+      // Send to all found email addresses
+      for (const emailAddress of emailAddresses) {
         await transporter.sendMail({
           from: process.env.EMAIL_USER,
-          to: 'taiyaki.orders@gmail.com',
-          subject: `New Order - ${metadata.orderType === 'STEP_FILE' ? 'STEP File' : '3D Manufacturing'}`,
-          text: orderDetails,
+          to: emailAddress,
+          subject: 'Your Taiyaki Order Confirmation',
+          html: customerEmailHTML,
         });
-        
-        console.log('Email sent successfully');
-      } catch (error) {
-        console.error('Failed to send email:', error);
-        // Still return 200 to Stripe but log the error
-        return NextResponse.json({ received: true });
       }
 
-      // Send customer confirmation email
-      await resend.emails.send({
-        from: 'Taiyaki <orders@taiyaki.studio>',
-        to: session.customer_email!,
-        subject: 'Your Taiyaki Order Confirmation',
-        html: `
-          <h1>Thank you for your order!</h1>
-          <p>Order Details:</p>
-          <ul>
-            <li>Order ID: ${session.id}</li>
-            <li>Total: $${(session.amount_total! / 100).toFixed(2)}</li>
-            ${metadata.material ? `<li>Material: ${metadata.material}</li>` : ''}
-            ${metadata.size ? `<li>Size: ${metadata.size}</li>` : ''}
-            ${metadata.quantity ? `<li>Quantity: ${metadata.quantity}</li>` : ''}
-          </ul>
-          <p>
-            ${metadata.orderType === 'STEP_FILE' 
-              ? 'Your STEP file will be processed and delivered within 1-2 business days.'
-              : 'We will begin processing your manufacturing order right away. Please await shipping confirmation.'}
-          </p>
-        `,
-      });
+    } catch (error) {
+      console.error('Failed to send email:', error);
+      return NextResponse.json({ received: true });
     }
 
-    return new Response('Webhook received', { status: 200 });
+    return NextResponse.json({ received: true });
   } catch (error) {
-    console.error('Webhook processing error:', error);
-    return new Response('Webhook processing failed', { status: 500 });
+    console.error('Webhook error:', error);
+    return NextResponse.json(
+      { error: 'Webhook handler failed' },
+      { status: 400 }
+    );
   }
 } 

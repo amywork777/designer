@@ -54,8 +54,8 @@ export async function POST(req: Request) {
           }
         ],
         mode: 'payment',
-        success_url: `${process.env.NEXT_PUBLIC_APP_URL}/order-confirmation?orderId=${orderId}&status=deposit_paid`,
-        cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/order-confirmation?orderId=${orderId}`,
+        success_url: `${process.env.NEXT_PUBLIC_APP_URL}/order-success?orderId=${orderId}&status=deposit_paid`,
+        cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/order-success?orderId=${orderId}`,
         metadata: {
           orderId: orderId
         }

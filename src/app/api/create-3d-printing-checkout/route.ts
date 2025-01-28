@@ -3,7 +3,7 @@ import { stripe } from '@/lib/stripe';
 
 export async function POST(req: Request) {
   try {
-    const { priceId, amount, quantity, metadata } = await req.json();
+    const { priceId, amount, quantity, metadata, customer_email } = await req.json();
 
     if (!stripe) {
       return NextResponse.json({
@@ -19,6 +19,7 @@ export async function POST(req: Request) {
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
+      customer_email: customer_email,
       line_items: [
         {
           price: priceId,
@@ -32,9 +33,12 @@ export async function POST(req: Request) {
       shipping_options: [{
         shipping_rate: 'shr_1Qm46VCLoBz9jXRlIIuopjNw'
       }],
-      success_url: `${process.env.NEXT_PUBLIC_APP_URL}/order-confirmation?session_id={CHECKOUT_SESSION_ID}`,
+      success_url: `${process.env.NEXT_PUBLIC_APP_URL}/order-success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/get-it-made`,
-      metadata: metadata
+      metadata: {
+        ...metadata,
+        customer_email: customer_email
+      }
     });
 
     return NextResponse.json({

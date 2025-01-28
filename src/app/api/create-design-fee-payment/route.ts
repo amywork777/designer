@@ -37,7 +37,7 @@ export async function POST(req: Request) {
       ],
       mode: 'payment',
       customer_email_collection: true,
-      success_url: `${process.env.NEXT_PUBLIC_APP_URL}/order-confirmation?status=design_fee_paid&session_id={CHECKOUT_SESSION_ID}`,
+      success_url: `${process.env.NEXT_PUBLIC_APP_URL}/order-success?status=design_fee_paid&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/manufacturing`,
       metadata: {
         type: 'design_fee',

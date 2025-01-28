@@ -367,7 +367,8 @@ export default function GetItMade() {
             material: selectedType,
             size: selectedSize,
             quantity: quantity,
-            comments: document.querySelector('textarea')?.value || ''
+            comments: document.querySelector('textarea')?.value || '',
+            userEmail: session.user.email
           },
           shipping_address_collection: {
             allowed_countries: ['US'],
@@ -451,8 +452,34 @@ export default function GetItMade() {
   };
 
   const handleDownload = async (type: 'stl' | 'step') => {
+    if (!session?.user) {
+      setShowSignInPopup(true);
+      return;
+    }
+
+    if (!design?.threeDData?.glbUrls?.[0]) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "No 3D model available for download"
+      });
+      return;
+    }
+
+    const userEmail = session?.user?.email;
+    
+    if (!userEmail) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "User email not found"
+      });
+      return;
+    }
+
     if (type === 'step') {
       try {
+        setIsDownloadingSTEP(true);
         const response = await fetch('/api/step-file', {
           method: 'POST',
           headers: {
@@ -462,6 +489,7 @@ export default function GetItMade() {
             designId: design?.id,
             designName: design?.name || 'Untitled',
             fileType: type,
+            customerEmail: session.user.email,
             metadata: {
               designId: design?.id,
               fileType: type,
@@ -471,7 +499,6 @@ export default function GetItMade() {
         });
 
         const data = await response.json();
-        
         if (data.error || !data.url) {
           throw new Error(data.error || 'No checkout URL received');
         }
@@ -484,7 +511,104 @@ export default function GetItMade() {
           title: "Error",
           description: error instanceof Error ? error.message : "Failed to initiate checkout"
         });
+      } finally {
+        setIsDownloadingSTEP(false);
       }
+      return;
+    }
+
+    // 3D order handling
+    try {
+      setIsDownloadingSTL(true);
+
+      const materialMap = {
+        'WOOD_PLA': 'Wood-PLA',
+        'PLA': 'PLA',
+        'TPU': 'TPU',
+        'RESIN': 'Resin',
+        'ALUMINUM': 'Aluminum'
+      };
+
+      const mappedMaterial = materialMap[selectedType];
+      const priceInfo = priceIdMap[selectedSize]?.[mappedMaterial];
+
+      if (!priceInfo) {
+        throw new Error('Invalid price configuration');
+      }
+
+      // Create checkout session using the working structure from handleProceed
+      const checkoutResponse = await fetch('/api/create-3d-printing-checkout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          priceId: priceInfo.id,
+          amount: priceInfo.amount * quantity,
+          quantity,
+          customer_email: userEmail,
+          metadata: {
+            orderType: '3D_MANUFACTURING',
+            type: '3d_print',
+            designId: design?.id,
+            material: selectedType,
+            size: selectedSize,
+            quantity: quantity,
+            userEmail: userEmail
+          }
+        })
+      });
+
+      const checkoutData = await checkoutResponse.json();
+      if (!checkoutData.success || !checkoutData.url) {
+        throw new Error(checkoutData.error || 'Failed to create checkout session');
+      }
+
+      // Then handle the file conversion
+      const response = await fetch('/api/convert-glb', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          glbUrl: design.threeDData.glbUrls[0],
+          designId: design.id,
+          format: 'stl'
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to convert file');
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${design.name || design.id}.stl`;
+      document.body.appendChild(a);
+      a.click();
+      
+      // Cleanup
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      // Redirect to checkout
+      window.location.href = checkoutData.url;
+
+      toast({
+        title: "Success",
+        description: "STL file downloaded successfully"
+      });
+
+    } catch (error) {
+      console.error('Download error:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to download STL file"
+      });
+    } finally {
+      setIsDownloadingSTL(false);
     }
   };
 
