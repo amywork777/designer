@@ -305,49 +305,76 @@ interface GenerateResponse {
 const handleGenerateDesign = async () => {
   try {
     setGeneratingDesign(true);
-    
-    const userId = session?.user?.id || 'anonymous';
-    
-    const response = await fetch('/api/generate-design', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        prompt: fullPrompt,
-        style: selectedStyles[0],
-        userId: userId,
-        n: 1,
-        size: "1024x1024"
-      }),
-    });
+    let retryCount = 0;
+    const maxRetries = 3;
 
-    if (!response.ok) {
-      throw new Error('Failed to generate design');
+    while (retryCount < maxRetries) {
+      try {
+        const userId = session?.user?.id || 'anonymous';
+        
+        const response = await fetch('/api/generate-design', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            prompt: fullPrompt,
+            style: selectedStyles[0],
+            userId: userId,
+            n: 1,
+            size: "1024x1024"
+          }),
+          signal: AbortSignal.timeout(30000) // 30 second timeout
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          let errorMessage;
+          try {
+            const errorJson = JSON.parse(errorText);
+            errorMessage = errorJson.error || 'Failed to generate design';
+          } catch (e) {
+            errorMessage = errorText || 'Failed to generate design';
+          }
+          throw new Error(errorMessage);
+        }
+
+        const data = await response.json();
+        
+        if (!data.success || !data.imageUrl) {
+          throw new Error('No image generated');
+        }
+
+        // Save to Firebase
+        const savedDesign = await saveDesignToFirebase({
+          imageUrl: data.imageUrl,
+          prompt: fullPrompt,
+          userId: userId,
+          mode: 'generated'
+        });
+
+        setSelectedDesign(savedDesign.imageUrl);
+        setShowAnalysis(true);
+        setScrollToAnalysis(true);
+
+        toast({
+          title: "Success",
+          description: "Design generated successfully!"
+        });
+        break; // Exit loop on success
+
+      } catch (error) {
+        console.error(`Attempt ${retryCount + 1} failed:`, error);
+        retryCount++;
+
+        if (retryCount === maxRetries) {
+          throw error; // Let the outer catch block handle the final error
+        } else {
+          // Wait before retrying (exponential backoff)
+          await new Promise(resolve => setTimeout(resolve, 2000 * Math.pow(2, retryCount)));
+        }
+      }
     }
-
-    const data = await response.json();
-    
-    if (!data.success || !data.imageUrl) {
-      throw new Error('No image generated');
-    }
-
-    // Save to Firebase
-    const savedDesign = await saveDesignToFirebase({
-      imageUrl: data.imageUrl,
-      prompt: fullPrompt,
-      userId: userId,
-      mode: 'generated'
-    });
-
-    setSelectedDesign(savedDesign.imageUrl);
-    setShowAnalysis(true);
-    setScrollToAnalysis(true);
-
-    toast({
-      title: "Success",
-      description: "Design generated successfully!"
-    });
   } catch (error) {
     console.error('Error generating design:', error);
     toast({
@@ -933,37 +960,34 @@ export default function LandingPage() {
 
   // Main edit design handler
   const handleEditDesign = async () => {
-    if (!selectedDesign || !editPrompt.trim()) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Please describe the changes you want to make"
-      });
-      return;
-    }
-    
+    console.log('1. Edit initiated', {
+      hasEditPrompt: !!editPrompt,
+      hasSelectedDesign: !!selectedDesign
+    });
+
+    if (!editPrompt || !selectedDesign) return;
+
     setIsEditing(true);
     try {
-      // First analyze the current design
-      const description = await analyzeImageForEdit(selectedDesign);
-      console.log('Original design analysis:', description);
-      
-      // Create a prompt that combines the analysis and edit request
-      const editRequest = `3D model design: ${description}. Modification: ${editPrompt.trim()}`;
-      console.log('Edit request:', editRequest);
+      console.log('2. Making edit request to /api/editImage', {
+        imageUrl: selectedDesign?.substring(0, 50) + '...',
+        promptLength: editPrompt.length
+      });
 
-      // Call the API to generate edited design
-      const response = await fetch('/api/generate', {
+      const response = await fetch('/api/editImage', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          mode: 'edit',
-          prompt: editRequest,
-          image: selectedDesign,
-          style: selectedStyle
+          imageUrl: selectedDesign,
+          prompt: editPrompt
         }),
+      });
+
+      console.log('3. Edit response received', {
+        status: response.status,
+        ok: response.ok
       });
 
       if (!response.ok) {
@@ -984,7 +1008,7 @@ export default function LandingPage() {
       // Save edited version with reference
       const savedDesign = await saveDesignToFirebase({
         imageUrl: data.imageUrl,
-        prompt: editRequest,
+        prompt: editPrompt,
         userId,
         mode: 'edited',
         originalDesignId: currentDesign.id // Clear reference to original
@@ -998,7 +1022,7 @@ export default function LandingPage() {
         title: 'Edited Design',
         images: [savedDesign.imageUrl],
         createdAt: new Date().toISOString(),
-        prompt: editRequest,
+        prompt: editPrompt,
         originalDesignId: selectedDesign, // Reference to the original design
         editHistory: [{
           originalImage: selectedDesign,
