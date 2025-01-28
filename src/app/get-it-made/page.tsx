@@ -839,7 +839,7 @@ export default function GetItMade() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-white via-gray-50 to-rose-100">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-rose-50 via-amber-50 via-emerald-50 via-sky-50 via-violet-50 to-white">
       <div className="max-w-6xl mx-auto px-6 pt-6">
         <Button
           variant="ghost"
