@@ -696,7 +696,6 @@ export default function GetItMade() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          // ... other order details
           shipping_address_collection: {
             allowed_countries: ['US'],
           },
@@ -705,12 +704,15 @@ export default function GetItMade() {
           }],
           metadata: {
             orderType: '3D_MANUFACTURING',
+            type: '3d_print',
             designId: design?.id,
             material: selectedMaterial,
             size: selectedSize,
             quantity: quantity,
             comments: document.querySelector('textarea')?.value || ''
-          }
+          },
+          success_url: `${window.location.origin}/order-success?session_id={CHECKOUT_SESSION_ID}`,
+          cancel_url: `${window.location.origin}/get-it-made?designId=${design?.id}`
         })
       });
 
@@ -719,7 +721,7 @@ export default function GetItMade() {
         throw new Error(data.error || 'No checkout URL received');
       }
 
-      window.open(data.url, '_blank');
+      window.location.href = data.url;
     } catch (error) {
       console.error('Checkout error:', error);
       toast({
@@ -1014,7 +1016,7 @@ export default function GetItMade() {
                               ) : (
                                 <>
                                   <FileDown className="mr-2 h-4 w-4" />
-                                  Purchase STEP File - $20 (24-48h delivery)
+                                  Purchase STEP File - $20
                                 </>
                               )}
                             </Button>

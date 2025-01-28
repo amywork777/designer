@@ -1,31 +1,18 @@
 import { NextResponse } from 'next/server';
-import Stripe from 'stripe';
-
-const stripe = process.env.STRIPE_SECRET_KEY 
-  ? new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2024-02-15' })
-  : null;
+import { stripe } from '@/lib/stripe';
 
 export async function GET(
-  request: Request,
+  req: Request,
   { params }: { params: { sessionId: string } }
 ) {
   try {
-    if (!stripe) {
-      throw new Error('Stripe is not configured');
-    }
-
     const session = await stripe.checkout.sessions.retrieve(params.sessionId, {
-      expand: ['payment_intent', 'customer']
+      expand: ['line_items', 'payment_intent']
     });
 
-    return NextResponse.json({
-      status: session.status,
-      amount_total: session.amount_total,
-      customer_email: session.customer_details?.email,
-      metadata: session.metadata
-    });
+    return NextResponse.json(session);
   } catch (error) {
-    console.error('Error fetching session:', error);
+    console.error('Failed to fetch session:', error);
     return NextResponse.json(
       { error: 'Failed to fetch session details' },
       { status: 500 }

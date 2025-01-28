@@ -33,19 +33,28 @@ export async function POST(req: Request) {
       const session = event.data.object as Stripe.Checkout.Session;
       const metadata = session.metadata || {};
       
+      console.log('Webhook received - Session:', {
+        id: session.id,
+        metadata,
+        customerEmail: session.customer_email,
+        shipping: session.shipping
+      });
+      
       // Prepare email content based on order type
       let orderDetails = '';
       if (metadata.orderType === 'STEP_FILE') {
         orderDetails = `
-Order Type: STEP File Purchase
+New STEP File Order
+------------------
 Design ID: ${metadata.designId}
-File Type: ${metadata.fileType}
 Customer Email: ${session.customer_email}
 Amount: $${(session.amount_total! / 100).toFixed(2)}
+Order ID: ${session.id}
         `;
       } else {
         orderDetails = `
-Order Type: 3D Manufacturing Order
+New 3D Manufacturing Order
+-------------------------
 Design ID: ${metadata.designId}
 Material: ${metadata.material}
 Size: ${metadata.size}
@@ -53,6 +62,7 @@ Quantity: ${metadata.quantity}
 Comments: ${metadata.comments || 'None'}
 Customer Email: ${session.customer_email}
 Amount: $${(session.amount_total! / 100).toFixed(2)}
+Order ID: ${session.id}
 
 Shipping Address:
 ${session.shipping?.name}
@@ -60,16 +70,26 @@ ${session.shipping?.address?.line1}
 ${session.shipping?.address?.line2 || ''}
 ${session.shipping?.address?.city}, ${session.shipping?.address?.state} ${session.shipping?.address?.postal_code}
 United States
-`;
+        `;
       }
 
-      // Send notification email to Taiyaki
-      await transporter.sendMail({
-        from: process.env.EMAIL_USER,
-        to: 'taiyaki.orders@gmail.com',
-        subject: `New Order - ${metadata.orderType === 'STEP_FILE' ? 'STEP File' : '3D Manufacturing'}`,
-        text: orderDetails,
-      });
+      try {
+        console.log('Attempting to send email with details:', orderDetails);
+        
+        // Send order notification email
+        await transporter.sendMail({
+          from: process.env.EMAIL_USER,
+          to: 'taiyaki.orders@gmail.com',
+          subject: `New Order - ${metadata.orderType === 'STEP_FILE' ? 'STEP File' : '3D Manufacturing'}`,
+          text: orderDetails,
+        });
+        
+        console.log('Email sent successfully');
+      } catch (error) {
+        console.error('Failed to send email:', error);
+        // Still return 200 to Stripe but log the error
+        return NextResponse.json({ received: true });
+      }
 
       // Send customer confirmation email
       await resend.emails.send({
@@ -95,12 +115,9 @@ United States
       });
     }
 
-    return NextResponse.json({ received: true });
+    return new Response('Webhook received', { status: 200 });
   } catch (error) {
-    console.error('Webhook handler failed:', error);
-    return NextResponse.json(
-      { error: 'Webhook handler failed' },
-      { status: 500 }
-    );
+    console.error('Webhook processing error:', error);
+    return new Response('Webhook processing failed', { status: 500 });
   }
 } 

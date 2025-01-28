@@ -25,6 +25,7 @@ export default function GetFiles() {
   const { subscription, downloadLimits, refreshSubscription } = useSubscription();
   const [showSignInPopup, setShowSignInPopup] = useState(false);
   const [filesUnlocked, setFilesUnlocked] = useState(false);
+  const [isDownloadingSTL, setIsDownloadingSTL] = useState(false);
 
   const MAX_RETRIES = 3;
 
@@ -197,6 +198,11 @@ export default function GetFiles() {
   };
 
   const handleDownload = async (type: 'stl' | 'step') => {
+    if (!session?.user) {
+      setShowSignInPopup(true);
+      return;
+    }
+  
     if (!design?.threeDData?.glbUrls?.[0]) {
       toast({
         variant: "destructive",
@@ -205,48 +211,87 @@ export default function GetFiles() {
       });
       return;
     }
-
+  
+    if (type === 'step') {
+      // STEP file handling
+      try {
+        const response = await fetch('/api/step-file', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            designId: design?.id,
+            designName: design?.name || 'Untitled'
+          })
+        });
+  
+        const data = await response.json();
+        if (data.error || !data.url) {
+          throw new Error(data.error || 'No checkout URL received');
+        }
+  
+        window.open(data.url, '_blank');
+      } catch (error) {
+        console.error('Checkout error:', error);
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: error instanceof Error ? error.message : "Failed to initiate checkout"
+        });
+      }
+      return;
+    }
+  
+    // STL file handling
     try {
-      console.log('Starting conversion for GLB:', design.threeDData.glbUrls[0]);
+      setIsDownloadingSTL(true);
       
+      // Always convert from GLB to ensure latest version
       const response = await fetch('/api/convert-glb', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           glbUrl: design.threeDData.glbUrls[0],
-          designId: design.id
+          designId: design.id,
+          format: 'stl'
         })
       });
-
+  
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.details || errorData.error || 'Failed to convert file');
+        throw new Error(errorData.error || 'Failed to convert file');
       }
-
+  
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${design.id}.${type}`;
+      a.download = `${design.name || design.id}.stl`;
       document.body.appendChild(a);
       a.click();
-      
-      // Cleanup
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
-
+  
+      // Update the design with the new STL URL
+      updateDesign(design.id, {
+        threeDData: {
+          ...design.threeDData,
+          stlUrl: url
+        }
+      });
+  
       toast({
         title: "Success",
-        description: `${type.toUpperCase()} file downloaded successfully`
+        description: "STL file downloaded successfully"
       });
-
     } catch (error) {
-      console.error(`Error downloading ${type}:`, error);
+      console.error('Download error:', error);
       toast({
         variant: "destructive",
         title: "Error",
-        description: error.message || `Failed to download ${type} file`
+        description: error instanceof Error ? error.message : "Failed to download STL file"
       });
+    } finally {
+      setIsDownloadingSTL(false);
     }
   };
 
@@ -424,6 +469,9 @@ export default function GetFiles() {
 
         {/* File Download Options */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          
+
+          {/* STEP File Section */}
           {/* STL File Section */}
           <div className="bg-white rounded-xl p-6 border border-gray-200">
             <div className="flex justify-between items-start mb-4">
@@ -466,17 +514,27 @@ export default function GetFiles() {
               </div>
             )}
 
+            {/* Download button - Modified to use handleDownload directly */}
             <button 
-              onClick={handleUnlockFiles}
-              disabled={!design?.threeDData?.videoUrl || filesUnlocked}
+              onClick={() => handleDownload('stl')}
+              disabled={!design?.threeDData?.videoUrl || isDownloadingSTL}
               className={`w-full py-4 rounded-lg transition-all transform hover:scale-[1.02] 
                 shadow-lg hover:shadow-xl flex items-center justify-center gap-3 font-semibold text-lg
-                ${!design?.threeDData?.videoUrl || filesUnlocked 
+                ${!design?.threeDData?.videoUrl || isDownloadingSTL
                   ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
                   : 'bg-purple-600 hover:bg-purple-700 text-white'}`}
             >
-              <Download className="w-5 h-5" />
-              Unlock Files
+              {isDownloadingSTL ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Converting...
+                </>
+              ) : (
+                <>
+                  <Download className="w-5 h-5" />
+                  Download STL
+                </>
+              )}
             </button>
 
             <div className="mt-6 bg-purple-50 rounded-lg p-4">
@@ -492,41 +550,6 @@ export default function GetFiles() {
               </Link>
             </div>
           </div>
-
-          {/* STEP File Section */}
-          <div className="bg-white rounded-xl p-6 border border-gray-200">
-            <div className="flex justify-between items-start mb-4">
-              <div>
-                <h3 className="text-xl font-bold">STEP File</h3>
-                <p className="text-gray-600">for CAD editing (24-48 hr)</p>
-              </div>
-              <span className="bg-yellow-100 text-yellow-700 px-3 py-1 rounded-full text-sm font-medium">
-                Paid Plans Only
-              </span>
-            </div>
-
-            <div className="bg-yellow-50 rounded-lg p-4 mb-4">
-              <div className="flex items-center gap-2 mb-2">
-                <Crown className="w-5 h-5 text-yellow-700" />
-                <p className="font-medium text-gray-800">Available with paid plans:</p>
-              </div>
-              <ul className="text-gray-600 text-sm space-y-1">
-                <li>• Hobbyist: 5 STEP files/month</li>
-                <li>• Pro: 20 STEP files/month</li>
-              </ul>
-            </div>
-
-            <Link
-              href="/plans"
-              className="w-full py-4 bg-gradient-to-r from-yellow-500 to-yellow-600 hover:from-yellow-600 
-                hover:to-yellow-700 text-white rounded-lg transition-all transform hover:scale-[1.02] 
-                shadow-lg hover:shadow-xl flex items-center justify-center gap-3 font-semibold text-lg"
-            >
-              <Crown className="w-5 h-5" />
-              Upgrade to Download
-            </Link>
-          </div>
-        </div>
 
         <div className="mt-8 bg-gray-50 rounded-lg p-6">
           <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">

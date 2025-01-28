@@ -111,7 +111,7 @@ export function PricingDialog({ isOpen, onClose }: PricingDialogProps) {
                 alt="Taiyaki Logo"
                 width={100}
                 height={100}
-                className="opacity-60"
+                className="opacity-"
               />
             </div>
 
