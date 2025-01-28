@@ -1,10 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { CheckCircle2 } from 'lucide-react';
 import Image from 'next/image';
 import { toast } from "@/components/ui/use-toast";
+import { Button } from '@/components/ui/button';
 
 interface OrderDetails {
   status: string;
@@ -20,6 +21,7 @@ interface OrderDetails {
 
 export default function OrderSuccess() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const [orderDetails, setOrderDetails] = useState<OrderDetails | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -38,27 +40,37 @@ export default function OrderSuccess() {
   const fetchOrderDetails = async (sessionId: string) => {
     try {
       const response = await fetch(`/api/checkout-sessions/${sessionId}`);
+      if (!response.ok) throw new Error('Failed to fetch order details');
+      
       const data = await response.json();
-      
-      if (!response.ok) {
-        console.log('Session not ready yet, retrying...');
-        // If the session isn't ready, try again after a delay
-        setTimeout(() => fetchOrderDetails(sessionId), 1000);
-        return;
-      }
-      
       setOrderDetails(data);
+
+      // Send order notification email
+      await fetch('/api/send-order-email', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          orderType: data.metadata.type === 'step_file' ? 'STEP_FILE' : '3D_PRINT',
+          orderDetails: data,
+          sessionId
+        })
+      });
 
       if (data.status === 'complete') {
         toast({
           title: "Order Confirmed",
-          description: "We'll send you an email with further details.",
+          description: "Your payment has been received. Check your email for details.",
         });
       }
     } catch (error) {
-      console.log('Session details not available yet');
-      // Don't show error to user, just retry
-      setTimeout(() => fetchOrderDetails(sessionId), 1000);
+      console.error('Error:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to load order details"
+      });
     } finally {
       setLoading(false);
     }
@@ -93,6 +105,14 @@ export default function OrderSuccess() {
               Order Total: ${(orderDetails.amount_total / 100).toFixed(2)}
             </div>
           )}
+
+          <Button
+            onClick={() => router.push('/')}
+            variant="ghost"
+            className="text-blue-600 hover:text-blue-700 font-medium"
+          >
+            Return to Home
+          </Button>
           
           <div className="mt-12">
             <Image

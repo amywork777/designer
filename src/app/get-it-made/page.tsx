@@ -101,23 +101,20 @@ const SIZE_OPTIONS_LIST: SizeOption[] = [
 // Manufacturing types grouped
 const MANUFACTURING_GROUPS = {
   '3D_PRINTING': {
-    title: '3D Printing',
-    description: 'Fast prototyping and small production runs',
+    label: '3D Printing',
     options: {
-      'PLA': 'Standard PLA',
-      'WOOD_PLA': 'Wood PLA',
-      'TPU': 'Flexible TPU',
-      'RESIN': 'High Detail Resin',
-      'ALUMINUM': 'Metal Aluminum'
+      PLA: 'Standard PLA',
+      WOOD_PLA: 'Wood PLA',
+      TPU: 'Flexible TPU',
+      RESIN: 'High Detail Resin',
+      ALUMINUM: 'Metal Aluminum'
     }
   },
   'ADVANCED': {
-    title: 'Advanced Manufacturing',
-    description: 'Industrial-grade production methods',
+    label: 'Advanced Manufacturing',
     options: {
-      'CNC': 'CNC Machining',
-      'INJECTION': 'Injection Molding',
-      'SHEET_METAL': 'Sheet Metal'
+      CNC: 'CNC Machining',
+      INJECTION: 'Injection Molding'
     }
   }
 } as const;
@@ -289,52 +286,51 @@ export default function GetItMade() {
       return;
     }
 
-    const materialMap: Record<string, string> = {
-      'WOOD_PLA': 'Wood-PLA',
-      'PLA': 'PLA',
-      'TPU': 'TPU',
-      'RESIN': 'Resin',
-      'ALUMINUM': 'Aluminum'
-    };
+    const buttonText = getButtonText();
 
-    const mappedMaterial = materialMap[selectedType];
-    const pricing = PRODUCT_PRICING[selectedSize]?.[mappedMaterial];
-    
-    // Handle quote requests
-    if (selectedSize === 'Custom' || !pricing || typeof pricing === 'string') {
-      // Here you can implement the quote request logic
-      toast({
-        title: "Quote Requested",
-        description: "We'll contact you shortly with a custom quote.",
-      });
-      // You might want to save this to your database or send an email
+    if (buttonText === 'Submit for a Quote') {
       return;
     }
 
-    // Regular checkout flow continues here...
     try {
+      const materialMap = {
+        'WOOD_PLA': 'Wood-PLA',
+        'PLA': 'PLA',
+        'TPU': 'TPU',
+        'RESIN': 'Resin',
+        'ALUMINUM': 'Aluminum'
+      };
+
+      const mappedMaterial = materialMap[selectedType];
+      const priceInfo = PRODUCT_PRICING[selectedSize]?.[mappedMaterial];
+      
+      if (!priceInfo || typeof priceInfo === 'string') {
+        throw new Error('Invalid price configuration');
+      }
+
       const response = await fetch('/api/create-checkout-session', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          priceId: pricing.priceId,
-          amount: pricing.price,
+          priceId: priceInfo.priceId,
+          amount: priceInfo.price,
           quantity: quantity,
           metadata: {
-            size: selectedSize,
-            material: mappedMaterial,
+            orderType: '3D_MANUFACTURING',
             designId: design?.id,
-            productId: pricing.productId
+            material: selectedType,
+            size: selectedSize,
+            quantity: quantity,
+            comments: document.querySelector('textarea')?.value || ''
           }
-        }),
+        })
       });
 
       const data = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to create checkout session');
+      if (data.error || !data.url) {
+        throw new Error(data.error || 'No checkout URL received');
       }
 
       window.location.href = data.url;
@@ -406,99 +402,40 @@ export default function GetItMade() {
   };
 
   const handleDownload = async (type: 'stl' | 'step') => {
-    if (!session?.user) {
-      setShowSignInPopup(true);
-      return;
-    }
-
-    if (type === 'stl') {
-      if (!design?.threeDData?.glbUrls?.[0]) {
-        toast({
-          variant: "destructive",
-          title: "Error",
-          description: "No 3D model available for download"
-        });
-        return;
-      }
-
+    if (type === 'step') {
       try {
-        console.log('Starting conversion for GLB:', design.threeDData.glbUrls[0]);
-        
-        const response = await fetch('/api/convert-glb', {
+        const response = await fetch('/api/step-file', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            glbUrl: design.threeDData.glbUrls[0],
-            designId: design.id
-          })
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            designId: design?.id,
+            designName: design?.name || 'Untitled',
+            fileType: type,
+            metadata: {
+              designId: design?.id,
+              fileType: type,
+              orderType: 'STEP_FILE'
+            }
+          }),
         });
 
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.details || errorData.error || 'Failed to convert file');
+        const data = await response.json();
+        
+        if (data.error || !data.url) {
+          throw new Error(data.error || 'No checkout URL received');
         }
 
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${design.name || 'design'}.stl`;
-        document.body.appendChild(a);
-        a.click();
-        
-        // Cleanup
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
-
-        toast({
-          title: "Success",
-          description: "STL file downloaded successfully"
-        });
+        window.open(data.url, '_blank');
       } catch (error) {
-        console.error('Error downloading STL:', error);
+        console.error('Checkout error:', error);
         toast({
           variant: "destructive",
           title: "Error",
-          description: error instanceof Error ? error.message : "Failed to download STL file"
+          description: error instanceof Error ? error.message : "Failed to initiate checkout"
         });
       }
-      return;
-    }
-
-    // STEP file purchase flow
-    try {
-      const response = await fetch('/api/step-file', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          designId: design?.id,
-          designName: design?.name || 'Untitled',
-          design: {
-            images: design?.images || [],
-            threeDData: design?.threeDData || {},
-            analysis: design?.analysis || {},
-            dimensions: design?.dimensions || {},
-            created: design?.created || new Date().toISOString(),
-          }
-        }),
-      });
-
-      const data = await response.json();
-      
-      if (data.error || !data.url) {
-        throw new Error(data.error || 'No checkout URL received');
-      }
-
-      window.open(data.url, '_blank');
-    } catch (error) {
-      console.error('Checkout error:', error);
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to initiate checkout"
-      });
     }
   };
 
@@ -702,6 +639,48 @@ export default function GetItMade() {
     }
   };
 
+  const createCheckoutSession = async () => {
+    try {
+      const response = await fetch('/api/create-checkout-session', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          // ... other order details
+          shipping_address_collection: {
+            allowed_countries: ['US'],
+          },
+          shipping_options: [{
+            shipping_rate: 'shr_1Qm46VCLoBz9jXRlIIuopjNw'
+          }],
+          metadata: {
+            orderType: '3D_MANUFACTURING',
+            designId: design?.id,
+            material: selectedMaterial,
+            size: selectedSize,
+            quantity: quantity,
+            comments: document.querySelector('textarea')?.value || ''
+          }
+        })
+      });
+
+      const data = await response.json();
+      if (data.error || !data.url) {
+        throw new Error(data.error || 'No checkout URL received');
+      }
+
+      window.open(data.url, '_blank');
+    } catch (error) {
+      console.error('Checkout error:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to initiate checkout"
+      });
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -794,7 +773,7 @@ export default function GetItMade() {
                 }}
               >
                 <div>
-                  <div className="font-medium text-left text-lg">{MANUFACTURING_GROUPS['3D_PRINTING'].title}</div>
+                  <div className="font-medium text-left text-lg">{MANUFACTURING_GROUPS['3D_PRINTING'].label}</div>
                   <div className="text-sm text-gray-600 text-left">
                     {MANUFACTURING_GROUPS['3D_PRINTING'].description}
                   </div>
@@ -843,7 +822,7 @@ export default function GetItMade() {
                 }}
               >
                 <div>
-                  <div className="font-medium text-left text-lg">{MANUFACTURING_GROUPS['ADVANCED'].title}</div>
+                  <div className="font-medium text-left text-lg">{MANUFACTURING_GROUPS['ADVANCED'].label}</div>
                   <div className="text-sm text-gray-600 text-left">
                     {MANUFACTURING_GROUPS['ADVANCED'].description}
                   </div>
@@ -867,7 +846,6 @@ export default function GetItMade() {
                           <div className="text-sm text-gray-600">
                             {type === 'CNC' && 'Precision-cut from solid material blocks'}
                             {type === 'INJECTION' && 'High-volume plastic production'}
-                            {type === 'SHEET_METAL' && 'Formed and bent metal parts'}
                           </div>
                         </div>
                       </button>
