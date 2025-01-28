@@ -1,14 +1,16 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Download, Crown, Info as InfoIcon, Package, AlertTriangle, Loader2, Factory } from 'lucide-react';
+import { Download, Package, AlertTriangle, Loader2, Factory } from 'lucide-react';
 import { useDesignStore } from '@/lib/store/designs';
 import Link from 'next/link';
 import { useToast } from "@/components/ui/use-toast";
 import { useSession } from 'next-auth/react';
-import { get3DFilesForDesign, updateDesignWithThreeDData, process3DPreview } from '@/lib/firebase/utils';
-import { useSubscription } from '@/contexts/SubscriptionContext';
+import { get3DFilesForDesign } from '@/lib/firebase/utils';
+import { updateDesignWithThreeDData } from '@/lib/firebase/utils';
+import { process3DPreview } from '@/lib/firebase/utils';
+import { verify3DData } from '@/lib/firebase/utils';
 import SignInPopup from '@/components/SignInPopup';
 
 export default function GetFiles() {
@@ -19,7 +21,6 @@ export default function GetFiles() {
   const [processing3D, setProcessing3D] = useState(false);
   const { toast } = useToast();
   const { data: session } = useSession();
-  const { subscription, downloadLimits, refreshSubscription } = useSubscription();
   const [showSignInPopup, setShowSignInPopup] = useState(false);
   const [filesUnlocked, setFilesUnlocked] = useState(false);
   const [isDownloadingSTL, setIsDownloadingSTL] = useState(false);
@@ -41,13 +42,6 @@ export default function GetFiles() {
       });
     }
   }, [design, session?.user?.id]);
-
-  // Refresh subscription if user logs in/out
-  useEffect(() => {
-    if (session?.user) {
-      refreshSubscription();
-    }
-  }, [session?.user?.id, refreshSubscription]);
 
   // Retrieve or show "Generating" for existing 3D files
   async function process3DFiles() {
@@ -252,14 +246,13 @@ export default function GetFiles() {
   }
 
   // Callback after sign-in
-  const handleSignInSuccess = useCallback(() => {
+  const handleSignInSuccess = () => {
     setShowSignInPopup(false);
-    refreshSubscription();
     toast({
       title: 'Success!',
       description: 'Successfully signed in',
     });
-  }, [refreshSubscription, toast]);
+  };
 
   // If no design in store, show "not found"
   if (!design) {
@@ -294,16 +287,6 @@ export default function GetFiles() {
                     <p className="font-medium text-gray-900">
                       {session.user.name || session.user.email}
                     </p>
-                    <div className="flex items-center gap-2 text-sm text-gray-500">
-                      <span className="capitalize">
-                        {subscription?.tier || 'Free'} Plan
-                      </span>
-                      {subscription?.tier !== 'free' && (
-                        <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full text-xs">
-                          Premium
-                        </span>
-                      )}
-                    </div>
                   </div>
                 </>
               ) : (
@@ -312,19 +295,6 @@ export default function GetFiles() {
                 </p>
               )}
             </div>
-
-            {session?.user && (
-              <div className="text-sm text-gray-600">
-                <span className="font-medium">Downloads remaining: </span>
-                <span>{downloadLimits?.stl ?? 0} STL</span>
-                {subscription?.tier !== 'free' && (
-                  <>
-                    {' '}
-                    • <span>{downloadLimits?.step ?? 0} STEP</span>
-                  </>
-                )}
-              </div>
-            )}
           </div>
         </div>
       </div>
@@ -443,9 +413,6 @@ export default function GetFiles() {
                 <h3 className="text-xl font-bold">STL File</h3>
                 <p className="text-gray-600">STL for 3D printing (instant)</p>
               </div>
-              <span className="bg-purple-100 text-purple-700 px-3 py-1 rounded-full text-sm font-medium">
-                Free Plan
-              </span>
             </div>
 
             {!design?.threeDData?.videoUrl && (
@@ -503,23 +470,6 @@ export default function GetFiles() {
                 </>
               )}
             </button>
-
-            <div className="mt-6 bg-purple-50 rounded-lg p-4">
-              <div className="flex items-center gap-2 text-purple-700 mb-2">
-                <Crown className="w-5 h-5" />
-                <p className="font-medium">Need more downloads?</p>
-              </div>
-              <p className="text-gray-600 text-sm">
-                Get 50 downloads/month with <strong>Hobbyist</strong> ($12.99/mo) or
-                unlimited with <strong>Pro</strong> ($39.99/mo)
-              </p>
-              <Link
-                href="/plans"
-                className="text-purple-600 hover:text-purple-700 font-medium mt-2 inline-block"
-              >
-                View Plans →
-              </Link>
-            </div>
           </div>
 
           {/* (Optional) Placeholder for STEP File or other second-column content */}
