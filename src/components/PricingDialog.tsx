@@ -13,6 +13,7 @@ import SignInPopup from '@/components/SignInPopup';
 import { loadStripe } from '@stripe/stripe-js';
 import { useSession } from 'next-auth/react';
 import { useToast } from '@/components/ui/use-toast';
+import Image from 'next/image';
 
 interface PricingDialogProps {
   isOpen: boolean;
@@ -102,54 +103,68 @@ export function PricingDialog({ isOpen, onClose }: PricingDialogProps) {
             <X className="w-5 h-5 text-gray-600" />
           </button>
 
-          <div className="space-y-8">
-            {/* Free Account Section */}
+          <div className="space-y-10">
+            {/* Logo */}
+            <div className="flex justify-center mb-6">
+              <Image
+                src="/images/taiyaki.svg"
+                alt="Taiyaki Logo"
+                width={100}
+                height={100}
+                className="opacity-60"
+              />
+            </div>
+
+            {/* Free Section */}
             <div className="border border-gray-200 rounded-xl p-6 bg-gradient-to-br from-teal-50 via-lime-50 to-amber-50">
               <div className="text-center mb-6">
-                <h2 className="text-2xl font-bold">Free With Every Account</h2>
+                <h2 className="text-4xl font-bold font-dm-sans mb-3">Free</h2>
+                <p className="text-2xl font-medium font-dm-sans mb-4">Unlimited</p>
               </div>
 
-              <div className="space-y-4">
+              <div className="space-y-3">
                 {[
-                  'Unlimited 3D model designs',
-                  'Unlimited STL downloads',
-                  'Unlimited 3D printing orders',
-                  'Unlimited manufacturing orders'
+                  'Design Generations',
+                  '3D Model Renderings',
+                  '3D Model (STL) Downloads',
+                  '3D Printing Orders',
+                  'Advanced Manufacturing Orders'
                 ].map((feature, index) => (
                   <div key={index} className="flex items-center gap-3 bg-white/60 p-3 rounded-lg">
                     <div className="bg-green-100 p-1.5 rounded-full">
-                      <Infinity className="w-4 h-4 text-green-600" />
+                      <Check className="w-4 h-4 text-green-600" />
                     </div>
-                    <span className="text-gray-700">{feature}</span>
+                    <span className="text-gray-700 text-lg font-medium font-inter">{feature}</span>
                   </div>
                 ))}
               </div>
             </div>
 
-            {/* Professional CAD Files Section */}
+            {/* Pro CAD Section */}
             <div className="border border-gray-200 rounded-xl p-6">
               <div className="text-center mb-6">
-                <h2 className="text-2xl font-bold">Professional CAD Files</h2>
-                <div className="flex items-center justify-center gap-1 mt-2">
-                  <span className="text-4xl font-bold">$20</span>
+                <h2 className="text-4xl font-bold font-dm-sans mb-3">Pro CAD</h2>
+                <div className="flex items-center justify-center gap-1">
+                  <span className="text-3xl font-bold font-dm-sans">$20</span>
+                  <span className="text-xl text-gray-600 font-inter">/file</span>
                 </div>
               </div>
 
               <div className="bg-gray-50 rounded-lg p-4 mb-6">
-                <p className="text-gray-700">
-                  Our engineering team converts your 3D model to professional CAD format (STEP file) for $20 (24-48h turnaround). Required for:
+                <p className="text-gray-700 text-lg font-medium font-inter">
+                  Convert your 3D model into a precision STEP engineering file in just 24-48 hours. Perfect for:
                 </p>
               </div>
 
               <div className="space-y-3">
                 {[
-                  'Advanced manufacturing quotes & production',
-                  'Professional CAD software compatibility',
-                  'Industry-standard workflows'
+                  'Advanced Manufacturing Quotes & Production',
+                  'Professional CAD Software Compatibility',
+                  'Industry-Standard Workflows'
                 ].map((feature, index) => (
                   <div key={index} className="flex items-center gap-2">
                     <Check className="w-5 h-5 text-blue-500" />
-                    <span className="text-gray-700">{feature}</span>
+                    <span className="text-gray-700 text-lg font-medium font-inter">{feature}</span>
                   </div>
                 ))}
               </div>
@@ -157,7 +172,7 @@ export function PricingDialog({ isOpen, onClose }: PricingDialogProps) {
 
             <button 
               onClick={handleGetStarted}
-              className="w-full bg-black text-white rounded-xl py-3 hover:opacity-90 transition-opacity"
+              className="w-full bg-black text-white rounded-xl py-3 hover:opacity-90 transition-opacity font-bold font-dm-sans text-lg"
             >
               Get Started
             </button>
