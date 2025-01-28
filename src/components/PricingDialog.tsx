@@ -62,16 +62,8 @@ export function PricingDialog({ isOpen, onClose }: PricingDialogProps) {
         throw new Error(data.error || 'Failed to create subscription');
       }
 
-      const stripe = await loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
-      if (!stripe) throw new Error('Stripe failed to initialize');
-
-      const { error } = await stripe.redirectToCheckout({
-        sessionId: data.sessionId
-      });
+      window.location.href = data.url; // Changed from redirectToCheckout to direct URL navigation
       
-      if (error) {
-        throw error;
-      }
     } catch (error) {
       console.error('Subscription error:', error);
       toast({

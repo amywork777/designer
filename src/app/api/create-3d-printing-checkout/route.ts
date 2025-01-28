@@ -31,7 +31,7 @@ export async function POST(req: Request) {
         allowed_countries: ['US'],
       },
       shipping_options: [{
-        shipping_rate: 'shr_1Qm46VCLoBz9jXRlIIuopjNw'
+        shipping_rate: 'shr_1QmGrqCLoBz9jXRlBqFySsDC'
       }],
       success_url: `${process.env.NEXT_PUBLIC_APP_URL}/order-success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/get-it-made`,
