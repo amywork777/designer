@@ -52,6 +52,15 @@ module.exports = {
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
       },
+      keyframes: {
+        swim: {
+          '0%': { transform: 'translateX(-150%) rotateY(180deg)' },
+          '45%': { transform: 'translateX(150%) rotateY(180deg)' },
+          '50%': { transform: 'translateX(150%) rotateY(0deg)' },
+          '95%': { transform: 'translateX(-150%) rotateY(0deg)' },
+          '100%': { transform: 'translateX(-150%) rotateY(180deg)' }
+        }
+      },
     },
   },
   plugins: [],

@@ -20,6 +20,8 @@ import { saveDesignToFirebase } from '@/lib/firebase/utils';
 import { handleSignOut } from "@/lib/firebase/auth";
 import { useAuth } from "@/contexts/AuthContext";
 import { process3DPreview } from "@/lib/firebase/utils";
+import { Button } from "@/components/ui/button";
+import { Card, CardHeader, CardTitle, CardContent, CardFooter } from "@/components/ui/card";
 
 const PROGRESS_STEPS = [
   {
@@ -303,88 +305,108 @@ interface GenerateResponse {
 }
 
 const handleGenerateDesign = async () => {
-  try {
-    setGeneratingDesign(true);
-    let retryCount = 0;
-    const maxRetries = 3;
-
-    while (retryCount < maxRetries) {
-      try {
-        const userId = session?.user?.id || 'anonymous';
-        
-        const response = await fetch('/api/generate-design', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            prompt: fullPrompt,
-            style: selectedStyles[0],
-            userId: userId,
-            n: 1,
-            size: "1024x1024"
-          }),
-          signal: AbortSignal.timeout(30000) // 30 second timeout
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          let errorMessage;
-          try {
-            const errorJson = JSON.parse(errorText);
-            errorMessage = errorJson.error || 'Failed to generate design';
-          } catch (e) {
-            errorMessage = errorText || 'Failed to generate design';
-          }
-          throw new Error(errorMessage);
-        }
-
-        const data = await response.json();
-        
-        if (!data.success || !data.imageUrl) {
-          throw new Error('No image generated');
-        }
-
-        // Save to Firebase
-        const savedDesign = await saveDesignToFirebase({
-          imageUrl: data.imageUrl,
-          prompt: fullPrompt,
-          userId: userId,
-          mode: 'generated'
-        });
-
-        setSelectedDesign(savedDesign.imageUrl);
-        setShowAnalysis(true);
-        setScrollToAnalysis(true);
-
-        toast({
-          title: "Success",
-          description: "Design generated successfully!"
-        });
-        break; // Exit loop on success
-
-      } catch (error) {
-        console.error(`Attempt ${retryCount + 1} failed:`, error);
-        retryCount++;
-
-        if (retryCount === maxRetries) {
-          throw error; // Let the outer catch block handle the final error
-        } else {
-          // Wait before retrying (exponential backoff)
-          await new Promise(resolve => setTimeout(resolve, 2000 * Math.pow(2, retryCount)));
-        }
-      }
-    }
-  } catch (error) {
-    console.error('Error generating design:', error);
+  if (!textPrompt.trim()) {
     toast({
       variant: "destructive",
       title: "Error",
-      description: error instanceof Error ? error.message : 'Failed to generate design'
+      description: "Please enter a description"
     });
-  } finally {
-    setGeneratingDesign(false);
+    return;
   }
+
+  setGeneratingDesign(true);
+  let retryCount = 0;
+  const maxRetries = 3;
+  const baseDelay = 2000; // Base delay of 2 seconds
+
+  while (retryCount < maxRetries) {
+    try {
+      // Prepare the prompt
+      let fullPrompt = textPrompt;
+      if (inspirationImages.length > 0) {
+        try {
+          const description = await analyzeImageForEdit(inspirationImages[0]);
+          fullPrompt = `Using the style of the reference image which shows ${description}, ${textPrompt}`;
+        } catch (error) {
+          console.error('Error analyzing reference image:', error);
+        }
+      }
+
+      if (selectedStyle) {
+        fullPrompt += `, in a ${selectedStyle} style`;
+      }
+
+      // Make the API call with a timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+
+      const response = await fetch('/api/generate-design', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          prompt: fullPrompt,
+          style: selectedStyle,
+          userId: session?.user?.id || 'anonymous',
+          n: 1,
+          size: "1024x1024"
+        }),
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        let errorMessage;
+        try {
+          const errorJson = JSON.parse(errorText);
+          errorMessage = errorJson.error || 'Failed to generate design';
+        } catch (e) {
+          errorMessage = errorText || 'Failed to generate design';
+        }
+        throw new Error(errorMessage);
+      }
+
+      const data = await response.json();
+      
+      if (!data.success || !data.imageUrl) {
+        throw new Error('No image generated');
+      }
+
+      // Save to Firebase
+      const savedDesign = await saveDesignToFirebase({
+        imageUrl: data.imageUrl,
+        prompt: fullPrompt,
+        userId: session?.user?.id || 'anonymous',
+        mode: 'generated'
+      });
+
+      setSelectedDesign(savedDesign.imageUrl);
+      setShowAnalysis(true);
+      setScrollToAnalysis(true);
+
+      toast({
+        title: "Success",
+        description: "Design generated successfully!"
+      });
+      break; // Exit loop on success
+
+    } catch (error) {
+      console.error(`Attempt ${retryCount + 1} failed:`, error);
+      retryCount++;
+
+      if (retryCount === maxRetries) {
+        throw error; // Let the outer catch block handle the final error
+      } else {
+        // Wait before retrying (exponential backoff)
+        await new Promise(resolve => setTimeout(resolve, baseDelay * Math.pow(2, retryCount)));
+      }
+    }
+  }
+
+  setGeneratingDesign(false);
 };
 
 // Add this constant for style prompts
@@ -420,7 +442,7 @@ const getPriceAndDelivery = (size: string, material: string) => {
   return { price, delivery };
 };
 
-// Add this helper function near other utility functions
+// Add this helper function
 const getMaterialRecommendation = async (imageUrl: string) => {
   try {
     // If the image is a blob URL, convert it to base64
@@ -574,6 +596,8 @@ export default function LandingPage() {
   // Add state for selected styles if not already present
   const [selectedStyles, setSelectedStyles] = useState<string[]>([]);
   const [designPrompt, setDesignPrompt] = useState<string>('');
+  // Add state at the top with other states
+  const [showProcessingCard, setShowProcessingCard] = useState(false);
 
   // Load user designs when session changes
   useEffect(() => {
@@ -1783,6 +1807,7 @@ export default function LandingPage() {
     
     try {
       setProcessing3D(true);
+      setShowProcessingCard(true);
       const userId = session?.user?.id || 'anonymous';
       const currentDesign = designs.find(d => d.images.includes(selectedDesign));
       
@@ -1793,7 +1818,6 @@ export default function LandingPage() {
       const merged3DData = await process3DPreview(currentDesign, userId, setProcessing3D);
       
       if (merged3DData) {
-        // Update local store with the merged data
         updateDesign(currentDesign.id, {
           threeDData: merged3DData,
           has3DPreview: true
@@ -1813,6 +1837,7 @@ export default function LandingPage() {
       });
     } finally {
       setProcessing3D(false);
+      setShowProcessingCard(false);
     }
   };
 
@@ -2277,46 +2302,68 @@ export default function LandingPage() {
                     </div>
 
                     {/* Action Buttons */}
-                    <div className="flex gap-4 mt-6">
-                      {/* Primary "Get it Made" button */}
-                      <Link 
-                        href={`/get-it-made?designId=${designs.find(d => d.images.includes(selectedDesign))?.id}`}
-                        className="flex-1 py-3 px-4 bg-black text-white rounded-xl hover:opacity-90 
-                          transition-all duration-200 flex items-center justify-center gap-2"
-                      >
-                        <Hammer className="w-5 h-5 text-white" />
-                        <span className="text-white">Get it Made</span>
-                      </Link>
+                    <div className="flex flex-col gap-4 mt-6">
+                      <div className="flex gap-4">
+                        {/* Primary "Get it Made" button */}
+                        <Link 
+                          href={`/get-it-made?designId=${designs.find(d => d.images.includes(selectedDesign))?.id}`}
+                          className="flex-1 py-3 px-4 bg-black text-white rounded-xl hover:opacity-90 
+                            transition-all duration-200 flex items-center justify-center gap-2"
+                        >
+                          <Hammer className="w-5 h-5 text-white" />
+                          <span className="text-white">Get it Made</span>
+                        </Link>
 
-                      {/* 3D Preview Button/Status */}
-                      {selectedDesign && designs.find(d => d.images.includes(selectedDesign))?.threeDData?.videoUrl ? (
-                        <div
-                          className="flex-1 py-3 px-4 bg-gray-100 text-gray-600
-                            rounded-xl font-medium flex items-center justify-center gap-2"
-                        >
-                          <Box className="w-5 h-5" />
-                          <span>3D Preview Generated</span>
+                        {/* 3D Preview Button/Status */}
+                        {selectedDesign && designs.find(d => d.images.includes(selectedDesign))?.threeDData?.videoUrl ? (
+                          <div
+                            className="flex-1 py-3 px-4 bg-gray-100 text-gray-600
+                              rounded-xl font-medium flex items-center justify-center gap-2"
+                          >
+                            <Box className="w-5 h-5" />
+                            <span>3D Preview Generated</span>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={handle3DProcessing}
+                            disabled={processing3D}
+                            className="flex-1 py-3 px-4 bg-white border border-gray-200 hover:border-gray-300 
+                              rounded-xl text-gray-700 font-medium flex items-center justify-center gap-2 
+                              transition-all duration-200 disabled:opacity-50"
+                          >
+                            {processing3D ? (
+                              <>
+                                <Loader2 className="w-5 h-5 animate-spin" />
+                                <span>Processing...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Box className="w-5 h-5" />
+                                <span>Show in 3D</span>
+                              </>
+                            )}
+                          </button>
+                        )}
+                      </div>
+
+                      {showProcessingCard && (
+                        <div className="p-4 rounded-lg bg-gray-50">
+                          <div className="flex flex-col gap-3">
+                            <img 
+                              src="/images/taiyaki.svg" 
+                              alt="Taiyaki Logo" 
+                              className="w-10 h-10 animate-[swim_3s_ease-in-out_infinite] self-center" 
+                            />
+                            <div className="flex items-center gap-3">
+                              <div className="flex-1">
+                                <p className="text-gray-700 font-medium">Processing your request</p>
+                                <p className="text-sm text-gray-500">
+                                  Thank you for your patience as we handle the current volume of requests.
+                                </p>
+                              </div>
+                            </div>
+                          </div>
                         </div>
-                      ) : (
-                        <button
-                          onClick={handle3DProcessing}
-                          disabled={processing3D}
-                          className="flex-1 py-3 px-4 bg-white border border-gray-200 hover:border-gray-300 
-                            rounded-xl text-gray-700 font-medium flex items-center justify-center gap-2 
-                            transition-all duration-200 disabled:opacity-50"
-                        >
-                          {processing3D ? (
-                            <>
-                              <Loader2 className="w-5 h-5 animate-spin" />
-                              <span>Processing...</span>
-                            </>
-                          ) : (
-                            <>
-                              <Box className="w-5 h-5" />
-                              <span>Show in 3D</span>
-                            </>
-                          )}
-                        </button>
                       )}
                     </div>
 

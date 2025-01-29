@@ -155,6 +155,7 @@ function GetItMadeContent() {
   const [downloadLimits, setDownloadLimits] = useState<{ stl: number; step: number } | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const paymentStatus = searchParams.get('payment');
+  const [showProcessingCard, setShowProcessingCard] = useState(false);
 
   const design = designs.find(d => d.id === designId);
   const selectedDesign = design?.images[0];
@@ -409,12 +410,12 @@ function GetItMadeContent() {
 
     try {
       setProcessing3D(true);
+      setShowProcessingCard(true);
       const userId = session?.user?.id || 'anonymous';
       
       const merged3DData = await process3DPreview(design, userId, setProcessing3D);
       
       if (merged3DData) {
-        // Update local store with the merged data
         updateDesign(design.id, {
           threeDData: merged3DData,
           has3DPreview: true
@@ -434,6 +435,7 @@ function GetItMadeContent() {
       });
     } finally {
       setProcessing3D(false);
+      setShowProcessingCard(false);
     }
   };
 
@@ -968,7 +970,7 @@ function GetItMadeContent() {
             <div className="bg-white border border-gray-200 rounded-2xl p-6 h-full">
               <h3 className="text-base font-medium text-gray-900 mb-4">Design Preview</h3>
               <div className="space-y-4">
-                <div className="aspect-square bg-gray-100 rounded-[10px] flex items-center justify-center overflow-hidden">
+                <div className="aspect-square bg-gray-100 rounded-[10px] flex items-center justify-center overflow-hidden relative">
                   {selectedDesign ? (
                     <img src={selectedDesign} alt="Design preview" className="w-full h-full object-contain" />
                   ) : (
@@ -997,24 +999,47 @@ function GetItMadeContent() {
                     </div>
                   </div>
                 ) : (
-                  <Button
-                    onClick={handle3DProcessing}
-                    disabled={processing3D}
-                    className="w-full mt-4 font-dm-sans font-medium text-sm rounded-[10px] bg-black text-white hover:bg-gray-800 
-                      disabled:bg-gray-400 flex items-center justify-center gap-2 px-4 py-2 sm:py-3"
-                  >
-                    {processing3D ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Generating...
-                      </>
-                    ) : (
-                      <>
-                        <Package className="w-4 h-4" />
-                        Generate 3D Preview
-                      </>
+                  <div className="relative">
+                    <Button
+                      onClick={handle3DProcessing}
+                      disabled={processing3D}
+                      className="w-full mt-4 font-dm-sans font-medium text-sm rounded-[10px] bg-black text-white hover:bg-gray-800 
+                        disabled:bg-gray-400 flex items-center justify-center gap-2 px-4 py-2 sm:py-3"
+                    >
+                      {processing3D ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Generating...
+                        </>
+                      ) : (
+                        <>
+                          <Package className="w-4 h-4" />
+                          Generate 3D Preview
+                        </>
+                      )}
+                    </Button>
+
+                    {/* Add the processing message right after the button */}
+                    {showProcessingCard && (
+                      <div className="mt-4 p-4 rounded-lg bg-gray-50">
+                        <div className="flex flex-col gap-3">
+                          <img 
+                            src="/images/taiyaki.svg" 
+                            alt="Taiyaki Logo" 
+                            className="w-10 h-10 animate-[swim_3s_ease-in-out_infinite] self-center" 
+                          />
+                          <div className="flex items-center gap-3">
+                            <div className="flex-1">
+                              <p className="text-gray-700 font-medium">Processing your request</p>
+                              <p className="text-sm text-gray-500">
+                                Thank you for your patience as we handle the current volume of requests.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                     )}
-                  </Button>
+                  </div>
                 )}
 
                 {/* Download Files Section */}
@@ -1025,6 +1050,12 @@ function GetItMadeContent() {
                         <div className="text-base font-medium text-gray-900 mb-4">
                           Get STL for 3D printing and STEP for CAD editing
                         </div>
+
+                        {!design?.threeDData?.videoUrl && (
+                          <p className="text-sm text-gray-600 mb-2">
+                            Generate 3D preview first to download files
+                          </p>
+                        )}
 
                         <div className="space-y-4">
                           <div>
