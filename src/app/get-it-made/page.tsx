@@ -1021,12 +1021,12 @@ function GetItMadeContent() {
 
                     {/* Add the processing message right after the button */}
                     {showProcessingCard && (
-                      <div className="mt-4 p-4 rounded-lg bg-gray-50">
+                      <div className="mt-4 p-4 rounded-xl bg-gray-50">
                         <div className="flex flex-col gap-3">
                           <img 
                             src="/images/taiyaki.svg" 
                             alt="Taiyaki Logo" 
-                            className="w-10 h-10 animate-[swim_3s_ease-in-out_infinite] self-center" 
+                            className="w-8 h-8 animate-[swim_3s_ease-in-out_infinite] self-center" 
                           />
                           <div className="flex items-center gap-3">
                             <div className="flex-1">
