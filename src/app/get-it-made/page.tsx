@@ -538,7 +538,7 @@ function GetItMadeContent() {
           throw new Error(data.error || 'No checkout URL received');
         }
 
-        window.open(data.url, '_blank');
+        window.location.href = data.url;
       } catch (error) {
         console.error('Checkout error:', error);
         toast({
