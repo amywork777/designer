@@ -1,5 +1,5 @@
 from firebase_functions import https_fn, options
-from firebase_admin import initialize_app, storage
+from firebase_admin import initialize_app, storage, firestore
 from gradio_client import Client, handle_file
 import time
 import json
@@ -11,6 +11,29 @@ import traceback
 from functools import wraps
 import subprocess
 
+def get_firebase_app():
+    """Initialize Firebase if not already initialized"""
+    try:
+        return firebase_admin.get_app()
+    except ValueError:
+        cred = credentials.Certificate({
+            "type": "service_account",
+            "project_id": os.getenv("FIREBASE_PROJECT_ID"),
+            "private_key_id": os.getenv("FIREBASE_PRIVATE_KEY_ID"),
+            "private_key": os.getenv("FIREBASE_PRIVATE_KEY", "").replace("\\n", "\n"),
+            "client_email": os.getenv("FIREBASE_CLIENT_EMAIL"),
+            "client_id": os.getenv("FIREBASE_CLIENT_ID"),
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+            "client_x509_cert_url": os.getenv("FIREBASE_CLIENT_CERT_URL"),
+        })
+        return firebase_admin.initialize_app(cred, {
+            'storageBucket': 'taiyaki-test1.firebasestorage.app'
+        })
+
+
+
 ###############################################################################
 # Cloud Functions Settings
 ###############################################################################
@@ -20,28 +43,6 @@ options.set_global_options(
     memory=4096,  # 4 GiB
     timeout_sec=540  # 9 minutes
 )
-
-# Initialize Firebase Admin
-from firebase_admin import credentials, initialize_app
-
-# Load Firebase service account credentials from environment variables
-cred = credentials.Certificate({
-    "type": "service_account",
-    "project_id": os.getenv("FIREBASE_PROJECT_ID"),
-    "private_key_id": os.getenv("FIREBASE_PRIVATE_KEY_ID"),
-    "private_key": os.getenv("FIREBASE_PRIVATE_KEY").replace("\\n", "\n"),
-    "client_email": os.getenv("FIREBASE_CLIENT_EMAIL"),
-    "client_id": os.getenv("FIREBASE_CLIENT_ID"),
-    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-    "token_uri": "https://oauth2.googleapis.com/token",
-    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-    "client_x509_cert_url": os.getenv("FIREBASE_CLIENT_CERT_URL"),
-})
-
-# Initialize Firebase Admin SDK with the configured storage bucket
-app = initialize_app(cred, {
-    'storageBucket': 'taiyaki-test1.firebasestorage.app'  # Ensure the bucket name is correct
-})
 
 ###############################################################################
 # The "Original" Advanced Blender Script
@@ -390,6 +391,24 @@ def process_3d(request: https_fn.Request) -> https_fn.Response:
 
         video_url = upload_to_firebase(video_path, f"processed/{user_id}/{timestamp}/preview.mp4")
         print(f"{time.time() - start_time:.2f}s: 3D generation complete -> {video_url}")
+
+        # Write MP4 URL to Firestore immediately
+        try:
+            app = get_firebase_app()  # Uses the function defined at top of file
+            db = firestore.client()
+            design_id = request_json.get('designId')
+            if design_id:
+                design_ref = db.collection('designs').document(design_id)
+                design_ref.update({
+                    'threeDData': {
+                        'videoUrl': video_url,
+                        'timestamp': timestamp
+                    },
+                    'has3DPreview': True
+                })
+                print(f"{time.time() - start_time:.2f}s: Updated Firestore with video URL")
+        except Exception as e:
+            print(f"Warning: Firestore update failed: {e}")
 
         # 4) Extract GLB
         print(f"{time.time() - start_time:.2f}s: Extracting GLB...")
