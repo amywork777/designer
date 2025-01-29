@@ -1000,55 +1000,54 @@ export default function LandingPage() {
         throw new Error('Failed to generate edited image');
       }
 
-      // Save the edited design to Firebase
+      // Save to Firebase
       const userId = session?.user?.id || 'anonymous';
       const currentDesign = designs.find(d => d.images.includes(selectedDesign));
       if (!currentDesign) return;
 
-      // Save edited version with reference
+      // Save edited version
       const savedDesign = await saveDesignToFirebase({
         imageUrl: data.imageUrl,
         prompt: editPrompt,
         userId,
         mode: 'edited',
-        originalDesignId: currentDesign.id // Clear reference to original
+        originalDesignId: currentDesign.id
       });
 
       console.log('Edited design saved to Firebase:', savedDesign);
 
-      // Create a new design entry instead of updating the existing one
+      // Create a new design entry
       const newDesign = {
         id: savedDesign.id,
-        title: 'Edited Design',
+        title: generateDesignTitle(editPrompt),
         images: [savedDesign.imageUrl],
         createdAt: new Date().toISOString(),
         prompt: editPrompt,
-        originalDesignId: selectedDesign, // Reference to the original design
+        originalDesignId: currentDesign.id,
         editHistory: [{
           originalImage: selectedDesign,
           newImage: savedDesign.imageUrl,
-          description: description,
           changes: editPrompt,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          designId: currentDesign.id
         }]
       };
 
-      // Add the new design to the store
+      // Add to local store
       addDesign(newDesign, userId);
       
-      // Update selected design and UI states
+      // Update UI
       setSelectedDesign(savedDesign.imageUrl);
       setShowEditDialog(false);
       setEditPrompt('');
       
-      // Reset analysis states since this is a new version
+      // Reset analysis states
       setIsDesignFinalized(false);
       setRecommendationInfo(null);
-      setSelectedMaterial('');
-      
+
       toast({
         title: "Success",
-        description: "New design version created successfully!"
+        description: "Design edited successfully"
       });
 
     } catch (error) {
@@ -1056,7 +1055,7 @@ export default function LandingPage() {
       toast({
         variant: "destructive",
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to update design"
+        description: error instanceof Error ? error.message : 'Failed to edit design'
       });
     } finally {
       setIsEditing(false);
