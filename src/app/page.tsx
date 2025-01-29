@@ -20,6 +20,8 @@ import { saveDesignToFirebase } from '@/lib/firebase/utils';
 import { handleSignOut } from "@/lib/firebase/auth";
 import { useAuth } from "@/contexts/AuthContext";
 import { process3DPreview } from "@/lib/firebase/utils";
+import { onSnapshot, doc } from 'firebase/firestore';
+import { db } from '@/lib/firebase/config';
 
 const PROGRESS_STEPS = [
   {
@@ -1882,6 +1884,28 @@ export default function LandingPage() {
     console.log('Session status:', status);
     console.log('Session data:', session);
   }, [session, status]);
+
+  useEffect(() => {
+    if (!selectedDesign) return;
+    
+    const design = designs.find(d => d.images.includes(selectedDesign));
+    if (!design?.id) return;
+
+    // Set up real-time listener
+    const unsubscribe = onSnapshot(doc(db, 'designs', design.id), (doc) => {
+      const data = doc.data();
+      if (data?.threeDData?.videoUrl) {
+        // Update local state with new 3D data
+        updateDesign(design.id, {
+          threeDData: data.threeDData,
+          has3DPreview: true
+        });
+      }
+    });
+
+    // Cleanup listener
+    return () => unsubscribe();
+  }, [selectedDesign]);
 
   if (status === "loading") {
     return <div>Loading...</div>;
