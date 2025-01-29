@@ -14,8 +14,23 @@ export const viewport: Viewport = {
 };
 
 export const metadata = {
-  title: 'Design Again',
-  description: 'Turn your designs into reality',
+  title: 'taiyaki',
+  description: 'imagine it. manufacture it.',
+  icons: {
+    icon: [
+      { url: '/favicon.ico' },
+      { url: '/favicon.svg', type: 'image/svg+xml' },
+      { url: '/favicon-96x96.png', sizes: '96x96', type: 'image/png' }
+    ],
+    apple: { url: '/apple-touch-icon.png' },
+    other: [
+      {
+        rel: 'manifest',
+        url: '/site.webmanifest'
+      }
+    ]
+  },
+  manifest: '/site.webmanifest'
 };
 
 export default function RootLayout({
