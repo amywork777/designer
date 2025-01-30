@@ -267,7 +267,7 @@ async function trigger3DProcessing(userId: string, designId: string, designData:
     const imageUrl = designData?.imageUrl || designData?.images?.[0];
     console.log('📸 Using image URL:', imageUrl);
 
-    const response = await fetch('https://us-central1-taiyaki-test1.cloudfunctions.net/process_3d', {
+    const response = await fetch('https://process-3d-mx7fddq5ia-uc.a.run.app', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -339,27 +339,58 @@ export function needs3DProcessing(design: any): boolean {
 }
 
 export async function process3DPreview(design: any, userId: string, setProcessing3D?: (state: boolean) => void) {
-  if (!design?.images?.[0]) return;
+  const logPrefix = '🔄 3D Preview:';
+  console.log(`${logPrefix} Starting`, { 
+    designId: design.id, 
+    userId,
+    imageCount: design.images?.length 
+  });
+  
+  if (!design?.images?.[0]) {
+    console.error(`${logPrefix} ❌ No image found in design`);
+    return;
+  }
   
   setProcessing3D?.(true);
+  const startTime = Date.now();
   
   try {
-    const response = await fetch('https://us-central1-taiyaki-test1.cloudfunctions.net/process_3d', {
+    console.log(`${logPrefix} 📤 Sending request to processing endpoint`);
+    const response = await fetch('https://process-3d-mx7fddq5ia-uc.a.run.app', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         image_url: design.images[0],
         userId,
-        designId: design.id
+        designId: design.id,
+        timestamp: startTime
       })
     });
 
-    const data = await response.json();
+    console.log(`${logPrefix} 📥 Response received`, {
+      status: response.status,
+      statusText: response.statusText,
+      timeElapsed: `${(Date.now() - startTime)/1000}s`
+    });
+
+    const rawText = await response.text();
+    console.log(`${logPrefix} 📡 Raw response:`, rawText.substring(0, 200) + '...');
+
+    let data;
+    try {
+      data = JSON.parse(rawText);
+    } catch (e) {
+      console.error(`${logPrefix} ❌ Failed to parse response:`, e);
+      throw new Error('Invalid response from server');
+    }
     
     if (data.success && data.video_url) {
-      console.log('Got successful response:', data);
+      console.log(`${logPrefix} ✅ Processing successful`, {
+        videoUrl: data.video_url.substring(0, 50) + '...',
+        glbCount: data.glb_urls?.length || 0,
+        processingTime: `${(Date.now() - startTime)/1000}s`
+      });
       
-      // Use URLs directly without base64 conversion
       const merged3DData = await updateDesignWithThreeDData(design.id, userId, {
         videoUrl: data.video_url,
         glbUrls: data.glb_urls || [],
@@ -367,20 +398,29 @@ export async function process3DPreview(design: any, userId: string, setProcessin
         stlUrl: data.stl_url
       });
 
-      console.log('Updated Firestore with:', merged3DData);
+      console.log(`${logPrefix} 💾 Updated Firestore`, {
+        designId: design.id,
+        dataSize: JSON.stringify(merged3DData).length
+      });
+      
       return merged3DData;
     }
+    
+    console.error(`${logPrefix} ❌ Processing failed:`, data.error || 'No success response');
     throw new Error('Processing failed or no video URL returned');
   } catch (error) {
-    console.error('Error in process3DPreview:', error);
+    console.error(`${logPrefix} ❌ Error:`, error);
     throw error;
   } finally {
+    console.log(`${logPrefix} ⏱️ Total time: ${(Date.now() - startTime)/1000}s`);
     setProcessing3D?.(false);
   }
 }
 
 // Add this new function to verify 3D data
 export async function verify3DData(userId: string, designId: string) {
+  console.log('🔍 Verifying 3D data:', { userId, designId });
+  
   try {
     const docRef = doc(db, 'designs', designId);
     const docSnap = await getDoc(docRef);
@@ -391,14 +431,15 @@ export async function verify3DData(userId: string, designId: string) {
       return false;
     }
 
-    // Verify files exist
+    console.log('🔎 Checking storage for video file...');
     const videoRef = ref(storage, `processed/${userId}/${designId}/preview.mp4`);
     try {
       await getDownloadURL(videoRef);
+      console.log('✅ Video file verified successfully');
       return true;
     } catch {
       console.log('❌ Video file not found in storage');
-      // Clear invalid data
+      console.log('🧹 Cleaning up invalid data in Firestore...');
       await updateDoc(docRef, {
         threeDData: null,
         has3DPreview: false
@@ -406,7 +447,7 @@ export async function verify3DData(userId: string, designId: string) {
       return false;
     }
   } catch (error) {
-    console.error('Error verifying 3D data:', error);
+    console.error('❌ Error verifying 3D data:', error);
     return false;
   }
 }

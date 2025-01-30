@@ -1796,7 +1796,11 @@ export default function LandingPage() {
 
   // Update the handle3DProcessing function
   const handle3DProcessing = async () => {
+    const logPrefix = '🎮 3D Generation:';
+    console.log(`${logPrefix} Starting process`);
+    
     if (!selectedDesign) {
+      console.warn(`${logPrefix} ❌ No design selected`);
       toast({
         title: "Error",
         description: "Please select a design first",
@@ -1806,36 +1810,65 @@ export default function LandingPage() {
     }
     
     try {
+      console.log(`${logPrefix} Setting UI states`);
       setProcessing3D(true);
       setShowProcessingCard(true);
+      
       const userId = session?.user?.id || 'anonymous';
+      console.log(`${logPrefix} User ID:`, userId);
+      
       const currentDesign = designs.find(d => d.images.includes(selectedDesign));
+      console.log(`${logPrefix} Current design:`, {
+        designId: currentDesign?.id,
+        imageUrl: currentDesign?.images[0]
+      });
       
       if (!currentDesign) {
         throw new Error('No design found');
       }
 
+      console.log(`${logPrefix} Calling process3DPreview`);
       const merged3DData = await process3DPreview(currentDesign, userId, setProcessing3D);
       
       if (merged3DData) {
-        updateDesign(currentDesign.id, {
-          threeDData: merged3DData,
-          has3DPreview: true
+        console.log(`${logPrefix} ✅ 3D data received:`, {
+          videoUrl: merged3DData.videoUrl?.substring(0, 50) + '...',
+          glbCount: merged3DData.glbUrls?.length,
+          hasPreprocessed: !!merged3DData.preprocessedUrl,
+          hasStl: !!merged3DData.stlUrl
         });
 
+        console.log(`${logPrefix} 📝 Updating design in Firestore`);
+        await updateDesign(currentDesign.id, {
+          threeDData: merged3DData,
+          has3DPreview: true,
+          lastUpdated: new Date().toISOString()
+        });
+
+        console.log(`${logPrefix} ✅ Process complete`);
         toast({
           title: "Success",
           description: "3D preview generated successfully"
         });
       }
     } catch (error) {
-      console.error('Error processing 3D:', error);
+      console.error(`${logPrefix} ❌ Error:`, error);
+      // Log additional error details if available
+      if (error instanceof Error) {
+        console.error(`${logPrefix} Error details:`, {
+          message: error.message,
+          stack: error.stack,
+          name: error.name
+        });
+      }
+      
       toast({
         title: "Error",
         description: "Failed to generate 3D preview",
         variant: "destructive"
       });
     } finally {
+      console.log(`${logPrefix} 🧹 Cleaning up UI states`);
       setProcessing3D(false);
       setShowProcessingCard(false);
     }

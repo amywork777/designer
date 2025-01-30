@@ -32,7 +32,7 @@ export default function Show3DButton({
     
     setProcessing3D(true);
     try {
-      const response = await fetch('https://us-central1-taiyaki-test1.cloudfunctions.net/process_3d', {
+      const response = await fetch('https://process-3d-mx7fddq5ia-uc.a.run.app', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
