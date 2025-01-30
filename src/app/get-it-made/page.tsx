@@ -1122,7 +1122,12 @@ function GetItMadeContent() {
                               ) : isGLBProcessing ? (
                                 <>
                                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                  Preparing 3D Model...
+                                  Generating 3D Model for STL...
+                                </>
+                              ) : design?.threeDData?.videoUrl ? (
+                                <>
+                                  <FileDown className="mr-2 h-4 w-4" />
+                                  Download STL File
                                 </>
                               ) : (
                                 <>
