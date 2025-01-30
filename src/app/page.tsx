@@ -593,7 +593,7 @@ export default function LandingPage() {
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   // Add state for reference image
   const [referenceImage, setReferenceImage] = useState<string | null>(null);
-  // Add state for selected styles if not already present
+  // Modify the state to be an array instead of single selection
   const [selectedStyles, setSelectedStyles] = useState<string[]>([]);
   const [designPrompt, setDesignPrompt] = useState<string>('');
   // Add state at the top with other states
@@ -2094,11 +2094,17 @@ const handle3DProcessing = async () => {
                           ].map((style) => (
                             <button
                               key={style.id}
-                              onClick={() => setSelectedStyle(style.id)}
+                              onClick={() => {
+                                setSelectedStyles(prev => 
+                                  prev.includes(style.id)
+                                    ? prev.filter(s => s !== style.id) // Remove if selected
+                                    : [...prev, style.id] // Add if not selected
+                                );
+                              }}
                               className={`
                                 px-4 py-2 rounded-full text-sm font-medium
                                 transition-colors duration-200
-                                ${selectedStyle === style.id
+                                ${selectedStyles.includes(style.id)
                                   ? 'bg-blue-100 text-blue-600 border-2 border-blue-200'
                                   : 'bg-gray-100 text-gray-600 border-2 border-transparent hover:border-gray-200'
                                 }

@@ -456,17 +456,23 @@ function GetItMadeContent() {
       setShowProcessingCard(true);
       const userId = session?.user?.id || 'anonymous';
       
-      const merged3DData = await process3DPreview(design, userId, setProcessing3D);
+      // This will now return as soon as video is ready
+      const result = await process3DPreview(design, userId, setProcessing3D);
       
-      if (merged3DData) {
+      if (result.success) {
+        // Update local state immediately with video data
         updateDesign(design.id, {
-          threeDData: merged3DData,
+          threeDData: {
+            videoUrl: result.videoUrl,
+            preprocessedUrl: result.preprocessedUrl,
+            timestamp: Date.now()
+          },
           has3DPreview: true
         });
 
         toast({
           title: "Success",
-          description: "3D preview generated successfully"
+          description: "3D preview generated. Full 3D model processing in progress..."
         });
       }
     } catch (error) {
