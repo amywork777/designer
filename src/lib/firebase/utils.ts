@@ -336,24 +336,37 @@ export async function process3DPreview(design: any, userId: string, setProcessin
 
     setProcessing3D?.(true);
 
-    // First generate video and return immediately
-    console.log('📹 Making request to process-video endpoint...');
-    const videoResponse = await fetch('https://process-video-mx7fddq5ia-uc.a.run.app', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        image_url: design.images[0],
-        userId,
-        designId: design.id
+    // Start both video and GLB generation in parallel
+    const [videoPromise, glbPromise] = [
+      // Video generation
+      fetch('https://process-video-mx7fddq5ia-uc.a.run.app', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          image_url: design.images[0],
+          userId,
+          designId: design.id
+        })
+      }),
+      // GLB generation
+      fetch('https://process-3d-mx7fddq5ia-uc.a.run.app', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          image_url: design.images[0],
+          userId,
+          designId: design.id
+        })
       })
-    });
+    ];
 
+    // Wait for video to complete (we need this for immediate return)
+    const videoResponse = await videoPromise;
     if (!videoResponse.ok) {
       throw new Error(`Video generation failed: ${videoResponse.status}`);
     }
 
     const videoData = await videoResponse.json();
-    
     if (!videoData.success) {
       throw new Error('Video generation failed');
     }
@@ -371,17 +384,8 @@ export async function process3DPreview(design: any, userId: string, setProcessin
     console.log('💾 Saving initial video data to Firestore:', threeDData);
     await updateDesignWithThreeDData(design.id, userId, threeDData);
 
-    // Start GLB generation in background
-    console.log('🚀 Starting GLB generation in background...');
-    fetch('https://process-3d-mx7fddq5ia-uc.a.run.app', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        image_url: design.images[0],
-        userId,
-        designId: design.id
-      })
-    }).then(async (glbResponse) => {
+    // Handle GLB completion in background
+    glbPromise.then(async (glbResponse) => {
       if (!glbResponse.ok) {
         console.error('❌ GLB generation failed:', glbResponse.status);
         return;
@@ -390,7 +394,6 @@ export async function process3DPreview(design: any, userId: string, setProcessin
       const glbData = await glbResponse.json();
       console.log('✅ GLB generation successful:', glbData);
 
-      // Update Firestore with GLB urls when ready
       if (glbData.success && glbData.glb_urls) {
         console.log('💾 Updating Firestore with GLB data:', glbData.glb_urls);
         await updateDesignWithThreeDData(design.id, userId, {
@@ -398,7 +401,7 @@ export async function process3DPreview(design: any, userId: string, setProcessin
         });
       }
     }).catch(error => {
-      console.error('❌ Error in background GLB generation:', error);
+      console.error('❌ Error in GLB generation:', error);
     });
 
     // Return video data immediately
