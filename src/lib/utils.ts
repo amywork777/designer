@@ -1,7 +1,5 @@
 import { type ClassValue, clsx } from "clsx"
 import { twMerge } from "tailwind-merge"
-import { config } from './config';
-import { storage } from './storage';
 
 /**
  * Utility function to join CSS classes conditionally.
@@ -83,7 +81,19 @@ export const compressBase64Image = async (base64: string): Promise<string> => {
 export type { CompressImageFunction };
 type CompressImageFunction = (base64: string) => Promise<string>;
 
-// Storage utility functions
+// Configuration
+export const config = {
+  storage: {
+    maxFileSize: 10 * 1024 * 1024, // 10MB
+    allowedFileTypes: ['image/jpeg', 'image/png', 'image/webp'],
+  },
+  api: {
+    timeout: 30000, // 30 seconds
+    retries: 3,
+  }
+};
+
+// Storage utilities
 export const storage = {
   getFileSize: (file: File) => file.size,
   
@@ -101,18 +111,9 @@ export const storage = {
   }
 };
 
-export default storage;
-
-// Default configuration values
-export const config = {
-  storage: {
-    maxFileSize: 10 * 1024 * 1024, // 10MB
-    allowedFileTypes: ['image/jpeg', 'image/png', 'image/webp'],
-  },
-  api: {
-    timeout: 30000, // 30 seconds
-    retries: 3,
-  }
+// Export a single default object with all utilities
+export default {
+  config,
+  storage,
+  cn
 };
-
-export default config;
