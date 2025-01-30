@@ -6,14 +6,43 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
-const BASE_SETTINGS = `Create a 3D model with these specific requirements:
-- Pure white or transparent background, no environmental elements
-- Isometric view to show depth and dimension
-- Professional 3D rendering with clear details
-- Clean, modern aesthetic
-- High contrast lighting to emphasize depth
-- Sharp, clear edges and surfaces
+const BASE_SETTINGS = `Create a visually striking 3D model with these requirements:
+- Soft, pleasing plain background that complements the model
+- 3/4 view angle to show depth while maintaining visual appeal
+- Professional 3D rendering with attention to materials and textures
+- Modern design aesthetic with careful attention to color harmony
+- Dramatic lighting with soft shadows to add depth and atmosphere
+- Smooth, refined surfaces with attention to detail
+- Subtle ambient occlusion to ground the model
+- Consider color psychology and emotional impact in the design
 `;
+
+const STYLE_PROMPTS = {
+  cartoon: `Create an adorable 3D model with these specific style elements:
+- Kawaii-inspired design with extra cute proportions
+- Soft, pastel color palette with gentle color gradients
+- Rounded corners and playful shapes that spark joy
+- Smooth, bubble-like surfaces that look soft to touch
+- Playful shadows that enhance the cute aesthetic
+The model should be: `,
+
+  realistic: `Create a stunning photorealistic 3D model with these elements:
+- Ultra-detailed surface textures with proper material properties
+- Physical-based rendering with accurate reflections and refractions
+- Careful attention to real-world material qualities
+- Strategic depth of field to draw focus
+- Atmospheric lighting that enhances realism
+The model should be: `,
+
+  geometric: `Create a bold geometric 3D model with these characteristics:
+- Clean, minimal shapes with perfect proportions
+- Bold, contrasting color choices that pop
+- Precise angles and intentional geometry
+- Subtle gradients to add visual interest
+- Strategic use of negative space
+- Polished surfaces with precise reflections
+The model should be: `
+};
 
 export async function POST(req: Request) {
   try {
@@ -59,18 +88,23 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
     }
 
-    // 5. Construct the prompt
-    const stylePrompt = style ? `Style: ${style}. ` : '';
+    // 5. Construct the prompt with enhanced styling
+    const stylePrompt = style ? STYLE_PROMPTS[style as keyof typeof STYLE_PROMPTS] || '' : '';
     const fullPrompt = `${BASE_SETTINGS}
     
 ${stylePrompt}
 Design requirements: ${prompt}
 
-Remember: Maintain pure white/transparent background and isometric perspective.`;
+Additional style notes:
+- Ensure colors are vibrant and emotionally engaging
+- Add subtle environmental touches that enhance the mood
+- Consider the emotional impact of the lighting and colors
+- Make deliberate choices about material properties
+- Add small details that make the design more captivating`;
 
     console.log('Sending prompt to OpenAI:', fullPrompt);
 
-    // 6. Call OpenAI with error handling
+    // 6. Call OpenAI with enhanced settings
     let openAiResponse;
     try {
       openAiResponse = await openai.images.generate({
@@ -78,8 +112,8 @@ Remember: Maintain pure white/transparent background and isometric perspective.`
         prompt: fullPrompt,
         n: 1,
         size: "1024x1024",
-        quality: "standard",
-        style: "natural"
+        quality: "hd",  // Changed to HD for better quality
+        style: "vivid"  // Changed to vivid for more striking results
       });
       console.log('OpenAI response received');
     } catch (e) {
