@@ -358,13 +358,18 @@ export async function process3DPreview(design: any, userId: string, setProcessin
       throw new Error('Video generation failed');
     }
 
-    // Update Firestore with video immediately
-    if (videoData.video_url) {
-      await updateDesignWithThreeDData(design.id, userId, {
-        videoUrl: videoData.video_url,
-        preprocessedUrl: videoData.preprocessed_url
-      });
-    }
+    console.log('✅ Video generation successful:', videoData);
+
+    // Store initial video data
+    const threeDData = {
+      videoUrl: videoData.video_url,
+      preprocessedUrl: videoData.preprocessed_url,
+      timestamp: Date.now()
+    };
+
+    // Update Firestore with video data
+    console.log('💾 Saving initial video data to Firestore:', threeDData);
+    await updateDesignWithThreeDData(design.id, userId, threeDData);
 
     // Start GLB generation in background
     console.log('🚀 Starting GLB generation in background...');
@@ -378,20 +383,22 @@ export async function process3DPreview(design: any, userId: string, setProcessin
       })
     }).then(async (glbResponse) => {
       if (!glbResponse.ok) {
-        console.error('GLB generation failed:', glbResponse.status);
+        console.error('❌ GLB generation failed:', glbResponse.status);
         return;
       }
 
       const glbData = await glbResponse.json();
+      console.log('✅ GLB generation successful:', glbData);
 
       // Update Firestore with GLB urls when ready
       if (glbData.success && glbData.glb_urls) {
+        console.log('💾 Updating Firestore with GLB data:', glbData.glb_urls);
         await updateDesignWithThreeDData(design.id, userId, {
           glbUrls: glbData.glb_urls
         });
       }
     }).catch(error => {
-      console.error('Error in background GLB generation:', error);
+      console.error('❌ Error in background GLB generation:', error);
     });
 
     // Return video data immediately
