@@ -7,7 +7,7 @@ const openai = new OpenAI({
 });
 
 const BASE_SETTINGS = `Create a visually striking 3D model with these requirements:
-- Soft, pleasing plain background that complements the model
+- Soft, pleasing plain white background that complements the model
 - 3/4 view angle to show depth while maintaining visual appeal
 - Professional 3D rendering with attention to materials and textures
 - Modern design aesthetic with careful attention to color harmony
@@ -18,11 +18,11 @@ const BASE_SETTINGS = `Create a visually striking 3D model with these requiremen
 `;
 
 const STYLE_PROMPTS = {
-  cartoon: `Create an adorable 3D model with these specific style elements:
+  cartoon: `Create an adorable, chibi style 3D model with these specific style elements:
 - Kawaii-inspired design with extra cute proportions
 - Soft, pastel color palette with gentle color gradients
 - Rounded corners and playful shapes that spark joy
-- Smooth, bubble-like surfaces that look soft to touch
+- Smooth surfaces that look soft to touch
 - Playful shadows that enhance the cute aesthetic
 The model should be: `,
 
@@ -35,10 +35,9 @@ The model should be: `,
 The model should be: `,
 
   geometric: `Create a bold geometric 3D model with these characteristics:
-- Clean, minimal shapes with perfect proportions
+- Clean, minimal shapes with perfect proportions, low poly design
 - Bold, contrasting color choices that pop
-- Precise angles and intentional geometry
-- Subtle gradients to add visual interest
+- Precise angles, angular
 - Strategic use of negative space
 - Polished surfaces with precise reflections
 The model should be: `
