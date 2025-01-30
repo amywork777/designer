@@ -1794,85 +1794,58 @@ export default function LandingPage() {
     }
   };
 
-  // Update the handle3DProcessing function
-  const handle3DProcessing = async () => {
-    const logPrefix = '🎮 3D Generation:';
-    console.log(`${logPrefix} Starting process`);
+  // In page.tsx, update the handle3DProcessing function:
+const handle3DProcessing = async () => {
+  if (!selectedDesign) {
+    toast({
+      title: "Error",
+      description: "Please select a design first",
+      variant: "destructive"
+    });
+    return;
+  }
+  
+  try {
+    setProcessing3D(true);
+    setShowProcessingCard(true);
+    const userId = session?.user?.id || 'anonymous';
+    const currentDesign = designs.find(d => d.images.includes(selectedDesign));
     
-    if (!selectedDesign) {
-      console.warn(`${logPrefix} ❌ No design selected`);
-      toast({
-        title: "Error",
-        description: "Please select a design first",
-        variant: "destructive"
-      });
-      return;
+    if (!currentDesign) {
+      throw new Error('No design found');
     }
+
+    // This will now return as soon as video is ready
+    const result = await process3DPreview(currentDesign, userId, setProcessing3D);
     
-    try {
-      console.log(`${logPrefix} Setting UI states`);
-      setProcessing3D(true);
-      setShowProcessingCard(true);
-      
-      const userId = session?.user?.id || 'anonymous';
-      console.log(`${logPrefix} User ID:`, userId);
-      
-      const currentDesign = designs.find(d => d.images.includes(selectedDesign));
-      console.log(`${logPrefix} Current design:`, {
-        designId: currentDesign?.id,
-        imageUrl: currentDesign?.images[0]
+    if (result.success) {
+      // Update local state immediately with video data
+      updateDesign(currentDesign.id, {
+        threeDData: {
+          videoUrl: result.videoUrl,
+          preprocessedUrl: result.preprocessedUrl,
+          timestamp: Date.now()
+        },
+        has3DPreview: true
       });
-      
-      if (!currentDesign) {
-        throw new Error('No design found');
-      }
 
-      console.log(`${logPrefix} Calling process3DPreview`);
-      const merged3DData = await process3DPreview(currentDesign, userId, setProcessing3D);
-      
-      if (merged3DData) {
-        console.log(`${logPrefix} ✅ 3D data received:`, {
-          videoUrl: merged3DData.videoUrl?.substring(0, 50) + '...',
-          glbCount: merged3DData.glbUrls?.length,
-          hasPreprocessed: !!merged3DData.preprocessedUrl,
-          hasStl: !!merged3DData.stlUrl
-        });
-
-        console.log(`${logPrefix} 📝 Updating design in Firestore`);
-        await updateDesign(currentDesign.id, {
-          threeDData: merged3DData,
-          has3DPreview: true,
-          lastUpdated: new Date().toISOString()
-        });
-
-        console.log(`${logPrefix} ✅ Process complete`);
-        toast({
-          title: "Success",
-          description: "3D preview generated successfully"
-        });
-      }
-    } catch (error) {
-      console.error(`${logPrefix} ❌ Error:`, error);
-      // Log additional error details if available
-      if (error instanceof Error) {
-        console.error(`${logPrefix} Error details:`, {
-          message: error.message,
-          stack: error.stack,
-          name: error.name
-        });
-      }
-      
       toast({
-        title: "Error",
-        description: "Failed to generate 3D preview",
-        variant: "destructive"
+        title: "Success",
+        description: "3D preview generated. Full 3D model processing in progress..."
       });
-    } finally {
-      console.log(`${logPrefix} 🧹 Cleaning up UI states`);
-      setProcessing3D(false);
-      setShowProcessingCard(false);
     }
-  };
+  } catch (error) {
+    console.error('Error processing 3D:', error);
+    toast({
+      title: "Error",
+      description: "Failed to generate 3D preview",
+      variant: "destructive"
+    });
+  } finally {
+    setProcessing3D(false);
+    setShowProcessingCard(false);
+  }
+};
 
   const handleReferenceImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
