@@ -1119,15 +1119,10 @@ function GetItMadeContent() {
                                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                   Converting STL...
                                 </>
-                              ) : isGLBProcessing ? (
+                              ) : (!design?.threeDData?.glbUrls?.[0] || isGLBProcessing) ? (
                                 <>
                                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                   Generating 3D Model for STL...
-                                </>
-                              ) : design?.threeDData?.videoUrl ? (
-                                <>
-                                  <FileDown className="mr-2 h-4 w-4" />
-                                  Download STL File
                                 </>
                               ) : (
                                 <>
@@ -1148,7 +1143,7 @@ function GetItMadeContent() {
                               variant="outline" 
                               className="w-full font-dm-sans font-medium text-sm rounded-[10px]" 
                               onClick={() => handleDownload('step')}
-                              disabled={!design?.threeDData?.videoUrl || isDownloadingSTEP}
+                              disabled={isDownloadingSTEP}
                             >
                               {isDownloadingSTEP ? (
                                 <>
