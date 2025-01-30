@@ -11,7 +11,7 @@ import Link from 'next/link';
 import Show3DButton from '@/components/Show3DButton';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, updateDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase/config';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -156,6 +156,7 @@ function GetItMadeContent() {
   const [isGenerating, setIsGenerating] = useState(false);
   const paymentStatus = searchParams.get('payment');
   const [showProcessingCard, setShowProcessingCard] = useState(false);
+  const [isGLBProcessing, setIsGLBProcessing] = useState(true);
 
   const design = designs.find(d => d.id === designId);
   const selectedDesign = design?.images[0];
@@ -210,6 +211,48 @@ function GetItMadeContent() {
       });
     }
   }, [paymentStatus]);
+
+  useEffect(() => {
+    if (!design?.id || !session?.user?.id) return;
+    
+    // Don't set up listener if GLB is already available
+    if (design?.threeDData?.glbUrls?.length > 0) {
+      setIsGLBProcessing(false);
+      return;
+    }
+
+    console.log('🎧 Setting up real-time listener for GLB status');
+    
+    const unsubscribe = onSnapshot(
+      doc(db, 'designs', design.id),
+      (doc) => {
+        const data = doc.data();
+        if (data?.threeDData?.glbUrls?.length > 0) {
+          console.log('✅ GLB is ready!');
+          setIsGLBProcessing(false);
+          
+          // Update local design state
+          updateDesign(design.id, {
+            threeDData: data.threeDData
+          });
+          
+          toast({
+            title: "3D Model Ready",
+            description: "Your model has been fully processed",
+            duration: 5000,
+          });
+        }
+      },
+      (error) => {
+        console.error('Error listening to design updates:', error);
+      }
+    );
+
+    return () => {
+      console.log('🧹 Cleaning up GLB status listener');
+      unsubscribe();
+    };
+  }, [design?.id, session?.user?.id]);
 
   const handleFinalizeDesign = async () => {
     if (!design?.images[0]) return;
@@ -1063,12 +1106,17 @@ function GetItMadeContent() {
                               variant="outline" 
                               className="w-full font-dm-sans font-medium text-sm rounded-[10px]" 
                               onClick={() => handleDownload('stl')}
-                              disabled={!design?.threeDData?.videoUrl || isDownloadingSTL}
+                              disabled={!design?.threeDData?.videoUrl || isDownloadingSTL || isGLBProcessing}
                             >
                               {isDownloadingSTL ? (
                                 <>
                                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                   Converting STL...
+                                </>
+                              ) : isGLBProcessing ? (
+                                <>
+                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                  Preparing 3D Model...
                                 </>
                               ) : (
                                 <>
