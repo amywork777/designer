@@ -1,0 +1,38 @@
+[debug] [2025-01-30T05:56:11.039Z] ----------------------------------------------------------------------
+[debug] [2025-01-30T05:56:11.041Z] Command:       /Users/amyzhou/.nvm/versions/node/v20.18.1/bin/node /Users/amyzhou/.nvm/versions/node/v20.18.1/bin/firebase login
+[debug] [2025-01-30T05:56:11.041Z] CLI Version:   13.29.2
+[debug] [2025-01-30T05:56:11.041Z] Platform:      darwin
+[debug] [2025-01-30T05:56:11.041Z] Node Version:  v20.18.1
+[debug] [2025-01-30T05:56:11.041Z] Time:          Wed Jan 29 2025 21:56:11 GMT-0800 (Pacific Standard Time)
+[debug] [2025-01-30T05:56:11.041Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2025-01-30T05:56:11.123Z] Object "/functions" in "firebase.json" has unknown property: {"additionalProperty":"region"}
+[debug] [2025-01-30T05:56:11.123Z] Field "/functions" in "firebase.json" is possibly invalid: must be array
+[debug] [2025-01-30T05:56:11.123Z] Field "/functions" in "firebase.json" is possibly invalid: must match a schema in anyOf
+[info] i  Firebase optionally collects CLI and Emulator Suite usage and error reporting information to help improve our products. Data is collected in accordance with Google's privacy policy (https://policies.google.com/privacy) and is not used to identify you.
+ 
+[info] i  To change your data collection preference at any time, run `firebase logout` and log in again. 
+[info] 
+[info] Visit this URL on this device to log in:
+[info] https://accounts.google.com/o/oauth2/auth?client_id=113775907444563292389&scope=email%20openid%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcloudplatformprojects.readonly%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Ffirebase%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcloud-platform&response_type=code&state=659034800&redirect_uri=http%3A%2F%2Flocalhost%3A9005
+[info] 
+[info] Waiting for authentication...
+[debug] [2025-01-30T05:57:12.840Z] ----------------------------------------------------------------------
+[debug] [2025-01-30T05:57:12.845Z] Command:       /Users/amyzhou/.nvm/versions/node/v20.18.1/bin/node /Users/amyzhou/.nvm/versions/node/v20.18.1/bin/firebase login --debug
+[debug] [2025-01-30T05:57:12.845Z] CLI Version:   13.29.2
+[debug] [2025-01-30T05:57:12.845Z] Platform:      darwin
+[debug] [2025-01-30T05:57:12.845Z] Node Version:  v20.18.1
+[debug] [2025-01-30T05:57:12.845Z] Time:          Wed Jan 29 2025 21:57:12 GMT-0800 (Pacific Standard Time)
+[debug] [2025-01-30T05:57:12.846Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2025-01-30T05:57:12.934Z] Object "/functions" in "firebase.json" has unknown property: {"additionalProperty":"region"}
+[debug] [2025-01-30T05:57:12.935Z] Field "/functions" in "firebase.json" is possibly invalid: must be array
+[debug] [2025-01-30T05:57:12.935Z] Field "/functions" in "firebase.json" is possibly invalid: must match a schema in anyOf
+[info] i  Firebase optionally collects CLI and Emulator Suite usage and error reporting information to help improve our products. Data is collected in accordance with Google's privacy policy (https://policies.google.com/privacy) and is not used to identify you.
+ 
+[info] i  To change your data collection preference at any time, run `firebase logout` and log in again. 
+[info] 
+[info] Visit this URL on this device to log in:
+[info] https://accounts.google.com/o/oauth2/auth?client_id=113775907444563292389&scope=email%20openid%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcloudplatformprojects.readonly%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Ffirebase%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fcloud-platform&response_type=code&state=761575460&redirect_uri=http%3A%2F%2Flocalhost%3A9005
+[info] 
+[info] Waiting for authentication...
