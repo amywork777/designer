@@ -29,6 +29,10 @@ import { updateDesign } from "@/lib/firebase/designs";
 import { loadStripe } from '@stripe/stripe-js';
 import { PRODUCT_PRICING, STEP_FILE_PRICE } from '@/lib/constants/pricing';
 
+// 1. State declarations - add at top of component
+const [isGLBProcessing, setIsGLBProcessing] = useState(false);
+const [isDownloadingSTL, setIsDownloadingSTL] = useState(false);
+
 const PRICING = {
   Mini: { 
     PLA: 15, 
@@ -221,27 +225,27 @@ function GetItMadeContent() {
       return;
     }
   
-    // If we have video but no GLB, start processing
-    if (design?.threeDData?.videoUrl && !design?.threeDData?.glbUrls?.length) {
-      // Start GLB processing in background
-      fetch('/api/process-glb', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          designId: design.id,
-          userId: session.user.id
-        })
-      }).catch(console.error);
+    // Only proceed if we have a video but no GLB
+    if (!design?.threeDData?.videoUrl) {
+      return;
     }
   
-    const unsubscribe = onSnapshot(
-      doc(db, 'designs', design.id),
-      (doc) => {
-        const data = doc.data();
+    let isMounted = true;
+    setIsGLBProcessing(true);
+  
+    // Function to check GLB status
+    const checkGLBStatus = async () => {
+      try {
+        const docSnap = await getDoc(doc(db, 'designs', design.id));
+        const data = docSnap.data();
+  
+        if (!isMounted) return false;
+  
         if (data?.threeDData?.glbUrls?.length > 0) {
           console.log('✅ GLB is ready!');
           setIsGLBProcessing(false);
           
+          // Update local state
           updateDesign(design.id, {
             threeDData: data.threeDData
           });
@@ -251,16 +255,68 @@ function GetItMadeContent() {
             description: "Your model has been fully processed",
             duration: 5000,
           });
+          return true; // GLB is ready
         }
-      },
-      (error) => {
-        console.error('Error listening to design updates:', error);
-      }
-    );
   
+        // If GLB processing hasn't started yet, start it
+        if (!data?.threeDData?.isProcessingGLB) {
+          console.log('🚀 Starting GLB processing...');
+          
+          // Mark as processing in Firebase
+          await updateDoc(doc(db, 'designs', design.id), {
+            'threeDData.isProcessingGLB': true,
+            'threeDData.processingStartedAt': Date.now()
+          });
+  
+          // Start GLB processing
+          try {
+            const response = await fetch('https://process-3d-mx7fddq5ia-uc.a.run.app', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                image_url: design.images[0],
+                userId: session.user.id,
+                designId: design.id
+              })
+            });
+  
+            if (!response.ok) {
+              throw new Error(`Failed to start GLB processing: ${response.status}`);
+            }
+          } catch (error) {
+            console.error('Error starting GLB processing:', error);
+            // Reset processing flag if failed to start
+            await updateDoc(doc(db, 'designs', design.id), {
+              'threeDData.isProcessingGLB': false
+            });
+            if (isMounted) {
+              setIsGLBProcessing(false);
+            }
+          }
+        }
+  
+        return false; // Still processing
+      } catch (error) {
+        console.error('Error checking GLB status:', error);
+        return false;
+      }
+    };
+  
+    // Set up polling interval
+    const intervalId = setInterval(async () => {
+      const isReady = await checkGLBStatus();
+      if (isReady && isMounted) {
+        clearInterval(intervalId);
+      }
+    }, 5000); // Check every 5 seconds
+  
+    // Initial check
+    checkGLBStatus();
+  
+    // Cleanup function
     return () => {
-      console.log('🧹 Cleaning up GLB status listener');
-      unsubscribe();
+      isMounted = false;
+      clearInterval(intervalId);
     };
   }, [design?.id, design?.threeDData?.videoUrl, session?.user?.id]);
 
@@ -518,95 +574,55 @@ function GetItMadeContent() {
       return;
     }
   
-    // If there's no GLB but we have a video, start GLB processing
-    if (!design?.threeDData?.glbUrls?.[0] && design?.threeDData?.videoUrl) {
-      console.log('🚀 Starting GLB generation process...', {
-        designId: design.id,
-        userId: session.user.id
-      });
-  
-      setIsGLBProcessing(true);  // Show processing state in button
-      
+    // If no GLB yet, show processing message
+    if (!design?.threeDData?.glbUrls?.[0]) {
       toast({
-        title: "Processing 3D Model",
-        description: "Please wait while we generate your 3D model...",
-        duration: 5000
+        title: "Processing",
+        description: "Please wait while we finish generating your 3D model...",
+        duration: 3000
       });
-  
-      // Start GLB processing directly with Cloud Run endpoint
-      try {
-        console.log('📡 Making request to Cloud Run endpoint...');
-        const response = await fetch('https://process-3d-mx7fddq5ia-uc.a.run.app', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            image_url: design.images[0],
-            userId: session.user.id,
-            designId: design.id
-          })
-        });
-  
-        if (!response.ok) {
-          throw new Error(`Failed to start 3D model processing: ${response.status}`);
-        }
-  
-        const data = await response.json();
-        console.log('✅ Cloud Run response:', data);
-  
-        if (!data.success) {
-          throw new Error(data.error || 'Processing failed');
-        }
-  
-        // Set up Firebase listener for GLB completion
-        console.log('👂 Setting up Firebase listener for GLB completion...');
-        const unsubscribe = onSnapshot(
-          doc(db, 'designs', design.id),
-          async (docSnapshot) => {
-            const data = docSnapshot.data();
-            console.log('📡 Firebase update received:', data?.threeDData);
-            
-            if (data?.threeDData?.glbUrls?.[0]) {
-              console.log('✅ GLB is ready!', data.threeDData.glbUrls);
-              unsubscribe(); // Stop listening once we have GLB
-              setIsGLBProcessing(false);  // Update button state
-              
-              // Update local state
-              updateDesign(design.id, {
-                threeDData: data.threeDData
-              });
-  
-              toast({
-                title: "3D Model Ready",
-                description: "You can now download your STL file",
-                duration: 5000
-              });
-            }
-          },
-          (error) => {
-            console.error('❌ Error listening to design updates:', error);
-            setIsGLBProcessing(false);  // Reset button state on error
-            toast({
-              variant: "destructive",
-              title: "Error",
-              description: "Failed to process 3D model"
-            });
-          }
-        );
-  
-      } catch (error) {
-        console.error('❌ Error initiating GLB processing:', error);
-        setIsGLBProcessing(false);  // Reset button state on error
-        toast({
-          variant: "destructive",
-          title: "Error",
-          description: "Failed to start 3D model processing"
-        });
-      }
       return;
     }
   
-    // If we have a GLB, proceed with normal download
-    handleDownload('stl');
+    // Convert GLB to STL
+    try {
+      setIsDownloadingSTL(true);
+      
+      const response = await fetch('/api/convert-glb', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          glbUrl: design.threeDData.glbUrls[0],
+          designId: design.id
+        })
+      });
+  
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Conversion failed');
+      }
+  
+      // Download the STL file
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${design.name || 'design'}.stl`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+  
+    } catch (error) {
+      console.error('Download error:', error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to download STL file"
+      });
+    } finally {
+      setIsDownloadingSTL(false);
+    }
   };
 
   const handleDownload = async (type: 'stl' | 'step') => {
