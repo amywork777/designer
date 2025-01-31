@@ -1035,7 +1035,15 @@ function GetItMadeContent() {
                       />
                     </div>
                     <div className="text-sm text-gray-500 font-inter italic px-1 sm:text-xs md:text-sm">
-                      Note: This is an AI-generated preview. The actual 3D model will be professionally optimized for manufacturing with cleaner geometry and proper dimensions.
+                      Note: This is an AI-generated preview. The actual 3D model will be professionally optimized for manufacturing with cleaner geometry and proper dimensions.{' '}
+                      If you need help refining the model or have any questions, please{' '}
+                      <a 
+                        href="mailto:taiyaki.orders@gmail.com"
+                        className="text-blue-600 hover:text-blue-800 underline"
+                      >
+                        contact us
+                      </a>
+                      .
                     </div>
                   </div>
                 ) : (
