@@ -1082,7 +1082,7 @@ function GetItMadeContent() {
                   </div>
                 )}
 
-                {/* Download Files Section */}
+                                {/* Download Files Section */}
                 <div className="mt-4">
                   <Card className="bg-white rounded-[10px] shadow-sm border">
                     <CardContent className="p-4">
@@ -1091,6 +1091,7 @@ function GetItMadeContent() {
                           Get STL for 3D printing and STEP for CAD editing
                         </div>
 
+                        {/* Show message if 3D preview hasn't been generated yet */}
                         {!design?.threeDData?.videoUrl && (
                           <p className="text-sm text-gray-600 mb-2">
                             Generate 3D preview first to download files
@@ -1098,19 +1099,23 @@ function GetItMadeContent() {
                         )}
 
                         <div className="space-y-4">
+                          {/* STL Download Button */}
                           <div>
                             <Button 
                               variant="outline" 
                               className="w-full font-dm-sans font-medium text-sm rounded-[10px]" 
                               onClick={() => handleDownload('stl')}
-                              disabled={!design?.threeDData?.videoUrl || isDownloadingSTL || isGLBProcessing}
+                              // Button is disabled if:
+                              // 1. No GLB URLs available OR
+                              // 2. Currently downloading STL
+                              disabled={!design?.threeDData?.glbUrls?.[0] || isDownloadingSTL}
                             >
                               {isDownloadingSTL ? (
                                 <>
                                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                   Converting STL...
                                 </>
-                              ) : (isGLBProcessing || (design?.threeDData?.videoUrl && !design?.threeDData?.glbUrls?.[0])) ? (
+                              ) : (design?.threeDData?.videoUrl && (isGLBProcessing || !design?.threeDData?.glbUrls?.[0])) ? (
                                 <>
                                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                   Generating 3D Model for STL...
@@ -1122,6 +1127,8 @@ function GetItMadeContent() {
                                 </>
                               )}
                             </Button>
+
+                            {/* Sign in prompt if user is not logged in */}
                             {!session?.user && (
                               <div className="text-sm text-center text-gray-600 mt-2">
                                 Sign in to download files
@@ -1129,12 +1136,13 @@ function GetItMadeContent() {
                             )}
                           </div>
 
+                          {/* STEP File Button */}
                           <div>
                             <Button 
                               variant="outline" 
                               className="w-full font-dm-sans font-medium text-sm rounded-[10px]" 
                               onClick={() => handleDownload('step')}
-                              disabled={isDownloadingSTEP}
+                              disabled={isDownloadingSTEP || !design?.threeDData?.videoUrl}
                             >
                               {isDownloadingSTEP ? (
                                 <>
@@ -1148,6 +1156,8 @@ function GetItMadeContent() {
                                 </>
                               )}
                             </Button>
+
+                            {/* Sign in prompt if user is not logged in */}
                             {!session?.user && (
                               <div className="text-sm text-center text-gray-600 mt-2">
                                 Sign in to purchase files
