@@ -468,18 +468,25 @@ function GetItMadeContent() {
       return;
     }
 
-    // If STL is already available, just download it
-    if (design.threeDData?.stlUrl) {
-      console.log('Found cached STL URL:', design.threeDData.stlUrl);
+    // If STL is already available, just convert from GLB and download
+    if (design.threeDData?.glbUrls?.[0]) {
+      console.log('Found GLB URL, converting to STL');
       try {
-        console.log('Attempting to download cached STL');
-        const response = await fetch(design.threeDData.stlUrl);
-        console.log('STL fetch response status:', response.status);
-        const blob = await response.blob();
-        console.log('STL blob size:', blob.size);
-        const downloadUrl = window.URL.createObjectURL(blob);
-        console.log('Created blob URL for download');
-        
+        const convertRes = await fetch('/api/convert-glb', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            glbUrl: design.threeDData.glbUrls[0],
+            designId: design.id
+          })
+        });
+
+        if (!convertRes.ok) {
+          throw new Error("Failed to convert to STL");
+        }
+
+        const stlBlob = await convertRes.blob();
+        const downloadUrl = window.URL.createObjectURL(stlBlob);
         const link = document.createElement('a');
         link.href = downloadUrl;
         link.download = `${design.name || 'design'}.stl`;
@@ -487,10 +494,10 @@ function GetItMadeContent() {
         link.click();
         link.remove();
         window.URL.revokeObjectURL(downloadUrl);
-        console.log('STL download completed from cache');
+        console.log('STL download completed from GLB conversion');
         return;
       } catch (error) {
-        console.error('Error downloading cached STL:', error);
+        console.error('Error converting GLB to STL:', error);
         console.log('Falling back to regeneration');
       }
     }
@@ -563,12 +570,7 @@ function GetItMadeContent() {
 
         // Download the file
         console.log('Initiating STL download');
-        const link = document.createElement('a');
-        link.href = stlUrl;
-        link.download = `${design.name || 'design'}.stl`;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
+        window.location.href = stlUrl; // Direct download using the Firebase Storage URL
 
         toast({
           title: "Success",
