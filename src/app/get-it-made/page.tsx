@@ -458,7 +458,7 @@ function GetItMadeContent() {
       setShowSignInPopup(true);
       return;
     }
-
+  
     if (!design) {
       toast({
         title: "Error",
@@ -467,26 +467,11 @@ function GetItMadeContent() {
       });
       return;
     }
-
-    // If STL is already available, just download it
-    if (design.threeDData?.stlUrl) {
-      console.log('STL already available, downloading...');
-      const response = await fetch(design.threeDData.stlUrl);
-      const blob = await response.blob();
-      const downloadUrl = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = downloadUrl;
-      link.download = `${design.name || 'design'}.stl`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(downloadUrl);
-      return;
-    }
-
+  
     setIsDownloadingSTL(true);
-
+  
     try {
+      console.log('Starting STL generation process...');
       const processRes = await fetch(
         'https://us-central1-taiyaki-test1.cloudfunctions.net/process_3d',
         {
@@ -499,27 +484,39 @@ function GetItMadeContent() {
           })
         }
       );
-
-      let processData = await processRes.json();
-
-      if (processData.glb_urls?.length > 0) {
+  
+      let processData;
+      try {
+        processData = await processRes.json();
+        console.log('Process 3D raw response:', processData);
+      } catch (e) {
+        console.error('Failed to parse response:', e);
+        throw new Error('Failed to process response');
+      }
+  
+      // Check if we have the data we need, regardless of error status
+      const hasRequiredData = processData && (processData.glb_urls?.length > 0 || processData.video_url);
+      if (hasRequiredData) {
+        console.log('Required data found, proceeding with conversion...');
+  
+        // Try to convert the GLB to STL
         const convertRes = await fetch('/api/convert-glb', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            glbUrl: processData.glb_urls[0],
+            glbUrl: processData.glb_urls?.[0],
             designId: design.id
           })
         });
-
+  
         if (!convertRes.ok) {
           throw new Error("Failed to convert to STL");
         }
-
+  
         const stlBlob = await convertRes.blob();
         const downloadUrl = window.URL.createObjectURL(stlBlob);
         
-        // Create a downloadable STL file
+        // Trigger download
         const link = document.createElement('a');
         link.href = downloadUrl;
         link.download = `${design.name || 'design'}.stl`;
@@ -527,30 +524,45 @@ function GetItMadeContent() {
         link.click();
         link.remove();
         window.URL.revokeObjectURL(downloadUrl);
-
-        // Update Firebase with all the data
-        await updateDesign(design.id, {
+  
+        // Update Firebase
+        const updatedData = {
           threeDData: {
             ...(design.threeDData || {}),
             videoUrl: processData.video_url || design.threeDData?.videoUrl,
             preprocessedUrl: processData.preprocessed_url || design.threeDData?.preprocessedUrl,
             glbUrls: processData.glb_urls,
-            stlUrl: downloadUrl, // Store the STL URL
             timestamp: Date.now()
           },
           has3DPreview: true
-        });
-
-        setStlAvailable(true);
-        
+        };
+  
+        console.log('Updating Firebase with:', updatedData);
+        await updateDesign(design.id, updatedData);
+  
         toast({
           title: "Success",
           description: "STL file downloaded successfully"
         });
+      } else {
+        throw new Error('Required 3D data not found in response');
       }
-
+  
     } catch (error) {
-      console.error('STL Generation Error:', error);
+      console.error('STL Generation Error:', {
+        message: error.message,
+        type: error.constructor.name,
+        stack: error.stack
+      });
+  
+      // Check if it's a Gradio error but we might have the data
+      if (error.message?.includes('Gradio') && processData?.glb_urls?.length > 0) {
+        console.log('Gradio error but we have GLB URLs, continuing...');
+        // Retry the operation
+        handleGenerateSTL();
+        return;
+      }
+  
       toast({
         variant: "destructive",
         title: "Error",
