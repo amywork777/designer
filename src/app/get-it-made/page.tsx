@@ -508,15 +508,6 @@ function GetItMadeContent() {
       return;
     }
 
-    if (!design?.threeDData?.glbUrls?.[0]) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "No 3D model available for download"
-      });
-      return;
-    }
-
     if (type === 'stl') {
       try {
         setIsDownloadingSTL(true);
@@ -558,19 +549,18 @@ function GetItMadeContent() {
       return;
     }
 
-    // STEP file handling remains the same...
     if (type === 'step') {
       try {
         setIsDownloadingSTEP(true);
-        const stepFilePrice = 20;
-        const response = await fetch('/api/step-file', {
+        const response = await fetch('/api/create-checkout-session', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
+            priceId: 'price_1QmGnTCLoBz9jXRl0BaVM0NX',
             designId: design?.id,
-            designName: design?.name || 'Untitled',
+            designName: design?.title || 'Untitled',
             fileType: type,
             customerEmail: session.user.email,
             metadata: {
@@ -578,9 +568,7 @@ function GetItMadeContent() {
               fileType: type,
               orderType: 'STEP_FILE',
               userEmail: session.user.email
-            },
-            email: session.user.email,
-            amount_total: stepFilePrice * 100,
+            }
           }),
         });
 
@@ -1119,7 +1107,7 @@ function GetItMadeContent() {
                                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                   Converting STL...
                                 </>
-                              ) : (!design?.threeDData?.glbUrls?.[0] || isGLBProcessing) ? (
+                              ) : (isGLBProcessing || (design?.threeDData?.videoUrl && !design?.threeDData?.glbUrls?.[0])) ? (
                                 <>
                                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                   Generating 3D Model for STL...
