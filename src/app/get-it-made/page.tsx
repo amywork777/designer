@@ -473,10 +473,16 @@ function GetItMadeContent() {
           body: JSON.stringify({
             image_url: design.images[0],
             userId: session.user.id,
+            designId: design.id,
             timestamp: Date.now()
           })
         }
       );
+  
+      if (!processRes.ok) {
+        const errorData = await processRes.json();
+        throw new Error(errorData.error || `Processing failed with status: ${processRes.status}`);
+      }
   
       const processData = await processRes.json();
       console.log('Process 3D Response:', processData);
@@ -486,33 +492,37 @@ function GetItMadeContent() {
       }
   
       // Update Firebase with the processed data
-      await updateDesign(design.id, {
+      const updatedData = {
         threeDData: {
           videoUrl: processData.video_url,
           preprocessedUrl: processData.preprocessed_url,
           glbUrls: processData.glb_urls,
-          timestamp: processData.timestamp
+          timestamp: processData.timestamp || Date.now()
         },
         has3DPreview: true
-      });
+      };
+  
+      await updateDesign(design.id, updatedData);
   
       // Check if we have GLB URLs
       if (!processData.glb_urls?.length) {
         throw new Error("No GLB files generated");
       }
   
-      // Convert GLB to STL
+      // Convert the first GLB to STL
       const convertRes = await fetch('/api/convert-glb', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           glbUrl: processData.glb_urls[0],
-          designId: design.id
+          designId: design.id,
+          userId: session.user.id
         })
       });
   
       if (!convertRes.ok) {
-        throw new Error("Failed to convert GLB to STL");
+        const error = await convertRes.json();
+        throw new Error(error.error || "Failed to convert GLB to STL");
       }
   
       // Download the STL file
@@ -525,14 +535,6 @@ function GetItMadeContent() {
       link.click();
       link.remove();
       window.URL.revokeObjectURL(downloadUrl);
-  
-      // Update Firebase with STL data
-      await updateDesign(design.id, {
-        threeDData: {
-          ...design.threeDData,
-          timestamp: Date.now()
-        }
-      });
   
       toast({
         title: "Success",
