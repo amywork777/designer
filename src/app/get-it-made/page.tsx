@@ -462,151 +462,93 @@ function GetItMadeContent() {
     }
   
     setIsDownloadingSTL(true);
-    console.log('🚀 Starting STL generation process...', {
-      designId: design.id,
-      userId: session.user.id,
-      imageUrl: design.images[0]?.substring(0, 50) + '...' // Log truncated image URL
-    });
-  
-    const MAX_RETRIES = 3;
-    const RETRY_DELAY = 2000;
-  
-    const attemptProcess3D = async (attempt = 1) => {
-      console.log(`📡 Attempt ${attempt}/${MAX_RETRIES} - Calling process_3d...`);
-      
-      try {
-        const processRes = await fetch(
-          'https://us-central1-taiyaki-test1.cloudfunctions.net/process_3d',
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              image_url: design.images[0],
-              userId: session.user.id,
-              designId: design.id
-            })
-          }
-        );
-  
-        const responseData = await processRes.json();
-        console.log('📥 Process 3D Response:', {
-          status: processRes.status,
-          success: responseData.success,
-          videoUrl: responseData.video_url ? '✅' : '❌',
-          glbUrls: responseData.glb_urls ? `✅ (${responseData.glb_urls.length} files)` : '❌'
-        });
-  
-        if (!processRes.ok) {
-          throw new Error(responseData.error || `Processing failed with status: ${processRes.status}`);
-        }
-  
-        return responseData;
-      } catch (error) {
-        console.error(`❌ Attempt ${attempt} failed:`, {
-          error: error.message,
-          type: error.constructor.name
-        });
-  
-        // If it's a Gradio error but we have the data we need, we can continue
-        if (error.message?.includes('Gradio') && responseData?.glb_urls) {
-          console.log('⚠️ Gradio error but we have the required data, continuing...');
-          return responseData;
-        }
-  
-        if (attempt < MAX_RETRIES) {
-          console.log(`⏳ Waiting ${RETRY_DELAY}ms before retry...`);
-          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
-          return attemptProcess3D(attempt + 1);
-        }
-        throw error;
-      }
-    };
   
     try {
-      toast({
-        title: "Processing",
-        description: "Generating 3D model... This may take a few moments.",
-        duration: 5000
-      });
+      const processRes = await fetch(
+        'https://us-central1-taiyaki-test1.cloudfunctions.net/process_3d',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            image_url: design.images[0],
+            userId: session.user.id,
+            designId: design.id
+          })
+        }
+      );
   
-      const processData = await attemptProcess3D();
-      
-      console.log('💾 Updating Firebase...', {
-        videoUrl: processData.video_url ? '✅' : '❌',
-        preprocessedUrl: processData.preprocessed_url ? '✅' : '❌',
-        glbUrls: processData.glb_urls ? `✅ (${processData.glb_urls.length})` : '❌'
-      });
-  
-      // Update Firebase with the processed data
-      await updateDesign(design.id, {
-        threeDData: {
-          videoUrl: processData.video_url,
-          preprocessedUrl: processData.preprocessed_url,
-          glbUrls: processData.glb_urls,
-          timestamp: Date.now()
-        },
-        has3DPreview: true
-      });
-  
-      // Check if we have GLB URLs
-      if (!processData.glb_urls?.length) {
-        throw new Error("No GLB files generated");
+      let processData;
+      try {
+        processData = await processRes.json();
+      } catch (e) {
+        console.error('Failed to parse response:', e);
+        throw new Error('Failed to process response');
       }
   
-      console.log('🔄 Converting GLB to STL...');
-      
-      // Convert GLB to STL
-      const convertRes = await fetch('/api/convert-glb', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          glbUrl: processData.glb_urls[0],
-          designId: design.id
-        })
-      });
+      // Continue if we have GLB URLs, even if other errors occurred
+      if (processData.glb_urls?.length > 0) {
+        console.log('GLB URLs found, continuing with conversion...');
   
-      if (!convertRes.ok) {
-        const error = await convertRes.json();
-        throw new Error(error.error || "Failed to convert GLB to STL");
+        const convertRes = await fetch('/api/convert-glb', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            glbUrl: processData.glb_urls[0],
+            designId: design.id
+          })
+        });
+  
+        if (!convertRes.ok) {
+          throw new Error("Failed to convert to STL");
+        }
+  
+        const stlBlob = await convertRes.blob();
+        const downloadUrl = window.URL.createObjectURL(stlBlob);
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = `${design.name || 'design'}.stl`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(downloadUrl);
+  
+        // Update Firebase if we have additional data
+        if (processData.video_url || processData.preprocessed_url) {
+          await updateDesign(design.id, {
+            threeDData: {
+              ...(design.threeDData || {}),
+              videoUrl: processData.video_url || design.threeDData?.videoUrl,
+              preprocessedUrl: processData.preprocessed_url || design.threeDData?.preprocessedUrl,
+              glbUrls: processData.glb_urls,
+              timestamp: Date.now()
+            },
+            has3DPreview: true
+          });
+        }
+  
+        toast({
+          title: "Success",
+          description: "STL file downloaded successfully"
+        });
+      } else {
+        // If we don't have GLB URLs, check for specific error cases
+        if (processData.error?.includes('Gradio')) {
+          console.log('Gradio error detected, retrying...');
+          throw new Error('Processing failed, please try again');
+        } else {
+          throw new Error(processData.error || 'Failed to generate 3D model');
+        }
       }
-  
-      console.log('⬇️ Initiating STL download...');
-      
-      // Download the STL file
-      const stlBlob = await convertRes.blob();
-      const downloadUrl = window.URL.createObjectURL(stlBlob);
-      const link = document.createElement('a');
-      link.href = downloadUrl;
-      link.download = `${design.name || 'design'}.stl`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(downloadUrl);
-  
-      console.log('✅ Process completed successfully!');
-      
-      toast({
-        title: "Success",
-        description: "Your STL file has been downloaded"
-      });
   
     } catch (error) {
-      console.error('❌ STL Generation Error:', {
-        message: error.message,
-        type: error.constructor.name,
-        stack: error.stack
-      });
-  
+      console.error('STL Generation Error:', error);
       toast({
         variant: "destructive",
-        title: "Error generating STL",
-        description: error instanceof Error 
-          ? error.message 
-          : "Failed to generate STL file. Please try again."
+        title: "Error",
+        description: "Failed to generate STL. Please try again."
       });
     } finally {
       setIsDownloadingSTL(false);
-      console.log('🏁 STL generation process finished');
     }
   };
 
