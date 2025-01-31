@@ -559,6 +559,7 @@ function GetItMadeContent() {
           },
           body: JSON.stringify({
             priceId: 'price_1QmGnTCLoBz9jXRl0BaVM0NX',
+            amount: 2000, // $20.00 in cents
             designId: design?.id,
             designName: design?.title || 'Untitled',
             fileType: type,
@@ -568,7 +569,9 @@ function GetItMadeContent() {
               fileType: type,
               orderType: 'STEP_FILE',
               userEmail: session.user.email
-            }
+            },
+            success_url: `${window.location.origin}/order-success?session_id={CHECKOUT_SESSION_ID}`,
+            cancel_url: `${window.location.origin}/get-it-made?designId=${design?.id}`
           }),
         });
 
