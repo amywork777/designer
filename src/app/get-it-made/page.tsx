@@ -451,61 +451,71 @@ function GetItMadeContent() {
       setShowSignInPopup(true);
       return;
     }
-
+  
+    if (!design) {
+      toast({
+        title: "Error",
+        description: "Please select a design first",
+        variant: "destructive"
+      });
+      return;
+    }
+  
     setIsDownloadingSTL(true);
-
+  
     try {
-      // 1) Call your existing process_3d function
+      // Process 3D and get GLB
       const processRes = await fetch(
         'https://us-central1-taiyaki-test1.cloudfunctions.net/process_3d',
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            image_url: design.images[0],    // the main image to convert
+            image_url: design.images[0],
             userId: session.user.id,
-            designId: design.id         // so your function stores under this user
+            timestamp: Date.now()
           })
         }
       );
-
-      if (!processRes.ok) {
-        throw new Error("Failed calling process_3d. Check logs or network.");
-      }
-
+  
       const processData = await processRes.json();
+      console.log('Process 3D Response:', processData);
+  
       if (!processData.success) {
-        throw new Error(processData.error || "3D processing failed.");
+        throw new Error(processData.error || "3D processing failed");
       }
-
-      // 2) Write results to Firebase in the same place as before
-      //    (storing the video_url, preprocessed_url, etc.)
+  
+      // Update Firebase with the processed data
       await updateDesign(design.id, {
         threeDData: {
           videoUrl: processData.video_url,
           preprocessedUrl: processData.preprocessed_url,
-          // Optional: store glb_urls if you want them
-          timestamp: Date.now(),
+          glbUrls: processData.glb_urls,
+          timestamp: processData.timestamp
         },
+        has3DPreview: true
       });
-
-      // 3) Convert to STL with your /api/convert-glb route
+  
+      // Check if we have GLB URLs
+      if (!processData.glb_urls?.length) {
+        throw new Error("No GLB files generated");
+      }
+  
+      // Convert GLB to STL
       const convertRes = await fetch('/api/convert-glb', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          // If you truly don't need GLB, you can omit or adapt this
-          glbUrl: processData.glb_urls?.[0],
-          designId: design.id,
-        }),
+          glbUrl: processData.glb_urls[0],
+          designId: design.id
+        })
       });
-
+  
       if (!convertRes.ok) {
-        const err = await convertRes.json();
-        throw new Error(err.error || "Failed converting GLB to STL.");
+        throw new Error("Failed to convert GLB to STL");
       }
-
-      // 4) Download the STL file
+  
+      // Download the STL file
       const stlBlob = await convertRes.blob();
       const downloadUrl = window.URL.createObjectURL(stlBlob);
       const link = document.createElement('a');
@@ -515,20 +525,28 @@ function GetItMadeContent() {
       link.click();
       link.remove();
       window.URL.revokeObjectURL(downloadUrl);
-
+  
+      // Update Firebase with STL data
+      await updateDesign(design.id, {
+        threeDData: {
+          ...design.threeDData,
+          timestamp: Date.now()
+        }
+      });
+  
       toast({
         title: "Success",
-        description: "Your STL file has been downloaded."
+        description: "Your STL file has been downloaded"
       });
-
+  
     } catch (error) {
       console.error("STL Generation Error:", error);
       toast({
         variant: "destructive",
         title: "Error generating STL",
-        description: error instanceof Error
-          ? error.message
-          : "Something went wrong"
+        description: error instanceof Error 
+          ? error.message 
+          : "Failed to generate STL file. Please try again."
       });
     } finally {
       setIsDownloadingSTL(false);
