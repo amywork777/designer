@@ -1149,7 +1149,7 @@ function GetItMadeContent() {
                             {/* Processing time message for signed-in users */}
                             {session?.user && (
                               <div className="text-sm text-center text-gray-600 mt-2">
-                                Processing takes 1-2 minutes
+                                Processing may take 1-2 minutes depending on the complexity of the design. 
                               </div>
                             )}
 
