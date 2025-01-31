@@ -517,21 +517,77 @@ function GetItMadeContent() {
       setShowSignInPopup(true);
       return;
     }
-
-    // If there's no GLB but we have a video, check if GLB is being made
+  
+    // If there's no GLB but we have a video, start GLB processing
     if (!design?.threeDData?.glbUrls?.[0] && design?.threeDData?.videoUrl) {
-      // Start GLB processing if not already started
-      fetch('/api/process-glb', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          designId: design.id,
-          userId: session?.user?.id || 'anonymous'
-        })
-      }).catch(console.error);
-      return; // Exit early since we just started GLB processing
+      toast({
+        title: "Processing 3D Model",
+        description: "Please wait while we generate your 3D model...",
+        duration: 5000
+      });
+  
+      // Start GLB processing directly with Cloud Run endpoint
+      try {
+        const response = await fetch('https://process-3d-mx7fddq5ia-uc.a.run.app', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            image_url: design.images[0],
+            userId: session.user.id,
+            designId: design.id
+          })
+        });
+  
+        if (!response.ok) {
+          throw new Error('Failed to start 3D model processing');
+        }
+  
+        const data = await response.json();
+        if (!data.success) {
+          throw new Error(data.error || 'Processing failed');
+        }
+  
+        // Set up Firebase listener for GLB completion
+        const unsubscribe = onSnapshot(
+          doc(db, 'designs', design.id),
+          async (docSnapshot) => {
+            const data = docSnapshot.data();
+            if (data?.threeDData?.glbUrls?.[0]) {
+              unsubscribe(); // Stop listening once we have GLB
+              
+              // Update local state
+              updateDesign(design.id, {
+                threeDData: data.threeDData
+              });
+  
+              toast({
+                title: "3D Model Ready",
+                description: "You can now download your STL file",
+                duration: 5000
+              });
+            }
+          },
+          (error) => {
+            console.error('Error listening to design updates:', error);
+            toast({
+              variant: "destructive",
+              title: "Error",
+              description: "Failed to process 3D model"
+            });
+          }
+        );
+  
+      } catch (error) {
+        console.error('Error initiating GLB processing:', error);
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "Failed to start 3D model processing"
+        });
+      }
+      return;
     }
-
+  
     // If we have a GLB, proceed with normal download
     handleDownload('stl');
   };
