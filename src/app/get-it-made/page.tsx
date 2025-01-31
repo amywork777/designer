@@ -450,16 +450,12 @@ function GetItMadeContent() {
   };
 
   const handleGenerateSTL = async () => {
-    console.log('Starting STL generation/download process');
-    
     if (!session?.user) {
-      console.log('No user session found, showing sign-in popup');
       setShowSignInPopup(true);
       return;
     }
 
     if (!design) {
-      console.log('No design selected');
       toast({
         title: "Error",
         description: "Please select a design first",
@@ -468,46 +464,49 @@ function GetItMadeContent() {
       return;
     }
 
-    // If STL is already available, just convert from GLB and download
-    if (design.threeDData?.glbUrls?.[0]) {
-      console.log('Found GLB URL, converting to STL');
-      try {
-        const convertRes = await fetch('/api/convert-glb', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            glbUrl: design.threeDData.glbUrls[0],
-            designId: design.id
-          })
-        });
-
-        if (!convertRes.ok) {
-          throw new Error("Failed to convert to STL");
-        }
-
-        const stlBlob = await convertRes.blob();
-        const downloadUrl = window.URL.createObjectURL(stlBlob);
-        const link = document.createElement('a');
-        link.href = downloadUrl;
-        link.download = `${design.name || 'design'}.stl`;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        window.URL.revokeObjectURL(downloadUrl);
-        console.log('STL download completed from GLB conversion');
-        return;
-      } catch (error) {
-        console.error('Error converting GLB to STL:', error);
-        console.log('Falling back to regeneration');
-      }
-    }
-
-    setIsDownloadingSTL(true);
-    console.log('Starting new STL generation');
-
     try {
-      console.log('Calling 3D processing endpoint with design:', design.id);
-      const processRes = await fetch(
+      setIsDownloadingSTL(true);
+
+      // If GLB is already available, convert directly to STL
+      if (design.threeDData?.glbUrls?.[0]) {
+        console.log('Found GLB URL, converting to STL');
+        try {
+          const convertRes = await fetch('/api/convert-glb', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              glbUrl: design.threeDData.glbUrls[0],
+              designId: design.id
+            })
+          });
+
+          if (!convertRes.ok) {
+            throw new Error("Failed to convert to STL");
+          }
+
+          const stlBlob = await convertRes.blob();
+          const downloadUrl = window.URL.createObjectURL(stlBlob);
+          const link = document.createElement('a');
+          link.href = downloadUrl;
+          link.download = `${design.name || 'design'}.stl`;
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          window.URL.revokeObjectURL(downloadUrl);
+          console.log('STL download completed from GLB conversion');
+          return;
+        } catch (error) {
+          console.error('Error converting GLB to STL:', error);
+          console.log('Falling back to regeneration');
+        }
+      }
+
+      // If no GLB available, start background processing
+      const controller = new AbortController();
+      const { signal } = controller;
+
+      // Start the processing in the background
+      fetch(
         'https://us-central1-taiyaki-test1.cloudfunctions.net/process_3d',
         {
           method: 'POST',
@@ -516,85 +515,67 @@ function GetItMadeContent() {
             image_url: design.images[0],
             userId: session.user.id,
             designId: design.id
-          })
+          }),
+          keepalive: true,
+          signal
         }
-      );
-
-      let processData = await processRes.json();
-      console.log('3D processing response:', processData);
-
-      if (processData.glb_urls?.length > 0) {
-        console.log('GLB URLs received:', processData.glb_urls);
-        console.log('Initiating GLB to STL conversion');
+      ).then(async (processRes) => {
+        const processData = await processRes.json();
         
-        const convertRes = await fetch('/api/convert-glb', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            glbUrl: processData.glb_urls[0],
-            designId: design.id
-          })
-        });
+        if (processData.glb_urls?.[0]) {
+          // Once GLB is ready, convert to STL and store it
+          const convertRes = await fetch('/api/convert-glb', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              glbUrl: processData.glb_urls[0],
+              designId: design.id
+            })
+          });
 
-        if (!convertRes.ok) {
-          console.error('Conversion failed with status:', convertRes.status);
-          throw new Error("Failed to convert to STL");
+          if (!convertRes.ok) throw new Error("STL conversion failed");
+          
+          const stlBlob = await convertRes.blob();
+          
+          // Upload to Firebase Storage
+          const stlRef = ref(storage, `designs/${session.user.id}/${design.id}/model.stl`);
+          await uploadBytes(stlRef, stlBlob);
+          const stlUrl = await getDownloadURL(stlRef);
+
+          // Update the design with all URLs
+          await updateDesign(design.id, {
+            threeDData: {
+              ...(design.threeDData || {}),
+              videoUrl: processData.video_url || design.threeDData?.videoUrl,
+              preprocessedUrl: processData.preprocessed_url || design.threeDData?.preprocessedUrl,
+              glbUrls: processData.glb_urls,
+              stlUrl: stlUrl,
+              timestamp: Date.now()
+            },
+            has3DPreview: true
+          });
+
+          setStlAvailable(true);
         }
+      }).catch((error) => {
+        console.error('Background processing error:', error);
+      });
 
-        const stlBlob = await convertRes.blob();
-        console.log('STL conversion successful, blob size:', stlBlob.size);
-        
-        // Create Firebase storage reference
-        console.log('Uploading STL to Firebase Storage');
-        const stlRef = ref(storage, `designs/${session.user.id}/${design.id}/model.stl`);
-        await uploadBytes(stlRef, stlBlob);
-        const stlUrl = await getDownloadURL(stlRef);
-        console.log('STL uploaded, URL:', stlUrl);
-
-        // Update Firestore
-        console.log('Updating design document with STL data');
-        await updateDesign(design.id, {
-          threeDData: {
-            ...(design.threeDData || {}),
-            videoUrl: processData.video_url || design.threeDData?.videoUrl,
-            preprocessedUrl: processData.preprocessed_url || design.threeDData?.preprocessedUrl,
-            glbUrls: processData.glb_urls,
-            stlUrl: stlUrl,
-            timestamp: Date.now()
-          },
-          has3DPreview: true
-        });
-
-        setStlAvailable(true);
-        console.log('Design document updated successfully');
-
-        // Download the file
-        console.log('Initiating STL download');
-        window.location.href = stlUrl; // Direct download using the Firebase Storage URL
-
-        toast({
-          title: "Success",
-          description: "STL file downloaded successfully"
-        });
-        console.log('STL generation and download process completed');
-      } else {
-        console.error('No GLB URLs in response');
-        throw new Error('Required 3D data not found in response');
-      }
+      // Show immediate feedback to user
+      toast({
+        title: "Processing Started",
+        description: "Your STL file will be processed in the background. You can leave this page and come back later.",
+        duration: 5000
+      });
 
     } catch (error) {
-      console.error('STL Generation Error:', {
-        message: error.message,
-        stack: error.stack,
-        type: error.constructor.name
-      });
+      console.error('Error initiating STL generation:', error);
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Failed to generate STL. Please try again."
+        description: "Failed to start STL generation. Please try again."
       });
     } finally {
-      console.log('Cleaning up and resetting states');
       setIsDownloadingSTL(false);
     }
   };
