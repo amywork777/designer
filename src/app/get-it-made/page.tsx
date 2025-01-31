@@ -463,7 +463,7 @@ function GetItMadeContent() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             image_url: design.images[0],    // the main image to convert
-            userId: session.user.id
+            userId: session.user.id,
             designId: design.id         // so your function stores under this user
           })
         }
