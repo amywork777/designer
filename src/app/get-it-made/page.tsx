@@ -11,7 +11,7 @@ import Link from 'next/link';
 import Show3DButton from '@/components/Show3DButton';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { doc, updateDoc, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase/config';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
