@@ -476,30 +476,35 @@ function GetItMadeContent() {
         // If GLB is available, try to convert it to STL first
         if (design.threeDData?.glbUrls?.[0]) {
           console.log('Found GLB URL, converting to STL');
-          const convertRes = await fetch('/api/convert-glb', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              glbUrl: design.threeDData.glbUrls[0],
-              designId: design.id
-            })
-          });
+          try {
+            const convertRes = await fetch('/api/convert-glb', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                glbUrl: design.threeDData.glbUrls[0], // This will now be a Firebase Storage URL
+                designId: design.id
+              })
+            });
 
-          if (!convertRes.ok) {
-            throw new Error("Failed to convert to STL");
+            if (!convertRes.ok) {
+              throw new Error("Failed to convert to STL");
+            }
+
+            const stlBlob = await convertRes.blob();
+            const downloadUrl = window.URL.createObjectURL(stlBlob);
+            const link = document.createElement('a');
+            link.href = downloadUrl;
+            link.download = `${design.name || 'design'}.stl`;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(downloadUrl);
+            console.log('STL download completed from GLB conversion');
+            return;
+          } catch (error) {
+            console.error('Error converting GLB to STL:', error);
+            console.log('Falling back to regeneration');
           }
-
-          const stlBlob = await convertRes.blob();
-          const downloadUrl = window.URL.createObjectURL(stlBlob);
-          const link = document.createElement('a');
-          link.href = downloadUrl;
-          link.download = `${design.name || 'design'}.stl`;
-          document.body.appendChild(link);
-          link.click();
-          link.remove();
-          window.URL.revokeObjectURL(downloadUrl);
-          console.log('STL download completed from GLB conversion');
-          return;
         }
 
         // If no GLB or conversion failed, generate new 3D model
@@ -526,54 +531,70 @@ function GetItMadeContent() {
 
         if (processData.glb_urls?.length > 0) {
           console.log('GLB URLs received:', processData.glb_urls);
-          console.log('Initiating GLB to STL conversion');
           
-          const convertRes = await fetch('/api/convert-glb', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              glbUrl: processData.glb_urls[0],
-              designId: design.id
-            })
-          });
+          try {
+            // Download and store GLB in Firebase Storage
+            const glbResponse = await fetch(processData.glb_urls[0]);
+            const glbBlob = await glbResponse.blob();
+            
+            // Store GLB in Firebase Storage
+            console.log('Uploading GLB to Firebase Storage');
+            const glbRef = ref(storage, `designs/${session.user.id}/${design.id}/model.glb`);
+            await uploadBytes(glbRef, glbBlob);
+            const glbStorageUrl = await getDownloadURL(glbRef);
+            console.log('GLB uploaded, URL:', glbStorageUrl);
 
-          if (!convertRes.ok) {
-            throw new Error("Failed to convert to STL");
+            // Convert stored GLB to STL
+            console.log('Initiating GLB to STL conversion');
+            const convertRes = await fetch('/api/convert-glb', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                glbUrl: glbStorageUrl, // Use Firebase Storage URL
+                designId: design.id
+              })
+            });
+
+            if (!convertRes.ok) {
+              throw new Error("Failed to convert to STL");
+            }
+
+            const stlBlob = await convertRes.blob();
+            console.log('STL conversion successful, blob size:', stlBlob.size);
+            
+            // Store STL in Firebase Storage (this part you already have)
+            console.log('Uploading STL to Firebase Storage');
+            const stlRef = ref(storage, `designs/${session.user.id}/${design.id}/model.stl`);
+            await uploadBytes(stlRef, stlBlob);
+            const stlUrl = await getDownloadURL(stlRef);
+            console.log('STL uploaded, URL:', stlUrl);
+
+            // Update Firestore with both URLs
+            await updateDesign(design.id, {
+              threeDData: {
+                ...(design.threeDData || {}),
+                videoUrl: processData.video_url || design.threeDData?.videoUrl,
+                preprocessedUrl: processData.preprocessed_url || design.threeDData?.preprocessedUrl,
+                glbUrls: [glbStorageUrl], // Store Firebase Storage URL
+                stlUrl: stlUrl,
+                timestamp: Date.now()
+              },
+              has3DPreview: true
+            });
+
+            setStlAvailable(true);
+            
+            // Download using direct URL
+            window.location.href = stlUrl;
+            
+            toast({
+              title: "Success",
+              description: "STL file downloaded successfully"
+            });
+          } catch (error) {
+            console.error('Error processing GLB/STL:', error);
+            throw error;
           }
-
-          const stlBlob = await convertRes.blob();
-          console.log('STL conversion successful, blob size:', stlBlob.size);
-          
-          // Create Firebase storage reference
-          console.log('Uploading STL to Firebase Storage');
-          const stlRef = ref(storage, `designs/${session.user.id}/${design.id}/model.stl`);
-          await uploadBytes(stlRef, stlBlob);
-          const stlUrl = await getDownloadURL(stlRef);
-          console.log('STL uploaded, URL:', stlUrl);
-
-          // Update Firestore
-          await updateDesign(design.id, {
-            threeDData: {
-              ...(design.threeDData || {}),
-              videoUrl: processData.video_url || design.threeDData?.videoUrl,
-              preprocessedUrl: processData.preprocessed_url || design.threeDData?.preprocessedUrl,
-              glbUrls: processData.glb_urls,
-              stlUrl: stlUrl,
-              timestamp: Date.now()
-            },
-            has3DPreview: true
-          });
-
-          setStlAvailable(true);
-          
-          // Download using direct URL
-          window.location.href = stlUrl;
-          
-          toast({
-            title: "Success",
-            description: "STL file downloaded successfully"
-          });
-          break;
         } else {
           throw new Error('Required 3D data not found in response');
         }
