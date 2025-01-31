@@ -290,11 +290,6 @@ const handleGenerateDesign = async () => {
     // Build complete prompt including styles and reference image
     let fullPrompt = designPrompt;
 
-    // Add selected styles if any
-    if (selectedStyles && selectedStyles.length > 0) {
-      fullPrompt += ` Style: ${selectedStyles.join(', ')}. `;
-    }
-
     // Add reference image analysis if exists
     if (inspirationImages.length > 0) {
       const response = await fetch('/api/analyze-design', {
@@ -312,8 +307,6 @@ const handleGenerateDesign = async () => {
       }
     }
 
-    console.log('Sending complete prompt:', fullPrompt);
-
     const response = await fetch('/api/generate-design', {
       method: 'POST',
       headers: {
@@ -321,7 +314,7 @@ const handleGenerateDesign = async () => {
       },
       body: JSON.stringify({
         prompt: fullPrompt,
-        style: selectedStyles[0],
+        style: selectedStyles[0]?.toLowerCase(), // Ensure style is lowercase and handle null case
         userId: session?.user?.id || 'anonymous',
         n: 1,
         size: "1024x1024"

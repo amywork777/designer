@@ -18,37 +18,53 @@ const BASE_SETTINGS = `Create a visually striking 3D model with these requiremen
 `;
 
 const STYLE_PROMPTS = {
-  cartoon: `Create an adorable, chibi style 3D model with these specific style elements:
-- Kawaii-inspired design with extra cute proportions
-- Soft, pastel color palette with gentle color gradients
-- Rounded corners and playful shapes that spark joy
-- Smooth surfaces that look soft to touch
-- Playful shadows that enhance the cute aesthetic
+  cartoon: `Create a cute, stylized 3D model with these specific characteristics:
+- Soft, rounded shapes with kawaii-inspired proportions
+- Vibrant, pastel color palette
+- Clean, smooth lines and surfaces
+- Pixar-inspired character appeal
+- Playful, chibi-style aesthetic
 The model should be: `,
 
-  realistic: `Create a stunning photorealistic 3D model with these elements:
-- Ultra-detailed surface textures with proper material properties
-- Physical-based rendering with accurate reflections and refractions
-- Careful attention to real-world material qualities
-- Strategic depth of field to draw focus
-- Atmospheric lighting that enhances realism
+  realistic: `Create a photorealistic 3D model with these specific characteristics:
+- Ultra-detailed surface textures
+- Physically accurate 
+- Proper depth 
+- High-end rendering quality
 The model should be: `,
 
-  geometric: `Create a bold geometric 3D model with these characteristics:
-- Clean, minimal shapes with perfect proportions, low poly design
-- Bold, contrasting color choices that pop
-- Precise angles, angular
-- Strategic use of negative space
-- Polished surfaces with precise reflections
+  geometric: `Create a minimalist geometric 3D model with these specific characteristics:
+- Clean, low-poly design aesthetic
+- Sharp, precise angular planes
+- Modern, abstract composition
+- Metallic and chrome material finishes
+- Origami-inspired structural elements
 The model should be: `
+};
+
+const constructFullPrompt = (userPrompt: string, style?: string) => {
+  // Start with base settings
+  let fullPrompt = BASE_SETTINGS + '\n\n';
+
+  // Add style prompt if style is specified and valid
+  if (style) {
+    const normalizedStyle = style.toLowerCase();
+    const stylePrompt = STYLE_PROMPTS[normalizedStyle];
+    if (stylePrompt) {
+      fullPrompt += stylePrompt;
+    }
+  }
+
+  // Add user prompt
+  fullPrompt += userPrompt;
+
+  return fullPrompt;
 };
 
 export async function POST(req: Request) {
   try {
-    // 1. Log the incoming request
     console.log('POST request received at /api/generate-design');
     
-    // 2. Check if OpenAI API key exists
     if (!process.env.OPENAI_API_KEY) {
       console.error('OpenAI API key is missing');
       return NextResponse.json({ 
@@ -57,7 +73,6 @@ export async function POST(req: Request) {
       }, { status: 500 });
     }
 
-    // 3. Parse request body with error handling
     let body;
     try {
       body = await req.json();
@@ -76,7 +91,6 @@ export async function POST(req: Request) {
 
     const { prompt, style, userId } = body;
 
-    // 4. Validate required fields
     if (!prompt) {
       console.error('Prompt is missing');
       return NextResponse.json({ error: 'Prompt is required' }, { status: 400 });
@@ -87,23 +101,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
     }
 
-    // 5. Construct the prompt with enhanced styling
-    const stylePrompt = style ? STYLE_PROMPTS[style as keyof typeof STYLE_PROMPTS] || '' : '';
-    const fullPrompt = `${BASE_SETTINGS}
+    // Construct the full prompt using the helper function
+    const fullPrompt = constructFullPrompt(prompt, style);
     
-${stylePrompt}
-Design requirements: ${prompt}
+    console.log('Prompt construction:', {
+      originalPrompt: prompt,
+      style,
+      fullPrompt
+    });
 
-Additional style notes:
-- Ensure colors are vibrant and emotionally engaging
-- Add subtle environmental touches that enhance the mood
-- Consider the emotional impact of the lighting and colors
-- Make deliberate choices about material properties
-- Add small details that make the design more captivating`;
-
-    console.log('Sending prompt to OpenAI:', fullPrompt);
-
-    // 6. Call OpenAI with enhanced settings
     let openAiResponse;
     try {
       openAiResponse = await openai.images.generate({
@@ -111,8 +117,8 @@ Additional style notes:
         prompt: fullPrompt,
         n: 1,
         size: "1024x1024",
-        quality: "hd",  // Changed to HD for better quality
-        style: "vivid"  // Changed to vivid for more striking results
+        quality: "hd",
+        style: "vivid"
       });
       console.log('OpenAI response received');
     } catch (e) {
@@ -130,19 +136,19 @@ Additional style notes:
       throw new Error('No image generated');
     }
 
-    // 7. Save to Firebase with error handling
+    // Save to Firebase with style information
     let savedDesign;
     try {
       savedDesign = await saveDesignToFirebase({
         imageUrl,
         prompt: fullPrompt,
         userId,
-        mode: 'generated'
+        mode: 'generated',
+        style // Include the style information
       });
       console.log('Design saved to Firebase');
     } catch (e) {
       console.error('Firebase save error:', e);
-      // Still return the image URL even if Firebase save fails
       return NextResponse.json({ 
         success: true, 
         imageUrl: imageUrl,
@@ -154,11 +160,11 @@ Additional style notes:
       success: true, 
       imageUrl: savedDesign.imageUrl,
       designId: savedDesign.id,
-      prompt: fullPrompt
+      prompt: fullPrompt,
+      style // Include style in the response
     });
 
   } catch (error: any) {
-    // 8. Enhanced error logging
     console.error('Generation error:', {
       message: error.message,
       stack: error.stack,

@@ -304,6 +304,8 @@ interface GenerateResponse {
   error?: string;
 }
 
+// Find the handleGenerateDesign function in paste1.txt and replace it with this version:
+
 const handleGenerateDesign = async () => {
   if (!textPrompt.trim()) {
     toast({
@@ -315,98 +317,79 @@ const handleGenerateDesign = async () => {
   }
 
   setGeneratingDesign(true);
-  let retryCount = 0;
-  const maxRetries = 3;
-  const baseDelay = 2000; // Base delay of 2 seconds
-
-  while (retryCount < maxRetries) {
-    try {
-      // Prepare the prompt
-      let fullPrompt = textPrompt;
-      if (inspirationImages.length > 0) {
-        try {
-          const description = await analyzeImageForEdit(inspirationImages[0]);
-          fullPrompt = `Using the style of the reference image which shows ${description}, ${textPrompt}`;
-        } catch (error) {
-          console.error('Error analyzing reference image:', error);
-        }
-      }
-
-      if (selectedStyle) {
-        fullPrompt += `, in a ${selectedStyle} style`;
-      }
-
-      // Make the API call with a timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
-
-      const response = await fetch('/api/generate-design', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          prompt: fullPrompt,
-          style: selectedStyle,
-          userId: session?.user?.id || 'anonymous',
-          n: 1,
-          size: "1024x1024"
-        }),
-        signal: controller.signal
-      });
-
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        let errorMessage;
-        try {
-          const errorJson = JSON.parse(errorText);
-          errorMessage = errorJson.error || 'Failed to generate design';
-        } catch (e) {
-          errorMessage = errorText || 'Failed to generate design';
-        }
-        throw new Error(errorMessage);
-      }
-
-      const data = await response.json();
-      
-      if (!data.success || !data.imageUrl) {
-        throw new Error('No image generated');
-      }
-
-      // Save to Firebase
-      const savedDesign = await saveDesignToFirebase({
-        imageUrl: data.imageUrl,
-        prompt: fullPrompt,
-        userId: session?.user?.id || 'anonymous',
-        mode: 'generated'
-      });
-
-      setSelectedDesign(savedDesign.imageUrl);
-      setShowAnalysis(true);
-      setScrollToAnalysis(true);
-
-      toast({
-        title: "Success",
-        description: "Design generated successfully!"
-      });
-      break; // Exit loop on success
-
-    } catch (error) {
-      console.error(`Attempt ${retryCount + 1} failed:`, error);
-      retryCount++;
-
-      if (retryCount === maxRetries) {
-        throw error; // Let the outer catch block handle the final error
-      } else {
-        // Wait before retrying (exponential backoff)
-        await new Promise(resolve => setTimeout(resolve, baseDelay * Math.pow(2, retryCount)));
+  try {
+    // Prepare the prompt
+    let fullPrompt = textPrompt;
+    if (inspirationImages.length > 0) {
+      try {
+        const description = await analyzeImageForEdit(inspirationImages[0]);
+        fullPrompt = `Using the style of the reference image which shows ${description}, ${textPrompt}`;
+      } catch (error) {
+        console.error('Error analyzing reference image:', error);
       }
     }
-  }
 
-  setGeneratingDesign(false);
+    const response = await fetch('/api/generate-design', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        prompt: fullPrompt,
+        // Send the selected style directly
+        style: selectedStyle, // This is already properly tracked in state
+        userId: session?.user?.id || 'anonymous',
+        n: 1,
+        size: "1024x1024"
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      let errorMessage;
+      try {
+        const errorJson = JSON.parse(errorText);
+        errorMessage = errorJson.error || 'Failed to generate design';
+      } catch (e) {
+        errorMessage = errorText || 'Failed to generate design';
+      }
+      throw new Error(errorMessage);
+    }
+
+    const data = await response.json();
+    
+    if (!data.success || !data.imageUrl) {
+      throw new Error('No image generated');
+    }
+
+    // Save to Firebase with style information
+    const savedDesign = await saveDesignToFirebase({
+      imageUrl: data.imageUrl,
+      prompt: fullPrompt,
+      userId: session?.user?.id || 'anonymous',
+      mode: 'generated',
+      style: selectedStyle // Include the style
+    });
+
+    setSelectedDesign(savedDesign.imageUrl);
+    setShowAnalysis(true);
+    setScrollToAnalysis(true);
+
+    toast({
+      title: "Success",
+      description: "Design generated successfully!"
+    });
+
+  } catch (error) {
+    console.error('Generation failed:', error);
+    toast({
+      variant: "destructive",
+      title: "Error",
+      description: error instanceof Error ? error.message : "Failed to generate design"
+    });
+  } finally {
+    setGeneratingDesign(false);
+  }
 };
 
 // Add this constant for style prompts
@@ -593,8 +576,6 @@ export default function LandingPage() {
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   // Add state for reference image
   const [referenceImage, setReferenceImage] = useState<string | null>(null);
-  // Modify the state to be an array instead of single selection
-  const [selectedStyles, setSelectedStyles] = useState<string[]>([]);
   const [designPrompt, setDesignPrompt] = useState<string>('');
   // Add state at the top with other states
   const [showProcessingCard, setShowProcessingCard] = useState(false);
@@ -811,7 +792,7 @@ export default function LandingPage() {
         },
         body: JSON.stringify({
           prompt: fullPrompt,
-          style: selectedStyle,
+          style: selectedStyle, // Pass the style directly without toLowerCase()
           userId: session?.user?.id || 'anonymous',
           n: 1,
           size: "1024x1024"
@@ -2085,7 +2066,6 @@ const handle3DProcessing = async () => {
                           <span>Style (Optional)</span>
                         </div>
                         
-                        {/* Mobile-friendly style buttons */}
                         <div className="flex flex-wrap gap-2">
                           {[
                             { id: 'cartoon', label: 'Cartoon' },
@@ -2095,16 +2075,13 @@ const handle3DProcessing = async () => {
                             <button
                               key={style.id}
                               onClick={() => {
-                                setSelectedStyles(prev => 
-                                  prev.includes(style.id)
-                                    ? prev.filter(s => s !== style.id) // Remove if selected
-                                    : [...prev, style.id] // Add if not selected
-                                );
+                                setSelectedStyle(selectedStyle === style.id ? null : style.id);
+                                console.log('Style selected:', style.id); // Debug log
                               }}
                               className={`
                                 px-4 py-2 rounded-full text-sm font-medium
                                 transition-colors duration-200
-                                ${selectedStyles.includes(style.id)
+                                ${selectedStyle === style.id
                                   ? 'bg-blue-100 text-blue-600 border-2 border-blue-200'
                                   : 'bg-gray-100 text-gray-600 border-2 border-transparent hover:border-gray-200'
                                 }
