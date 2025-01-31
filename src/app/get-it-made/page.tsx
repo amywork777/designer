@@ -1130,7 +1130,7 @@ function GetItMadeContent() {
                             <Button
                               variant="outline"
                               className="w-full font-dm-sans font-medium text-sm rounded-[10px]"
-                              onClick={design?.threeDData?.glbUrls?.[0] ? handleGenerateSTL : handleProceed}
+                              onClick={handleGenerateSTL}
                               disabled={isDownloadingSTL}
                             >
                               {isDownloadingSTL ? (
@@ -1141,15 +1141,15 @@ function GetItMadeContent() {
                               ) : (
                                 <>
                                   <FileDown className="mr-2 h-4 w-4" />
-                                  {getButtonText()}
+                                  {stlAvailable ? 'Download STL' : 'Generate STL'}
                                 </>
                               )}
                             </Button>
 
-                            {/* Show processing time note only when user is signed in */}
+                            {/* Processing time message for signed-in users */}
                             {session?.user && (
                               <div className="text-sm text-center text-gray-600 mt-2">
-                                STL takes 1-2 minutes to download
+                                Processing takes 1-2 minutes
                               </div>
                             )}
 
