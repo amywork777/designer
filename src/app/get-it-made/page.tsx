@@ -446,6 +446,94 @@ function GetItMadeContent() {
     }
   };
 
+  const handleGenerateSTL = async () => {
+    if (!session?.user) {
+      setShowSignInPopup(true);
+      return;
+    }
+
+    setIsDownloadingSTL(true);
+
+    try {
+      // 1) Call your existing process_3d function
+      const processRes = await fetch(
+        'https://us-central1-taiyaki-test1.cloudfunctions.net/process_3d',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            image_url: design.images[0],    // the main image to convert
+            userId: session.user.id         // so your function stores under this user
+          })
+        }
+      );
+
+      if (!processRes.ok) {
+        throw new Error("Failed calling process_3d. Check logs or network.");
+      }
+
+      const processData = await processRes.json();
+      if (!processData.success) {
+        throw new Error(processData.error || "3D processing failed.");
+      }
+
+      // 2) Write results to Firebase in the same place as before
+      //    (storing the video_url, preprocessed_url, etc.)
+      await updateDesign(design.id, {
+        threeDData: {
+          videoUrl: processData.video_url,
+          preprocessedUrl: processData.preprocessed_url,
+          // Optional: store glb_urls if you want them
+          timestamp: Date.now(),
+        },
+      });
+
+      // 3) Convert to STL with your /api/convert-glb route
+      const convertRes = await fetch('/api/convert-glb', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          // If you truly don't need GLB, you can omit or adapt this
+          glbUrl: processData.glb_urls?.[0],
+          designId: design.id,
+        }),
+      });
+
+      if (!convertRes.ok) {
+        const err = await convertRes.json();
+        throw new Error(err.error || "Failed converting GLB to STL.");
+      }
+
+      // 4) Download the STL file
+      const stlBlob = await convertRes.blob();
+      const downloadUrl = window.URL.createObjectURL(stlBlob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = `${design.name || 'design'}.stl`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(downloadUrl);
+
+      toast({
+        title: "Success",
+        description: "Your STL file has been downloaded."
+      });
+
+    } catch (error) {
+      console.error("STL Generation Error:", error);
+      toast({
+        variant: "destructive",
+        title: "Error generating STL",
+        description: error instanceof Error
+          ? error.message
+          : "Something went wrong"
+      });
+    } finally {
+      setIsDownloadingSTL(false);
+    }
+  };
+
   const fetchDownloadLimits = async () => {
     if (session?.user) {
       const subscription = await getUserSubscription(session.user.id);
@@ -457,162 +545,6 @@ function GetItMadeContent() {
           step: limits.stepDownloads === Infinity ? Infinity : limits.stepDownloads - used.step
         });
       }
-    }
-  };
-
-  const handleSTLDownload = async () => {
-    if (!session?.user) {
-      setShowSignInPopup(true);
-      return;
-    }
-  
-    // If no GLB yet, show processing message
-    if (!design?.threeDData?.glbUrls?.[0]) {
-      toast({
-        title: "Processing",
-        description: "Please wait while we finish generating your 3D model...",
-        duration: 3000
-      });
-      return;
-    }
-  
-    // Convert GLB to STL
-    try {
-      setIsDownloadingSTL(true);
-      
-      const response = await fetch('/api/convert-glb', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          glbUrl: design.threeDData.glbUrls[0],
-          designId: design.id
-        })
-      });
-  
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Conversion failed');
-      }
-  
-      // Download the STL file
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${design.name || 'design'}.stl`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-  
-    } catch (error) {
-      console.error('Download error:', error);
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to download STL file"
-      });
-    } finally {
-      setIsDownloadingSTL(false);
-    }
-  };
-
-  const handleDownload = async (type: 'stl' | 'step') => {
-    if (!session?.user) {
-      setShowSignInPopup(true);
-      return;
-    }
-
-    if (type === 'stl') {
-      try {
-        setIsDownloadingSTL(true);
-        
-        // Add this check
-        if (!design?.threeDData?.glbUrls?.[0]) {
-          throw new Error('3D model is not ready yet');
-        }
-
-        const response = await fetch('/api/convert-glb', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            glbUrl: design.threeDData.glbUrls[0],
-            designId: design.id
-          })
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || 'Conversion failed');
-        }
-
-        // Get the STL file as a blob and create a download link
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${design.name || 'design'}.stl`;
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
-
-      } catch (error) {
-        console.error('Download error:', error);
-        toast({
-          variant: "destructive",
-          title: "Error",
-          description: error instanceof Error ? error.message : "Failed to download STL file"
-        });
-      } finally {
-        setIsDownloadingSTL(false);
-      }
-      return;
-    }
-
-    if (type === 'step') {
-      try {
-        setIsDownloadingSTEP(true);
-        const response = await fetch('/api/create-checkout-session', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            priceId: 'price_1QmGnTCLoBz9jXRl0BaVM0NX',
-            amount: 2000, // $20.00 in cents
-            designId: design?.id,
-            designName: design?.title || 'Untitled',
-            fileType: type,
-            customerEmail: session.user.email,
-            metadata: {
-              designId: design?.id,
-              fileType: type,
-              orderType: 'STEP_FILE',
-              userEmail: session.user.email
-            },
-            success_url: `${window.location.origin}/order-success?session_id={CHECKOUT_SESSION_ID}`,
-            cancel_url: `${window.location.origin}/get-it-made?designId=${design?.id}`
-          }),
-        });
-
-        const data = await response.json();
-        if (data.error || !data.url) {
-          throw new Error(data.error || 'No checkout URL received');
-        }
-
-        window.location.href = data.url;
-      } catch (error) {
-        console.error('Checkout error:', error);
-        toast({
-          variant: "destructive",
-          title: "Error",
-          description: error instanceof Error ? error.message : "Failed to initiate checkout"
-        });
-      } finally {
-        setIsDownloadingSTEP(false);
-      }
-      return;
     }
   };
 
@@ -1111,7 +1043,7 @@ function GetItMadeContent() {
                   </div>
                 )}
 
-                                {/* Download Files Section */}
+                {/* Download Files Section */}
                 <div className="mt-4">
                   <Card className="bg-white rounded-[10px] shadow-sm border">
                     <CardContent className="p-4">
@@ -1130,30 +1062,22 @@ function GetItMadeContent() {
                         <div className="space-y-4">
                           {/* STL Download Button */}
                           <div>
-                            <Button 
-                              variant="outline" 
-                              className="w-full font-dm-sans font-medium text-sm rounded-[10px]" 
-                              onClick={handleSTLDownload}
-                              disabled={!design?.threeDData?.videoUrl || isDownloadingSTL || isGLBProcessing}
+                            {/* NEW: */}
+                            <Button
+                              variant="outline"
+                              className="w-full font-dm-sans font-medium text-sm rounded-[10px]"
+                              onClick={handleGenerateSTL}
+                              disabled={isDownloadingSTL}
                             >
                               {isDownloadingSTL ? (
                                 <>
                                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                  Converting STL...
-                                </>
-                              ) : isGLBProcessing ? (
-                                <>
-                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                  Generating 3D Model...
+                                  Generating STL...
                                 </>
                               ) : (
                                 <>
                                   <FileDown className="mr-2 h-4 w-4" />
-                                  {design?.threeDData?.glbUrls?.[0] ? (
-                                    'Download STL File'
-                                  ) : (
-                                    'Generate STL File'
-                                  )}
+                                  Generate STL
                                 </>
                               )}
                             </Button>

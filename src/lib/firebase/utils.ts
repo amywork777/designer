@@ -336,10 +336,7 @@ export async function process3DPreview(design: any, userId: string, setProcessin
 
     setProcessing3D?.(true);
 
-    // Start both video and GLB generation in parallel
-    const [videoPromise, glbPromise] = [
-      // Video generation
-      fetch('https://process-video-mx7fddq5ia-uc.a.run.app', {
+    const videoPromise = fetch('https://process-video-mx7fddq5ia-uc.a.run.app', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -347,18 +344,7 @@ export async function process3DPreview(design: any, userId: string, setProcessin
           userId,
           designId: design.id
         })
-      }),
-      // GLB generation
-      fetch('https://process-3d-mx7fddq5ia-uc.a.run.app', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          image_url: design.images[0],
-          userId,
-          designId: design.id
-        })
-      })
-    ];
+      });
 
     // Wait for video to complete (we need this for immediate return)
     const videoResponse = await videoPromise;
@@ -383,26 +369,6 @@ export async function process3DPreview(design: any, userId: string, setProcessin
     // Update Firestore with video data
     console.log('💾 Saving initial video data to Firestore:', threeDData);
     await updateDesignWithThreeDData(design.id, userId, threeDData);
-
-    // Handle GLB completion in background
-    glbPromise.then(async (glbResponse) => {
-      if (!glbResponse.ok) {
-        console.error('❌ GLB generation failed:', glbResponse.status);
-        return;
-      }
-
-      const glbData = await glbResponse.json();
-      console.log('✅ GLB generation successful:', glbData);
-
-      if (glbData.success && glbData.glb_urls) {
-        console.log('💾 Updating Firestore with GLB data:', glbData.glb_urls);
-        await updateDesignWithThreeDData(design.id, userId, {
-          glbUrls: glbData.glb_urls
-        });
-      }
-    }).catch(error => {
-      console.error('❌ Error in GLB generation:', error);
-    });
 
     // Return video data immediately
     return {
