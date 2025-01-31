@@ -1153,23 +1153,22 @@ function GetItMadeContent() {
                               variant="outline" 
                               className="w-full font-dm-sans font-medium text-sm rounded-[10px]" 
                               onClick={handleSTLDownload}
-                              // Button is disabled if no video URL is available
-                              disabled={!design?.threeDData?.videoUrl}
+                              // Button is disabled if no video URL exists or if actively downloading
+                              disabled={!design?.threeDData?.videoUrl || isDownloadingSTL}
                             >
                               {isDownloadingSTL ? (
                                 <>
                                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                   Converting STL...
                                 </>
-                              ) : (design?.threeDData?.videoUrl && (!design?.threeDData?.glbUrls?.[0] || isGLBProcessing)) ? (
-                                <>
-                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                  Generating 3D Model for STL...
-                                </>
                               ) : (
                                 <>
                                   <FileDown className="mr-2 h-4 w-4" />
-                                  Download STL File
+                                  {design?.threeDData?.glbUrls?.[0] ? (
+                                    'Download STL File'
+                                  ) : (
+                                    'Generate STL File'
+                                  )}
                                 </>
                               )}
                             </Button>
