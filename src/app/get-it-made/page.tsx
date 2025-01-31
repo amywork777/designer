@@ -520,6 +520,13 @@ function GetItMadeContent() {
   
     // If there's no GLB but we have a video, start GLB processing
     if (!design?.threeDData?.glbUrls?.[0] && design?.threeDData?.videoUrl) {
+      console.log('🚀 Starting GLB generation process...', {
+        designId: design.id,
+        userId: session.user.id
+      });
+  
+      setIsGLBProcessing(true);  // Show processing state in button
+      
       toast({
         title: "Processing 3D Model",
         description: "Please wait while we generate your 3D model...",
@@ -528,6 +535,7 @@ function GetItMadeContent() {
   
       // Start GLB processing directly with Cloud Run endpoint
       try {
+        console.log('📡 Making request to Cloud Run endpoint...');
         const response = await fetch('https://process-3d-mx7fddq5ia-uc.a.run.app', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -539,21 +547,28 @@ function GetItMadeContent() {
         });
   
         if (!response.ok) {
-          throw new Error('Failed to start 3D model processing');
+          throw new Error(`Failed to start 3D model processing: ${response.status}`);
         }
   
         const data = await response.json();
+        console.log('✅ Cloud Run response:', data);
+  
         if (!data.success) {
           throw new Error(data.error || 'Processing failed');
         }
   
         // Set up Firebase listener for GLB completion
+        console.log('👂 Setting up Firebase listener for GLB completion...');
         const unsubscribe = onSnapshot(
           doc(db, 'designs', design.id),
           async (docSnapshot) => {
             const data = docSnapshot.data();
+            console.log('📡 Firebase update received:', data?.threeDData);
+            
             if (data?.threeDData?.glbUrls?.[0]) {
+              console.log('✅ GLB is ready!', data.threeDData.glbUrls);
               unsubscribe(); // Stop listening once we have GLB
+              setIsGLBProcessing(false);  // Update button state
               
               // Update local state
               updateDesign(design.id, {
@@ -568,7 +583,8 @@ function GetItMadeContent() {
             }
           },
           (error) => {
-            console.error('Error listening to design updates:', error);
+            console.error('❌ Error listening to design updates:', error);
+            setIsGLBProcessing(false);  // Reset button state on error
             toast({
               variant: "destructive",
               title: "Error",
@@ -578,7 +594,8 @@ function GetItMadeContent() {
         );
   
       } catch (error) {
-        console.error('Error initiating GLB processing:', error);
+        console.error('❌ Error initiating GLB processing:', error);
+        setIsGLBProcessing(false);  // Reset button state on error
         toast({
           variant: "destructive",
           title: "Error",
@@ -1209,13 +1226,17 @@ function GetItMadeContent() {
                               variant="outline" 
                               className="w-full font-dm-sans font-medium text-sm rounded-[10px]" 
                               onClick={handleSTLDownload}
-                              // Button is disabled if no video URL exists or if actively downloading
-                              disabled={!design?.threeDData?.videoUrl || isDownloadingSTL}
+                              disabled={!design?.threeDData?.videoUrl || isDownloadingSTL || isGLBProcessing}
                             >
                               {isDownloadingSTL ? (
                                 <>
                                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                   Converting STL...
+                                </>
+                              ) : isGLBProcessing ? (
+                                <>
+                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                  Generating 3D Model...
                                 </>
                               ) : (
                                 <>
