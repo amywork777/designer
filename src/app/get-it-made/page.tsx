@@ -28,6 +28,8 @@ import { process3DPreview } from "@/lib/firebase/utils";
 import { updateDesign } from "@/lib/firebase/designs";
 import { loadStripe } from '@stripe/stripe-js';
 import { PRODUCT_PRICING, STEP_FILE_PRICE } from '@/lib/constants/pricing';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { storage } from '@/lib/firebase/config';
 
 const PRICING = {
   Mini: { 
@@ -212,12 +214,6 @@ function GetItMadeContent() {
       });
     }
   }, [paymentStatus]);
-
-  useEffect(() => {
-    if (design?.threeDData?.stlUrl) {
-      setStlAvailable(true);
-    }
-  }, [design?.threeDData?.stlUrl]);
 
   const handleFinalizeDesign = async () => {
     if (!design?.images[0]) return;
@@ -454,12 +450,16 @@ function GetItMadeContent() {
   };
 
   const handleGenerateSTL = async () => {
+    console.log('Starting STL generation/download process');
+    
     if (!session?.user) {
+      console.log('No user session found, showing sign-in popup');
       setShowSignInPopup(true);
       return;
     }
-  
+
     if (!design) {
+      console.log('No design selected');
       toast({
         title: "Error",
         description: "Please select a design first",
@@ -467,11 +467,39 @@ function GetItMadeContent() {
       });
       return;
     }
-  
+
+    // If STL is already available, just download it
+    if (design.threeDData?.stlUrl) {
+      console.log('Found cached STL URL:', design.threeDData.stlUrl);
+      try {
+        console.log('Attempting to download cached STL');
+        const response = await fetch(design.threeDData.stlUrl);
+        console.log('STL fetch response status:', response.status);
+        const blob = await response.blob();
+        console.log('STL blob size:', blob.size);
+        const downloadUrl = window.URL.createObjectURL(blob);
+        console.log('Created blob URL for download');
+        
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = `${design.name || 'design'}.stl`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(downloadUrl);
+        console.log('STL download completed from cache');
+        return;
+      } catch (error) {
+        console.error('Error downloading cached STL:', error);
+        console.log('Falling back to regeneration');
+      }
+    }
+
     setIsDownloadingSTL(true);
-  
+    console.log('Starting new STL generation');
+
     try {
-      console.log('Starting STL generation process...');
+      console.log('Calling 3D processing endpoint with design:', design.id);
       const processRes = await fetch(
         'https://us-central1-taiyaki-test1.cloudfunctions.net/process_3d',
         {
@@ -484,91 +512,87 @@ function GetItMadeContent() {
           })
         }
       );
-  
-      let processData;
-      try {
-        processData = await processRes.json();
-        console.log('Process 3D raw response:', processData);
-      } catch (e) {
-        console.error('Failed to parse response:', e);
-        throw new Error('Failed to process response');
-      }
-  
-      // Check if we have the data we need, regardless of error status
-      const hasRequiredData = processData && (processData.glb_urls?.length > 0 || processData.video_url);
-      if (hasRequiredData) {
-        console.log('Required data found, proceeding with conversion...');
-  
-        // Try to convert the GLB to STL
+
+      let processData = await processRes.json();
+      console.log('3D processing response:', processData);
+
+      if (processData.glb_urls?.length > 0) {
+        console.log('GLB URLs received:', processData.glb_urls);
+        console.log('Initiating GLB to STL conversion');
+        
         const convertRes = await fetch('/api/convert-glb', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            glbUrl: processData.glb_urls?.[0],
+            glbUrl: processData.glb_urls[0],
             designId: design.id
           })
         });
-  
+
         if (!convertRes.ok) {
+          console.error('Conversion failed with status:', convertRes.status);
           throw new Error("Failed to convert to STL");
         }
-  
+
         const stlBlob = await convertRes.blob();
-        const downloadUrl = window.URL.createObjectURL(stlBlob);
+        console.log('STL conversion successful, blob size:', stlBlob.size);
         
-        // Trigger download
-        const link = document.createElement('a');
-        link.href = downloadUrl;
-        link.download = `${design.name || 'design'}.stl`;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        window.URL.revokeObjectURL(downloadUrl);
-  
-        // Update Firebase
-        const updatedData = {
+        // Create Firebase storage reference
+        console.log('Uploading STL to Firebase Storage');
+        const stlRef = ref(storage, `designs/${session.user.id}/${design.id}/model.stl`);
+        await uploadBytes(stlRef, stlBlob);
+        const stlUrl = await getDownloadURL(stlRef);
+        console.log('STL uploaded, URL:', stlUrl);
+
+        // Update Firestore
+        console.log('Updating design document with STL data');
+        await updateDesign(design.id, {
           threeDData: {
             ...(design.threeDData || {}),
             videoUrl: processData.video_url || design.threeDData?.videoUrl,
             preprocessedUrl: processData.preprocessed_url || design.threeDData?.preprocessedUrl,
             glbUrls: processData.glb_urls,
+            stlUrl: stlUrl,
             timestamp: Date.now()
           },
           has3DPreview: true
-        };
-  
-        console.log('Updating Firebase with:', updatedData);
-        await updateDesign(design.id, updatedData);
-  
+        });
+
+        setStlAvailable(true);
+        console.log('Design document updated successfully');
+
+        // Download the file
+        console.log('Initiating STL download');
+        const link = document.createElement('a');
+        link.href = stlUrl;
+        link.download = `${design.name || 'design'}.stl`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+
         toast({
           title: "Success",
           description: "STL file downloaded successfully"
         });
+        console.log('STL generation and download process completed');
       } else {
+        console.error('No GLB URLs in response');
         throw new Error('Required 3D data not found in response');
       }
-  
+
     } catch (error) {
       console.error('STL Generation Error:', {
         message: error.message,
-        type: error.constructor.name,
-        stack: error.stack
+        stack: error.stack,
+        type: error.constructor.name
       });
-  
-      // Check if it's a Gradio error but we might have the data
-      if (error.message?.includes('Gradio') && processData?.glb_urls?.length > 0) {
-        console.log('Gradio error but we have GLB URLs, continuing...');
-        // Retry the operation
-        handleGenerateSTL();
-        return;
-      }
-  
       toast({
         variant: "destructive",
         title: "Error",
         description: "Failed to generate STL. Please try again."
       });
     } finally {
+      console.log('Cleaning up and resetting states');
       setIsDownloadingSTL(false);
     }
   };
@@ -1110,17 +1134,12 @@ function GetItMadeContent() {
                               {isDownloadingSTL ? (
                                 <>
                                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                  Generating STL...
-                                </>
-                              ) : stlAvailable ? (
-                                <>
-                                  <FileDown className="mr-2 h-4 w-4" />
-                                  Download STL
+                                  {stlAvailable ? 'Downloading STL...' : 'Generating STL...'}
                                 </>
                               ) : (
                                 <>
                                   <FileDown className="mr-2 h-4 w-4" />
-                                  Generate STL
+                                  {stlAvailable ? 'Download STL' : 'Generate STL'}
                                 </>
                               )}
                             </Button>
