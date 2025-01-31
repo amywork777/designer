@@ -215,14 +215,25 @@ function GetItMadeContent() {
   useEffect(() => {
     if (!design?.id || !session?.user?.id) return;
     
-    // Don't set up listener if GLB is already available
+    // If GLB is already available
     if (design?.threeDData?.glbUrls?.length > 0) {
       setIsGLBProcessing(false);
       return;
     }
-
-    console.log('🎧 Setting up real-time listener for GLB status');
-    
+  
+    // If we have video but no GLB, start processing
+    if (design?.threeDData?.videoUrl && !design?.threeDData?.glbUrls?.length) {
+      // Start GLB processing in background
+      fetch('/api/process-glb', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          designId: design.id,
+          userId: session.user.id
+        })
+      }).catch(console.error);
+    }
+  
     const unsubscribe = onSnapshot(
       doc(db, 'designs', design.id),
       (doc) => {
@@ -231,11 +242,10 @@ function GetItMadeContent() {
           console.log('✅ GLB is ready!');
           setIsGLBProcessing(false);
           
-          // Update local design state
           updateDesign(design.id, {
             threeDData: data.threeDData
           });
-          
+  
           toast({
             title: "3D Model Ready",
             description: "Your model has been fully processed",
@@ -247,12 +257,12 @@ function GetItMadeContent() {
         console.error('Error listening to design updates:', error);
       }
     );
-
+  
     return () => {
       console.log('🧹 Cleaning up GLB status listener');
       unsubscribe();
     };
-  }, [design?.id, session?.user?.id]);
+  }, [design?.id, design?.threeDData?.videoUrl, session?.user?.id]);
 
   const handleFinalizeDesign = async () => {
     if (!design?.images[0]) return;
@@ -502,6 +512,30 @@ function GetItMadeContent() {
     }
   };
 
+  const handleSTLDownload = async () => {
+    if (!session?.user) {
+      setShowSignInPopup(true);
+      return;
+    }
+
+    // If there's no GLB but we have a video, check if GLB is being made
+    if (!design?.threeDData?.glbUrls?.[0] && design?.threeDData?.videoUrl) {
+      // Start GLB processing if not already started
+      fetch('/api/process-glb', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          designId: design.id,
+          userId: session?.user?.id || 'anonymous'
+        })
+      }).catch(console.error);
+      return; // Exit early since we just started GLB processing
+    }
+
+    // If we have a GLB, proceed with normal download
+    handleDownload('stl');
+  };
+
   const handleDownload = async (type: 'stl' | 'step') => {
     if (!session?.user) {
       setShowSignInPopup(true);
@@ -511,6 +545,12 @@ function GetItMadeContent() {
     if (type === 'stl') {
       try {
         setIsDownloadingSTL(true);
+        
+        // Add this check
+        if (!design?.threeDData?.glbUrls?.[0]) {
+          throw new Error('3D model is not ready yet');
+        }
+
         const response = await fetch('/api/convert-glb', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1112,18 +1152,16 @@ function GetItMadeContent() {
                             <Button 
                               variant="outline" 
                               className="w-full font-dm-sans font-medium text-sm rounded-[10px]" 
-                              onClick={() => handleDownload('stl')}
-                              // Button is disabled if:
-                              // 1. No GLB URLs available OR
-                              // 2. Currently downloading STL
-                              disabled={!design?.threeDData?.glbUrls?.[0] || isDownloadingSTL}
+                              onClick={handleSTLDownload}
+                              // Button is disabled if no video URL is available
+                              disabled={!design?.threeDData?.videoUrl}
                             >
                               {isDownloadingSTL ? (
                                 <>
                                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                   Converting STL...
                                 </>
-                              ) : (design?.threeDData?.videoUrl && (isGLBProcessing || !design?.threeDData?.glbUrls?.[0])) ? (
+                              ) : (design?.threeDData?.videoUrl && (!design?.threeDData?.glbUrls?.[0] || isGLBProcessing)) ? (
                                 <>
                                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                   Generating 3D Model for STL...
