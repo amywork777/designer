@@ -29,10 +29,6 @@ import { updateDesign } from "@/lib/firebase/designs";
 import { loadStripe } from '@stripe/stripe-js';
 import { PRODUCT_PRICING, STEP_FILE_PRICE } from '@/lib/constants/pricing';
 
-// 1. State declarations - add at top of component
-const [isGLBProcessing, setIsGLBProcessing] = useState(false);
-const [isDownloadingSTL, setIsDownloadingSTL] = useState(false);
-
 const PRICING = {
   Mini: { 
     PLA: 15, 
