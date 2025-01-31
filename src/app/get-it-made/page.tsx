@@ -661,6 +661,11 @@ function GetItMadeContent() {
   };
 
   const getButtonText = useCallback(() => {
+    // Always show "Download STL" if GLB is available
+    if (design?.threeDData?.glbUrls?.[0]) {
+      return 'Download STL';
+    }
+
     // Always show "Submit for Quote" for Custom size
     if (selectedSize === 'Custom') {
       return 'Submit for a Quote';
@@ -689,7 +694,7 @@ function GetItMadeContent() {
 
     // If we have a valid price, show checkout button
     return 'Proceed to Checkout';
-  }, [selectedSize, selectedType]);
+  }, [selectedSize, selectedType, design?.threeDData?.glbUrls]);
 
   // Debug log to track state changes
   useEffect(() => {
@@ -1111,7 +1116,7 @@ function GetItMadeContent() {
                             <Button
                               variant="outline"
                               className="w-full font-dm-sans font-medium text-sm rounded-[10px]"
-                              onClick={handleGenerateSTL}
+                              onClick={design?.threeDData?.glbUrls?.[0] ? handleGenerateSTL : handleProceed}
                               disabled={isDownloadingSTL}
                             >
                               {isDownloadingSTL ? (
@@ -1122,7 +1127,7 @@ function GetItMadeContent() {
                               ) : (
                                 <>
                                   <FileDown className="mr-2 h-4 w-4" />
-                                  {stlAvailable ? 'Download STL' : 'Generate STL'}
+                                  {getButtonText()}
                                 </>
                               )}
                             </Button>
