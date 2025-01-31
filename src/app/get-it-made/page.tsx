@@ -463,28 +463,49 @@ function GetItMadeContent() {
   
     setIsDownloadingSTL(true);
   
-    try {
-      // Process 3D and get GLB
-      const processRes = await fetch(
-        'https://us-central1-taiyaki-test1.cloudfunctions.net/process_3d',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            image_url: design.images[0],
-            userId: session.user.id,
-            designId: design.id,
-            timestamp: Date.now()
-          })
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY = 2000; // 2 seconds
+  
+    const attemptProcess3D = async (attempt = 1) => {
+      try {
+        const processRes = await fetch(
+          'https://us-central1-taiyaki-test1.cloudfunctions.net/process_3d',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              image_url: design.images[0],
+              userId: session.user.id,
+              designId: design.id
+            })
+          }
+        );
+  
+        if (!processRes.ok) {
+          const errorData = await processRes.json();
+          throw new Error(errorData.error || `Processing failed with status: ${processRes.status}`);
         }
-      );
   
-      if (!processRes.ok) {
-        const errorData = await processRes.json();
-        throw new Error(errorData.error || `Processing failed with status: ${processRes.status}`);
+        return await processRes.json();
+      } catch (error) {
+        if (attempt < MAX_RETRIES) {
+          console.log(`Attempt ${attempt} failed, retrying in ${RETRY_DELAY}ms...`);
+          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+          return attemptProcess3D(attempt + 1);
+        }
+        throw error;
       }
+    };
   
-      const processData = await processRes.json();
+    try {
+      toast({
+        title: "Processing",
+        description: "Generating 3D model... This may take a few moments.",
+        duration: 5000
+      });
+  
+      // Attempt the 3D processing with retries
+      const processData = await attemptProcess3D();
       console.log('Process 3D Response:', processData);
   
       if (!processData.success) {
@@ -492,31 +513,28 @@ function GetItMadeContent() {
       }
   
       // Update Firebase with the processed data
-      const updatedData = {
+      await updateDesign(design.id, {
         threeDData: {
           videoUrl: processData.video_url,
           preprocessedUrl: processData.preprocessed_url,
           glbUrls: processData.glb_urls,
-          timestamp: processData.timestamp || Date.now()
+          timestamp: Date.now()
         },
         has3DPreview: true
-      };
-  
-      await updateDesign(design.id, updatedData);
+      });
   
       // Check if we have GLB URLs
       if (!processData.glb_urls?.length) {
         throw new Error("No GLB files generated");
       }
   
-      // Convert the first GLB to STL
+      // Convert GLB to STL
       const convertRes = await fetch('/api/convert-glb', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           glbUrl: processData.glb_urls[0],
-          designId: design.id,
-          userId: session.user.id
+          designId: design.id
         })
       });
   
@@ -546,9 +564,7 @@ function GetItMadeContent() {
       toast({
         variant: "destructive",
         title: "Error generating STL",
-        description: error instanceof Error 
-          ? error.message 
-          : "Failed to generate STL file. Please try again."
+        description: "The process timed out. Please try again in a few moments."
       });
     } finally {
       setIsDownloadingSTL(false);
